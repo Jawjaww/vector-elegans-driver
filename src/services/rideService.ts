@@ -1,5 +1,5 @@
-import { supabase } from '../supabase';
-import type { Ride, DriverLocation } from '../types/database.types';
+import { supabase } from '../lib/supabase';
+import type { Ride } from '../lib/types/database.types';
 
 export interface PendingRide {
   id: string;

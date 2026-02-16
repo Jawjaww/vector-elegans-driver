@@ -13,10 +13,10 @@ import { useDriverLocation } from '../hooks/useDriverLocation';
 import { useRealtimeRides } from '../hooks/useRealtimeRides';
 import { isUserDriver } from '../lib/utils/auth-helpers';
 import { formatPrice } from '../lib/utils/driverUtils';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { StackNavigationProp } from '@react-navigation/stack';
 
 type DashboardScreenProps = {
-  navigation: NativeStackNavigationProp<any>;
+  navigation: StackNavigationProp<any>;
 };
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) => {

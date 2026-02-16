@@ -88,9 +88,6 @@ export function useDriverLocation(enabled: boolean) {
         },
         (position) => {
           updateLocation(position);
-        },
-        (error) => {
-          console.warn('[Location] Error:', error.message);
         }
       );
     };

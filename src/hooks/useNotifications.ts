@@ -12,8 +12,8 @@ Notifications.setNotificationHandler({
 });
 
 export function useNotifications() {
-  const notificationListener = useRef<Notifications.EventSubscription | null>(null);
-  const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     const { status: existingStatus } =

@@ -11,10 +11,10 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { StackNavigationProp } from '@react-navigation/stack';
 
 type ProfileSetupScreenProps = {
-  navigation: NativeStackNavigationProp<any>;
+  navigation: StackNavigationProp<any>;
 };
 
 interface FormData {

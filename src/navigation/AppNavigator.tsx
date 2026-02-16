@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createStackNavigator } from '@react-navigation/stack';
 import { AuthScreen } from '../screens/AuthScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { ProfileSetupScreen } from '../screens/ProfileSetupScreen';
@@ -13,7 +13,7 @@ export type RootStackParamList = {
   DocumentUpload: { documentType?: string };
 };
 
-const Stack = createNativeStackNavigator<RootStackParamList>();
+const Stack = createStackNavigator<RootStackParamList>();
 
 export const AppNavigator: React.FC = () => {
   const [initialRoute, setInitialRoute] = useState<string>('Auth');

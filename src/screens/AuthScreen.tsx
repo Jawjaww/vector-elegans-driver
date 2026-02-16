@@ -11,11 +11,11 @@ import {
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import { isUserDriver } from '../lib/utils/auth-helpers';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
 type AuthScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Auth'>;
+  navigation: StackNavigationProp<RootStackParamList, 'Auth'>;
 };
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
