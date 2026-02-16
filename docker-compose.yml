@@ -6,35 +6,15 @@ services:
       - "19000:19000"
       - "19001:19001"
       - "19002:19002"
-    # SUPPRIME OU COMMENTE CES LIGNES :
-    # volumes:
-    #   - .:/app
-    #   - /app/node_modules
-
     environment:
       - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
       - EXPO_PUBLIC_SUPABASE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_ANON_KEY}
       - EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY}
       - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL}
-      - CHOKIDAR_USEPOLLING=true
-      - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
-      - EXPO_NO_PROMPT=true
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - ~/.expo:/root/.expo
     stdin_open: true
     tty: true
-    develop:
-      watch:
-        - path: ./package.json
-          action: rebuild
-        - path: ./package-lock.json
-          action: rebuild
-        - path: ./Dockerfile
-          action: rebuild
-        - path: ./
-          target: /app
-          action: sync
-          ignore:
-            - node_modules/
-            - .git/
-            - ios/
-            - android/
-    command: npx expo start --tunnel --clear
+    command: npx expo start --tunnel
