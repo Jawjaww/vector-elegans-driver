@@ -13,4 +13,5 @@ web-build/
 *.log
 .env.local
 .env.*.local
+.env
 elegance-mobilite tmp/
