@@ -6,8 +6,7 @@
 - **Type**: React Native Mobile App (Expo SDK 50+)
 - **Source**: elegance-mobilite tmp (Web Portal)
 - **Target**: Modern Expo 2026 Mobile App with Docker
-- **Repository**: https://github.com/jawjaww/vector-elegans-driver (currently)
-- **Target Repository**: https://github.com/Jawjaww/vector-elegans-driver (to be migrated)
+- **Repository**: https://github.com/Jawjaww/vector-elegans-driver
 
 ---
 
@@ -973,7 +972,7 @@ npx expo run:ios
 
 ```bash
 # Clone repository
-git clone https://github.com/jawadbentaleb-dot/vector-elegans-driver.git
+git clone https://github.com/Jawjaww/vector-elegans-driver.git
 cd vector-elegans-driver
 
 # Install dependencies
@@ -1035,14 +1034,14 @@ jobs:
 
 ### Key Deliverables
 
-- [x] GitHub repository: `jawadbentaleb-dot/vector-elegans-driver`
-- [ ] i18n setup with en/fr/es
-- [ ] Zustand driver store
+- [x] GitHub repository: `Jawjaww/vector-elegans-driver`
+- [x] i18n setup with en/fr/es
+- [x] Zustand driver store
 - [ ] Supabase services
 - [ ] Custom hooks (location, realtime, notifications)
 - [ ] Full UI components
-- [ ] Docker configuration
-- [ ] GitOps workflow
+- [x] Docker configuration
+- [x] GitOps workflow
 
 ### Dependencies
 
