@@ -1,18 +1,18 @@
-FROM expo/eas-cli:latest
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package*.json ./
+RUN npm install -g expo-cli
 
-# Install dependencies
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY app.json ./
+COPY eas.json ./
+
 RUN npm install
 
-# Copy the rest of the app
 COPY . .
 
-# Expose Metro bundler port
-EXPOSE 8081
+EXPOSE 8081 19000 19001 19002
 
-# Default command
 CMD ["npx", "expo", "start", "--tunnel"]

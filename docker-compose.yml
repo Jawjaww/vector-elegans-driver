@@ -18,9 +18,11 @@ services:
       - EXPO_PUBLIC_SUPABASE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_ANON_KEY}
       - EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY}
       - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL}
+      - CHOKIDAR_USEPOLLING=true
+      - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
     stdin_open: true
     tty: true
-    command: npx expo start --tunnel
+    command: npx expo start --tunnel --clear
 
   # Build service for EAS
   eas-build:
