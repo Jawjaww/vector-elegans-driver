@@ -47,6 +47,9 @@
       "eas": {
         "projectId": "your-project-id"
       }
+    },
+    "experiments": {
+      "tunnel": true
     }
   }
 }

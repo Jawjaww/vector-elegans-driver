@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   expo:
     build: .
@@ -8,9 +6,11 @@ services:
       - "19000:19000"
       - "19001:19001"
       - "19002:19002"
-    volumes:
-      - .:/app
-      - /app/node_modules
+    # SUPPRIME OU COMMENTE CES LIGNES :
+    # volumes:
+    #   - .:/app
+    #   - /app/node_modules
+
     environment:
       - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
       - EXPO_PUBLIC_SUPABASE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_ANON_KEY}
@@ -18,9 +18,9 @@ services:
       - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL}
       - CHOKIDAR_USEPOLLING=true
       - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+      - EXPO_NO_PROMPT=true
     stdin_open: true
     tty: true
-    # AJOUTE CECI ↓↓↓
     develop:
       watch:
         - path: ./package.json
@@ -37,19 +37,4 @@ services:
             - .git/
             - ios/
             - android/
-    # FIN AJOUT
     command: npx expo start --tunnel --clear
-
-  # Build service for EAS
-  eas-build:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/app
-      - /app/node_modules
-    environment:
-      - EXPO_TOKEN=${EXPO_TOKEN}
-    command: eas build --platform all --non-interactive
-    profiles:
-      - build
