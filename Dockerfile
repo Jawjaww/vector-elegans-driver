@@ -1,15 +1,15 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
-RUN npm install -g expo-cli
+RUN npm install -g expo
 
 COPY package*.json ./
 COPY tsconfig.json ./
 COPY app.json ./
 COPY eas.json ./
 
-RUN npm install
+RUN npx expo install --quiet
 
 COPY . .
 
