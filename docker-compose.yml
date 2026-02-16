@@ -1,10 +1,8 @@
+version: "3.8"
+
 services:
   expo:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env
+    build: .
     ports:
       - "8081:8081"
       - "19000:19000"
@@ -22,6 +20,24 @@ services:
       - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
     stdin_open: true
     tty: true
+    # AJOUTE CECI ↓↓↓
+    develop:
+      watch:
+        - path: ./package.json
+          action: rebuild
+        - path: ./package-lock.json
+          action: rebuild
+        - path: ./Dockerfile
+          action: rebuild
+        - path: ./
+          target: /app
+          action: sync
+          ignore:
+            - node_modules/
+            - .git/
+            - ios/
+            - android/
+    # FIN AJOUT
     command: npx expo start --tunnel --clear
 
   # Build service for EAS
