@@ -1,15 +1,11 @@
-FROM node:22-alpine
+FROM node:22-slim
 
 WORKDIR /app
 
 RUN npm install -g expo
 
 COPY package*.json ./
-COPY tsconfig.json ./
-COPY app.json ./
-COPY eas.json ./
-
-RUN npx expo install --quiet
+RUN npm install
 
 COPY . .
 
