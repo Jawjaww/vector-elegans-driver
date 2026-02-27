@@ -1,19 +1,18 @@
 {
   "expo": {
-    "name": "Vector Elegans",
-    "slug": "vector-elegans",
+    "name": "Vector Elegans Driver",
+    "slug": "vector-elegans-driver",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "scheme": "vector-elegans",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#171717"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vectorelegans.driver"
@@ -21,19 +20,17 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#171717"
       },
       "package": "com.vectorelegans.driver"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
     "plugins": [
+      "expo-router",
       [
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#ffffff"
+          "color": "#171717"
         }
       ],
       [
@@ -46,10 +43,12 @@
     "extra": {
       "eas": {
         "projectId": "your-project-id"
+      },
+      "router": {
+        "origin": false
       }
     },
     "experiments": {
-      "tunnel": true
     }
   }
 }
