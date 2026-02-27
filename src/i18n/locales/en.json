@@ -56,7 +56,11 @@
     "newRide": "New Ride Request!",
     "rideAccepted": "Ride Accepted",
     "rideCompleted": "Ride Completed",
-    "rideCancelled": "Ride Cancelled"
+    "rideCancelled": "Ride Cancelled",
+    "loadingRoutes": "Loading routes...",
+    "pickupLabel": "Pickup",
+    "dropoffLabel": "Dropoff",
+    "swipeToAccept": "SWIPE TO ACCEPT >>>"
   },
   "profile": {
     "title": "Profile",
@@ -98,14 +102,19 @@
     "upload": "Upload",
     "preview": "Preview",
     "status": {
-      "pending": "Pending Review",
+      "pending": "Pending",
       "approved": "Approved",
       "rejected": "Rejected"
     },
     "uploadSuccess": "Document uploaded successfully",
-    "uploadError": "Failed to upload document",
-    "maxSize": "Maximum file size: 10MB",
-    "formats": "Supported formats: JPG, PNG, PDF"
+    "uploadError": "Upload failed",
+    "maxSize": "Maximum size: 10MB",
+    "formats": "Formats: JPG, PNG, PDF",
+    "uploadYourDocuments": "Upload your documents",
+    "selectDocument": "Select Document",
+    "notAuthenticated": "Not authenticated",
+    "error": "Error",
+    "failedToUpload": "Failed to upload document"
   },
   "navigation": {
     "home": "Home",

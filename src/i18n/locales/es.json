@@ -56,7 +56,11 @@
     "newRide": "¡Nueva solicitud de viaje!",
     "rideAccepted": "Viaje aceptado",
     "rideCompleted": "Viaje completado",
-    "rideCancelled": "Viaje cancelado"
+    "rideCancelled": "Viaje cancelado",
+    "loadingRoutes": "Cargando rutas...",
+    "pickupLabel": "Recogida",
+    "dropoffLabel": "Destino",
+    "swipeToAccept": "DESLIZAR PARA ACEPTAR >>>"
   },
   "profile": {
     "title": "Perfil",
@@ -102,10 +106,15 @@
       "approved": "Aprobado",
       "rejected": "Rechazado"
     },
-    "uploadSuccess": "Documento subido correctamente",
-    "uploadError": "Error al subir el documento",
-    "maxSize": "Tamaño máximo: 10 MB",
-    "formats": "Formatos: JPG, PNG, PDF"
+    "uploadSuccess": "Documento subido exitosamente",
+    "uploadError": "Error al subir documento",
+    "maxSize": "Tamaño máximo: 10MB",
+    "formats": "Formatos: JPG, PNG, PDF",
+    "uploadYourDocuments": "Sube tus documentos",
+    "selectDocument": "Seleccionar Documento",
+    "notAuthenticated": "No autenticado",
+    "error": "Error",
+    "failedToUpload": "Error al subir documento"
   },
   "navigation": {
     "home": "Inicio",

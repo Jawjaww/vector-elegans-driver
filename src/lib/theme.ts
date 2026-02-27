@@ -1,9 +1,9 @@
 export const theme = {
   colors: {
-    // Primary accent (bluish)
-    accent: '#4a77a8',
-    accentLight: '#6b9bc5',
-    accentDark: '#395f84',
+    // Primary accent (Emerald)
+    accent: '#10b981',
+    accentLight: '#34d399',
+    accentDark: '#059669',
     
     // Neon colors
     neonGreen: '#05c46b',
@@ -21,8 +21,8 @@ export const theme = {
     info: '#3b82f6',
     
     // Dark theme
-    background: '#0b1220',
-    backgroundMid: '#041428',
+    background: '#171717',
+    backgroundMid: '#262626',
     surface: 'rgba(255, 255, 255, 0.02)',
     surfaceMid: 'rgba(255, 255, 255, 0.06)',
     surfaceHeavy: 'rgba(255, 255, 255, 0.12)',
@@ -39,7 +39,7 @@ export const theme = {
     // Glass
     glassAlpha: 0.06,
     glassBorder: 'rgba(255, 255, 255, 0.06)',
-    glassShadow: '0 8px 24px rgba(2, 6, 23, 0.55)',
+    glassShadow: '0 8px 24px rgba(0, 0, 0, 0.55)',
   },
   
   spacing: {
@@ -60,18 +60,19 @@ export const theme = {
   },
   
   shadows: {
-    sm: '0 2px 8px rgba(2, 6, 23, 0.3)',
-    md: '0 6px 18px rgba(2, 6, 23, 0.45)',
-    lg: '0 12px 36px rgba(2, 6, 23, 0.5)',
-    xl: '0 18px 60px rgba(2, 6, 23, 0.65)',
+    sm: '0 2px 8px rgba(0, 0, 0, 0.3)',
+    md: '0 6px 18px rgba(0, 0, 0, 0.45)',
+    lg: '0 12px 36px rgba(0, 0, 0, 0.5)',
+    xl: '0 18px 60px rgba(0, 0, 0, 0.65)',
     inner: 'inset 0 2px 14px rgba(255, 255, 255, 0.02)',
   },
   
   gradients: {
     surface: 'linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01))',
-    background: 'linear-gradient(180deg, #2f3338 0%, #000000 100%)',
+    background: 'linear-gradient(180deg, #171717 0%, #000000 100%)',
     card: 'linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.008))',
-    accent: 'linear-gradient(90deg, rgba(74, 119, 168, 0.08), rgba(74, 119, 168, 0.06))',
+    accent: 'linear-gradient(90deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.06))',
+    inputLight: 'linear-gradient(90deg, rgba(16, 185, 129, 0.1), rgba(255, 255, 255, 0.2))',
     success: 'linear-gradient(90deg, rgba(5, 196, 107, 0.2), rgba(5, 196, 107, 0.1))',
   },
   
