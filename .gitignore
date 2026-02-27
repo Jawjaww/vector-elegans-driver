@@ -14,4 +14,4 @@ web-build/
 .env.local
 .env.*.local
 .env
-elegance-mobilite tmp/
+elegance-mobilite tmp/.env
