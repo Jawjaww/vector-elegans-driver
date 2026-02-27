@@ -7,14 +7,28 @@ services:
       - "19001:19001"
       - "19002:19002"
     environment:
-      - EXPO_PUBLIC_SUPABASE_URL=${EXPO_PUBLIC_SUPABASE_URL}
+      - REACT_NATIVE_PACKAGER_HOSTNAME=10.248.132.240
+      - EXPO_PUBLIC_SUPABASE_URL=http://10.248.132.240:54329
       - EXPO_PUBLIC_SUPABASE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_ANON_KEY}
       - EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY=${EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY}
       - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL}
+      # Use polling for file watchers to ensure host->container file changes are detected
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+      - WATCHPACK_POLLING=true
     volumes:
-      - ./:/app
-      - /app/node_modules
+      - ./src:/app/src
+      - ./app:/app/app
+      - ./components:/app/components
+      - ./app.json:/app/app.json
+      - ./babel.config.js:/app/babel.config.js
+      - ./package.json:/app/package.json
+      - ./tailwind.config.js:/app/tailwind.config.js
+      - ./global.css:/app/global.css
+      - ./metro.config.js:/app/metro.config.js
+      - ./tsconfig.json:/app/tsconfig.json
       - ~/.expo:/root/.expo
     stdin_open: true
     tty: true
-    command: npx expo start --tunnel
+    # Use a shell so environment variables are respected; clear cache on start
+    command: sh -c "npx expo start --tunnel --clear"
