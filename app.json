@@ -13,16 +13,25 @@
       "backgroundColor": "#171717"
     },
     "assetBundlePatterns": ["**/*"],
+    "platforms": ["ios", "android"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vectorelegans.driver"
+      "bundleIdentifier": "com.vectorelegans.driver",
+      "config": {
+        "googleMapsApiKey": "GOOGLE_MAPS_IOS_API_KEY"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#171717"
       },
-      "package": "com.vectorelegans.driver"
+      "package": "com.vectorelegans.driver",
+      "config": {
+        "googleMaps": {
+          "apiKey": "GOOGLE_MAPS_ANDROID_API_KEY"
+        }
+      }
     },
     "plugins": [
       "expo-router",
@@ -43,12 +52,8 @@
     "extra": {
       "eas": {
         "projectId": "your-project-id"
-      },
-      "router": {
-        "origin": false
       }
     },
-    "experiments": {
-    }
+    "experiments": {}
   }
 }

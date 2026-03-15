@@ -1,7 +1,54 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { Feather } from '@expo/vector-icons';
+import React, { useEffect, useRef, useState } from "react";
+import { StyleSheet, View, Text } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import Constants from "expo-constants";
+
+let MapView: any,
+  Marker: any,
+  Polyline: any,
+  UrlTile: any,
+  PROVIDER_GOOGLE: any;
+
+const isExpoGo = Constants?.appOwnership === "expo";
+
+const MockMap = (props: any) => (
+  <View
+    style={[
+      {
+        backgroundColor: "#1f2937",
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      props.style,
+    ]}
+  >
+    <Text style={{ color: "white" }}>Map Module Missing (Expo Go)</Text>
+    {props.children}
+  </View>
+);
+
+try {
+  const Maps = require("react-native-maps");
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+  Polyline = Maps.Polyline;
+  UrlTile = Maps.UrlTile;
+  PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
+
+  if (isExpoGo) {
+    MapView = MockMap;
+    Marker = View;
+    Polyline = View;
+    UrlTile = View;
+    PROVIDER_GOOGLE = undefined;
+  }
+} catch (e) {
+  MapView = MockMap;
+  Marker = View;
+  Polyline = View;
+  UrlTile = View;
+  PROVIDER_GOOGLE = undefined;
+}
 
 interface Coordinates {
   lat: number;
@@ -20,90 +67,126 @@ interface RideRequestMapProps {
 // we will simulate a route for now, but I'll add the structure to support real points.
 // IMPORTANT: For a "real" route without an API key, we can't calculate turn-by-turn.
 // However, I can make the line look better or use a public OSRM service if network permits.
-// For now, I will use a simple straight line but style it to look like a route, 
+// For now, I will use a simple straight line but style it to look like a route,
 // as fetching real geometry requires an external service call (OSRM/Google).
 
 // Let's try to fetch a real route using OSRM (Open Source Routing Machine) public API
 const fetchRoute = async (start: Coordinates, end: Coordinates) => {
   try {
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
-    console.log('Fetching route from OSRM API:', url);
-    
+    console.log("Fetching route from OSRM API:", url);
+
     const response = await fetch(url);
-    
+
     if (!response.ok) {
-      console.error('OSRM API error:', response.status, response.statusText);
+      console.error("OSRM API error:", response.status, response.statusText);
       return null;
     }
-    
+
     const data = await response.json();
-    console.log('OSRM API response:', data);
-    
+    console.log("OSRM API response:", data);
+
     if (data.routes && data.routes.length > 0 && data.routes[0].geometry) {
-      const coordinates = data.routes[0].geometry.coordinates.map((coord: number[]) => ({
-        latitude: coord[1],
-        longitude: coord[0],
-      }));
-      console.log('Route coordinates extracted:', coordinates.length, 'points');
+      const coordinates = data.routes[0].geometry.coordinates.map(
+        (coord: number[]) => ({
+          latitude: coord[1],
+          longitude: coord[0],
+        }),
+      );
+      console.log("Route coordinates extracted:", coordinates.length, "points");
       return coordinates;
     } else {
-      console.warn('No valid route found in OSRM response');
+      console.warn("No valid route found in OSRM response");
     }
   } catch (error) {
-    console.error('Error fetching route from OSRM:', error);
+    console.error("Error fetching route from OSRM:", error);
   }
   return null;
 };
 
-export const RideRequestMap = ({ pickup, dropoff, driverLocation, onReady }: RideRequestMapProps) => {
+export const RideRequestMap = ({
+  pickup,
+  dropoff,
+  driverLocation,
+  onReady,
+}: RideRequestMapProps) => {
   const mapRef = useRef<MapView>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
   const [approachCoordinates, setApproachCoordinates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    try {
+      console.log(
+        "RideRequestMap runtime - MapView ref present:",
+        !!mapRef.current,
+        "PROVIDER_GOOGLE import present",
+      );
+    } catch (e) {
+      console.log("RideRequestMap check error", e);
+    }
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
 
     const loadRoutes = async () => {
-        console.log('Loading routes with:', { pickup, dropoff, driverLocation });
-        
-        // Fetch Trip Route
-        if (pickup.lat && pickup.lng && dropoff.lat && dropoff.lng) {
-            console.log('Fetching trip route...');
-            const trip = await fetchRoute(pickup, dropoff);
-            console.log('Trip route result:', trip ? trip.length + ' points' : 'null');
-            if (isMounted && trip) setRouteCoordinates(trip);
-        }
+      console.log("Loading routes with:", { pickup, dropoff, driverLocation });
 
-        // Fetch Approach Route
-        if (driverLocation && pickup.lat && pickup.lng) {
-            console.log('Fetching approach route...');
-            const approach = await fetchRoute(driverLocation, pickup);
-            console.log('Approach route result:', approach ? approach.length + ' points' : 'null');
-            if (isMounted && approach) setApproachCoordinates(approach);
-        }
+      // Fetch Trip Route
+      if (pickup.lat && pickup.lng && dropoff.lat && dropoff.lng) {
+        console.log("Fetching trip route...");
+        const trip = await fetchRoute(pickup, dropoff);
+        console.log(
+          "Trip route result:",
+          trip ? trip.length + " points" : "null",
+        );
+        if (isMounted && trip) setRouteCoordinates(trip);
+      }
 
-        // Mark loading as complete
-        if (isMounted) {
-            setIsLoading(false);
-        }
+      // Fetch Approach Route
+      if (driverLocation && pickup.lat && pickup.lng) {
+        console.log("Fetching approach route...");
+        const approach = await fetchRoute(driverLocation, pickup);
+        console.log(
+          "Approach route result:",
+          approach ? approach.length + " points" : "null",
+        );
+        if (isMounted && approach) setApproachCoordinates(approach);
+      }
+
+      // Mark loading as complete
+      if (isMounted) {
+        setIsLoading(false);
+      }
     };
 
     loadRoutes();
 
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [pickup, dropoff, driverLocation]);
 
   useEffect(() => {
-    if (mapRef.current && pickup.lat && pickup.lng && dropoff.lat && dropoff.lng) {
+    if (
+      mapRef.current &&
+      pickup.lat &&
+      pickup.lng &&
+      dropoff.lat &&
+      dropoff.lng
+    ) {
       const coordinates = [
         { latitude: pickup.lat, longitude: pickup.lng },
         { latitude: dropoff.lat, longitude: dropoff.lng },
       ];
 
       if (driverLocation) {
-        coordinates.push({ latitude: driverLocation.lat, longitude: driverLocation.lng });
+        coordinates.push({
+          latitude: driverLocation.lat,
+          longitude: driverLocation.lng,
+        });
       }
 
       // Add some padding to fit the route (reduced padding for tighter zoom)
@@ -118,8 +201,9 @@ export const RideRequestMap = ({ pickup, dropoff, driverLocation, onReady }: Rid
     <View style={styles.container}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        mapType="standard"
         style={styles.map}
+        onLayout={() => console.log("RideRequestMap onLayout")}
         initialRegion={{
           latitude: pickup.lat || 48.8566,
           longitude: pickup.lng || 2.3522,
@@ -132,10 +216,14 @@ export const RideRequestMap = ({ pickup, dropoff, driverLocation, onReady }: Rid
         pitchEnabled={false}
         rotateEnabled={false}
       >
+        {/* UrlTile removed: use Google Maps provider and native tiles instead */}
         {driverLocation && (
           <>
             <Marker
-              coordinate={{ latitude: driverLocation.lat, longitude: driverLocation.lng }}
+              coordinate={{
+                latitude: driverLocation.lat,
+                longitude: driverLocation.lng,
+              }}
               anchor={{ x: 0.5, y: 0.5 }}
               zIndex={3}
             >
@@ -143,58 +231,69 @@ export const RideRequestMap = ({ pickup, dropoff, driverLocation, onReady }: Rid
                 <Feather name="navigation" size={16} color="white" />
               </View>
             </Marker>
-            
+
             {/* Approach Line - Real Route */}
             {approachCoordinates.length > 0 && (
-                <Polyline
-                    coordinates={approachCoordinates}
-                    strokeColor="rgba(59, 130, 246, 0.7)" // Blue semi-transparent
-                    strokeWidth={4}
-                    lineDashPattern={[5, 5]} // Still dashed to indicate approach
-                />
+              <Polyline
+                coordinates={approachCoordinates}
+                strokeColor="rgba(59, 130, 246, 0.7)" // Blue semi-transparent
+                strokeWidth={4}
+                lineDashPattern={[5, 5]} // Still dashed to indicate approach
+              />
             )}
             {/* Fallback straight line (only show if OSRM fails AND loading is complete) */}
-            {!isLoading && approachCoordinates.length === 0 && driverLocation && (
+            {!isLoading &&
+              approachCoordinates.length === 0 &&
+              driverLocation && (
                 <Polyline
-                    coordinates={[
-                        { latitude: driverLocation.lat, longitude: driverLocation.lng },
-                        { latitude: pickup.lat, longitude: pickup.lng }
-                    ]}
-                    strokeColor="rgba(59, 130, 246, 0.5)"
-                    strokeWidth={3}
-                    lineDashPattern={[10, 5]}
+                  coordinates={[
+                    {
+                      latitude: driverLocation.lat,
+                      longitude: driverLocation.lng,
+                    },
+                    { latitude: pickup.lat, longitude: pickup.lng },
+                  ]}
+                  strokeColor="rgba(59, 130, 246, 0.5)"
+                  strokeWidth={3}
+                  lineDashPattern={[10, 5]}
                 />
-            )}
+              )}
           </>
         )}
 
         {/* Trip Line - Real Route */}
         {routeCoordinates.length > 0 && (
-            <Polyline
-                coordinates={routeCoordinates}
-                strokeColor="#10b981" // Emerald Green
-                strokeWidth={5}
-            />
+          <Polyline
+            coordinates={routeCoordinates}
+            strokeColor="#10b981" // Emerald Green
+            strokeWidth={5}
+          />
         )}
         {/* Fallback straight line (only show if OSRM fails AND loading is complete) */}
         {!isLoading && routeCoordinates.length === 0 && (
-            <Polyline
-                coordinates={[
-                    { latitude: pickup.lat, longitude: pickup.lng },
-                    { latitude: dropoff.lat, longitude: dropoff.lng }
-                ]}
-                strokeColor="#10b981"
-                strokeWidth={4}
-            />
+          <Polyline
+            coordinates={[
+              { latitude: pickup.lat, longitude: pickup.lng },
+              { latitude: dropoff.lat, longitude: dropoff.lng },
+            ]}
+            strokeColor="#10b981"
+            strokeWidth={4}
+          />
         )}
 
-        <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} zIndex={2}>
+        <Marker
+          coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
+          zIndex={2}
+        >
           <View style={styles.pickupMarker}>
             <Feather name="map-pin" size={16} color="white" />
           </View>
         </Marker>
 
-        <Marker coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }} zIndex={2}>
+        <Marker
+          coordinate={{ latitude: dropoff.lat, longitude: dropoff.lng }}
+          zIndex={2}
+        >
           <View style={styles.dropoffMarker}>
             <Feather name="flag" size={16} color="white" />
           </View>
@@ -207,37 +306,37 @@ export const RideRequestMap = ({ pickup, dropoff, driverLocation, onReady }: Rid
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderRadius: 0,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
   },
   driverMarker: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: "#3b82f6",
     padding: 6,
     borderRadius: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
   },
   pickupMarker: {
-    backgroundColor: '#64748b',
+    backgroundColor: "#64748b",
     padding: 6,
     borderRadius: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
   },
   dropoffMarker: {
-    backgroundColor: '#10b981',
+    backgroundColor: "#10b981",
     padding: 6,
     borderRadius: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,

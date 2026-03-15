@@ -1,0 +1,5 @@
+/* global.css – utilisé uniquement par NativeWind/Tailwind, pas par le web */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

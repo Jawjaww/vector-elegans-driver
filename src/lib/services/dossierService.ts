@@ -28,17 +28,20 @@ export interface DossierSubmissionResult {
  */
 export async function getDossierStatus(driverId: string): Promise<DossierStatus | null> {
   try {
+    console.log('[dossierService] getDossierStatus - driverId:', driverId);
     const { data, error } = await supabase
       .rpc('get_driver_dossier_status', { p_driver_id: driverId });
 
+    console.log('[dossierService] getDossierStatus - result:', { data, error });
+
     if (error) {
-      console.error('Erreur lors de la récupération du statut du dossier:', error);
+      console.error('[dossierService] getDossierStatus - error:', error);
       return null;
     }
 
     return data && data.length > 0 ? data[0] : null;
   } catch (error) {
-    console.error('Exception lors de la récupération du statut du dossier:', error);
+    console.error('[dossierService] getDossierStatus - exception:', error);
     return null;
   }
 }
@@ -48,20 +51,23 @@ export async function getDossierStatus(driverId: string): Promise<DossierStatus 
  */
 export async function canEditDossier(driverId: string, userId: string): Promise<boolean> {
   try {
+    console.log('[dossierService] canEditDossier - driverId:', driverId, 'userId:', userId);
     const { data, error } = await supabase
       .rpc('can_edit_driver_dossier', { 
         p_driver_id: driverId,
         p_user_id: userId 
       });
 
+    console.log('[dossierService] canEditDossier - result:', { data, error });
+
     if (error) {
-      console.error('Erreur lors de la vérification des permissions:', error);
+      console.error('[dossierService] canEditDossier - error:', error);
       return false;
     }
 
     return data || false;
   } catch (error) {
-    console.error('Exception lors de la vérification des permissions:', error);
+    console.error('[dossierService] canEditDossier - exception:', error);
     return false;
   }
 }
@@ -71,14 +77,17 @@ export async function canEditDossier(driverId: string, userId: string): Promise<
  */
 export async function submitDossier(driverId: string, userId: string): Promise<DossierSubmissionResult> {
   try {
+    console.log('[dossierService] submitDossier - driverId:', driverId, 'userId:', userId);
     const { data, error } = await supabase
       .rpc('submit_driver_dossier', { 
         p_driver_id: driverId,
         p_user_id: userId 
       });
 
+    console.log('[dossierService] submitDossier - result:', { data, error });
+
     if (error) {
-      console.error('Erreur lors de la soumission du dossier:', error);
+      console.error('[dossierService] submitDossier - error:', error);
       return {
         success: false,
         new_status: 'error',
@@ -92,7 +101,7 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
       message: 'Réponse invalide du serveur'
     };
   } catch (error) {
-    console.error('Exception lors de la soumission du dossier:', error);
+    console.error('[dossierService] submitDossier - exception:', error);
     return {
       success: false,
       new_status: 'error',
@@ -111,6 +120,7 @@ export async function validateDossier(
   rejectionReason?: string
 ): Promise<DossierSubmissionResult> {
   try {
+    console.log('[dossierService] validateDossier - driverId:', driverId, 'adminUserId:', adminUserId, 'approved:', approved);
     const { data, error } = await supabase
       .rpc('validate_driver_dossier', { 
         p_driver_id: driverId,
@@ -119,8 +129,10 @@ export async function validateDossier(
         p_rejection_reason: rejectionReason || null
       });
 
+    console.log('[dossierService] validateDossier - result:', { data, error });
+
     if (error) {
-      console.error('Erreur lors de la validation du dossier:', error);
+      console.error('[dossierService] validateDossier - error:', error);
       return {
         success: false,
         new_status: 'error',
@@ -134,7 +146,7 @@ export async function validateDossier(
       message: 'Réponse invalide du serveur'
     };
   } catch (error) {
-    console.error('Exception lors de la validation du dossier:', error);
+    console.error('[dossierService] validateDossier - exception:', error);
     return {
       success: false,
       new_status: 'error',
@@ -149,16 +161,18 @@ export async function validateDossier(
  */
 export async function syncDossierState(driverId: string, userId: string) {
   try {
+    console.log('[dossierService] syncDossierState - driverId:', driverId, 'userId:', userId);
     // Récupérer l'état actuel du backend
     const status = await getDossierStatus(driverId);
     
     if (!status) {
-      console.warn('Impossible de récupérer l\'état du dossier');
+      console.warn('[dossierService] syncDossierState - no status returned');
       return null;
     }
 
     // Vérifier les permissions d'édition
     const canEdit = await canEditDossier(driverId, userId);
+    console.log('[dossierService] syncDossierState - canEdit:', canEdit);
 
     return {
       status: status.status,
@@ -172,7 +186,7 @@ export async function syncDossierState(driverId: string, userId: string) {
       completionPercentage: status.completion_percentage
     };
   } catch (error) {
-    console.error('Erreur lors de la synchronisation de l\'état du dossier:', error);
+    console.error('[dossierService] syncDossierState - exception:', error);
     return null;
   }
 }

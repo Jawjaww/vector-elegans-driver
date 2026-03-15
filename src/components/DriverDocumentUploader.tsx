@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, Alert, ActivityIndicator, Pressable } from 'react-native';
-import { useTranslation } from 'react-i18next';
-import * as ImagePicker from 'expo-image-picker';
+import React, { useState } from "react";
+import { View, Text, Alert, ActivityIndicator, Pressable } from "react-native";
+import { useTranslation } from "react-i18next";
+import * as ImagePicker from "expo-image-picker";
 // Use legacy import for readAsStringAsync as main entry point deprecates it in SDK 54+
-import * as FileSystem from 'expo-file-system/legacy';
-import { supabase } from '../lib/supabase';
-import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
-import { Feather } from '@expo/vector-icons';
+import * as FileSystem from "expo-file-system/legacy";
+import { supabase } from "../lib/supabase";
+import Animated, { FadeIn, FadeOut, Layout } from "react-native-reanimated";
+import { Feather } from "@expo/vector-icons";
 
 // Fonction de décodage base64 vers ArrayBuffer pour l'upload
 const decodeBase64 = (base64: string) => {
@@ -25,13 +25,15 @@ interface DriverDocumentUploaderProps {
   onUploadComplete?: (fileUrl: string) => void;
   driverId?: string;
   currentUrl?: string;
+  isEditable?: boolean;
 }
 
-export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({ 
-  documentType, 
+export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
+  documentType,
   onUploadComplete,
   driverId,
-  currentUrl
+  currentUrl,
+  isEditable = true,
 }) => {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
@@ -39,39 +41,49 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
   // Helper to sanitize filenames
   const sanitizeFileName = (fileName: string): string => {
     return fileName
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-zA-Z0-9.-]/g, '_');
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9.-]/g, "_");
   };
 
   const pickImage = async () => {
+    if (!isEditable) {
+      Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ["images"],
         allowsEditing: true,
         quality: 0.8,
       });
 
       if (!result.canceled) {
-        await uploadImage(result.assets[0].uri, result.assets[0].fileName || 'document.jpg');
+        await uploadImage(
+          result.assets[0].uri,
+          result.assets[0].fileName || "document.jpg",
+        );
       }
     } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert(t('common.error'), 'Impossible de sélectionner l\'image');
+      console.error("Error picking image:", error);
+      Alert.alert(t("common.error"), "Impossible de sélectionner l'image");
     }
   };
 
   const uploadImage = async (uri: string, fileName: string) => {
     try {
       setUploading(true);
-      console.log('Starting upload for:', fileName);
-      
+      console.log("Starting upload for:", fileName);
+
       const sanitizedName = sanitizeFileName(fileName);
-      const { data: { user } } = await supabase.auth.getUser();
-      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
-        console.error('User not authenticated');
-        Alert.alert(t('documents.error'), t('documents.notAuthenticated'));
+        console.error("User not authenticated");
+        Alert.alert(t("documents.error"), t("documents.notAuthenticated"));
         setUploading(false);
         return;
       }
@@ -80,60 +92,65 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
       let actualDriverId = driverId;
       if (!actualDriverId) {
         const { data: driverData, error: driverError } = await supabase
-          .from('drivers')
-          .select('id')
-          .eq('user_id', user.id)
+          .from("drivers")
+          .select("id")
+          .eq("user_id", user.id)
           .single();
-        
+
         if (driverError || !driverData) {
-          console.error('Driver not found for user:', user.id, driverError);
-          Alert.alert(t('documents.error'), 'Conducteur non trouvé');
+          console.error("Driver not found for user:", user.id, driverError);
+          Alert.alert(t("documents.error"), "Conducteur non trouvé");
           setUploading(false);
           return;
         }
-        
+
         actualDriverId = driverData.id;
-        console.log('Found driver_id:', actualDriverId);
+        console.log("Found driver_id:", actualDriverId);
       }
 
-      console.log('Reading file as base64 from URI:', uri);
-      
+      console.log("Reading file as base64 from URI:", uri);
+
       // Use FileSystem to read file as base64 (most reliable method for Supabase/RN)
       const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: 'base64',
+        encoding: "base64",
       });
-      
+
       const arrayBuffer = decodeBase64(base64);
-      const mimeType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-      
-      console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
+      const mimeType = fileName.toLowerCase().endsWith(".png")
+        ? "image/png"
+        : "image/jpeg";
+
+      console.log("ArrayBuffer created, size:", arrayBuffer.byteLength);
 
       // Upload to Supabase Storage
       const filePath = `${actualDriverId}/${documentType}/${Date.now()}_${sanitizedName}`;
-      console.log('Uploading to path:', filePath);
-      
+      console.log("Uploading to path:", filePath);
+
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('driver-documents')
+        .from("driver-documents")
         .upload(filePath, arrayBuffer, {
           contentType: mimeType,
-          upsert: false
+          upsert: false,
         });
 
       if (uploadError) {
-        console.error('Supabase Storage Upload Error:', uploadError);
-        Alert.alert(t('documents.error'), `Upload failed: ${uploadError.message}`);
+        console.error("Supabase Storage Upload Error:", uploadError);
+        Alert.alert(
+          t("documents.error"),
+          `Upload failed: ${uploadError.message}`,
+        );
         setUploading(false);
         return;
       }
 
-      console.log('Upload successful:', uploadData);
+      console.log("Upload successful:", uploadData);
 
       // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('driver-documents')
-        .getPublicUrl(filePath);
-        
-      console.log('Public URL generated:', publicUrl);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("driver-documents").getPublicUrl(filePath);
+
+      console.log("Public URL generated:", publicUrl);
 
       // Call the callback immediately with the URL so the UI updates
       if (onUploadComplete) {
@@ -144,29 +161,33 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
       // (The driver might not exist yet in the database)
       try {
         const { error: dbError } = await supabase
-          .from('driver_documents')
-          .insert([{
-            driver_id: driverId || user.id, // This might fail if driver doesn't exist yet and FK is strict
-            document_type: documentType,
-            file_url: publicUrl,
-            file_name: sanitizedName,
-            upload_date: new Date().toISOString(),
-            validation_status: 'pending'
-          }]);
+          .from("driver_documents")
+          .insert([
+            {
+              driver_id: actualDriverId, // use the resolved driver UUID, not the auth user id
+              document_type: documentType,
+              file_url: publicUrl,
+              file_name: sanitizedName,
+              upload_date: new Date().toISOString(),
+              validation_status: "pending",
+            },
+          ]);
 
         if (dbError) {
-          console.warn('Database insertion warning (non-fatal):', dbError.message);
+          console.warn(
+            "Database insertion warning (non-fatal):",
+            dbError.message,
+          );
           // We don't alert here because the upload was successful and we have the URL
         } else {
-          console.log('Database record created successfully');
+          console.log("Database record created successfully");
         }
       } catch (dbErr) {
-        console.warn('Database insertion error (non-fatal):', dbErr);
+        console.warn("Database insertion error (non-fatal):", dbErr);
       }
-
     } catch (error: any) {
-      console.error('Unexpected error during upload:', error);
-      Alert.alert(t('documents.error'), error.message || 'Unknown error');
+      console.error("Unexpected error during upload:", error);
+      Alert.alert(t("documents.error"), error.message || "Unknown error");
     } finally {
       setUploading(false);
     }
@@ -176,45 +197,55 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
     <Animated.View layout={Layout.springify()} className="w-full">
       <Pressable
         onPress={pickImage}
-        disabled={uploading}
+        disabled={uploading || !isEditable}
         className={`w-full overflow-hidden rounded-xl border-2 border-dashed ${
-          currentUrl ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-600 bg-slate-800/50'
+          currentUrl
+            ? "border-emerald-500/50 bg-emerald-500/10"
+            : "border-slate-600 bg-slate-800/50"
         }`}
       >
         {uploading ? (
-          <Animated.View 
-            entering={FadeIn} 
+          <Animated.View
+            entering={FadeIn}
             exiting={FadeOut}
             className="py-8 items-center justify-center"
           >
             <ActivityIndicator size="large" color="#10b981" />
             <Text className="text-slate-400 mt-3 text-sm font-medium">
-              {t('documents.uploading')}
+              {t("documents.uploading")}
             </Text>
           </Animated.View>
         ) : (
-          <Animated.View 
-            entering={FadeIn} 
+          <Animated.View
+            entering={FadeIn}
             className="py-6 px-4 flex-row items-center justify-between"
           >
             <View className="flex-row items-center flex-1">
-              <View className={`w-12 h-12 rounded-full items-center justify-center ${
-                currentUrl ? 'bg-emerald-500/20' : 'bg-slate-700'
-              }`}>
-                <Feather 
-                  name={currentUrl ? "check" : "upload-cloud"} 
-                  size={24} 
-                  color={currentUrl ? "#10b981" : "#94a3b8"} 
+              <View
+                className={`w-12 h-12 rounded-full items-center justify-center ${
+                  currentUrl ? "bg-emerald-500/20" : "bg-slate-700"
+                }`}
+              >
+                <Feather
+                  name={currentUrl ? "check" : "upload-cloud"}
+                  size={24}
+                  color={currentUrl ? "#10b981" : "#94a3b8"}
                 />
               </View>
               <View className="ml-4 flex-1">
-                <Text className={`font-semibold ${
-                  currentUrl ? 'text-emerald-400' : 'text-slate-400'
-                }`}>
-                  {currentUrl ? t('documents.uploadSuccess') : t('documents.tapToUpload')}
+                <Text
+                  className={`font-semibold ${
+                    currentUrl ? "text-emerald-400" : "text-slate-400"
+                  }`}
+                >
+                  {currentUrl
+                    ? t("documents.uploadSuccess")
+                    : t("documents.tapToUpload")}
                 </Text>
                 <Text className="text-slate-400 text-xs mt-1">
-                  {currentUrl ? t('documents.changeFile') : t('documents.formats')}
+                  {currentUrl
+                    ? t("documents.changeFile")
+                    : t("documents.formats")}
                 </Text>
               </View>
             </View>
