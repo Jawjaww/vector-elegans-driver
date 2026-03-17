@@ -18,13 +18,13 @@ export default function RootLayout() {
           colors={["#171717", "#262626"]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { zIndex: -10 }]}
         />
         <LinearGradient
-          colors={["rgba(255,255,255,0.05)", "rgba(255,255,255,0.02)"]}
+          colors={["rgba(255, 255, 255, 0.02)", "rgba(255, 255, 255, 0.13)"]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { zIndex: -9 }]}
         />
 
         <Stack

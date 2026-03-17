@@ -19,72 +19,13 @@ import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet } from "../../src/components/BottomSheet";
 import { RideStackModal } from "../../src/components/RideStackModal";
-import { fetchRoute } from "../../src/lib/utils/map";
-
-import Constants from "expo-constants";
-
-let MapView: any,
-  Marker: any,
-  Polyline: any,
-  UrlTile: any,
-  PROVIDER_GOOGLE: any;
-
-const isExpoGo = Constants?.appOwnership === "expo";
-
-// Mock components to prevent crash or to use in Expo Go
-const MockMap = (props: any) => (
-  <View
-    style={[
-      {
-        backgroundColor: "#1f2937",
-        alignItems: "center",
-        justifyContent: "center",
-      },
-      props.style,
-    ]}
-  >
-    <Text style={{ color: "white" }}>Map Module Missing (Expo Go)</Text>
-    {props.children}
-  </View>
-);
-
-try {
-  // Try to require react-native-maps
-  const Maps = require("react-native-maps");
-  MapView = Maps.default;
-  Marker = Maps.Marker;
-  Polyline = Maps.Polyline;
-  UrlTile = Maps.UrlTile;
-  PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
-
-  // If running inside Expo Go, prefer the mock to avoid native module issues
-  if (isExpoGo) {
-    console.log(
-      "Running in Expo Go — using MockMap to avoid native module errors",
-    );
-    MapView = MockMap;
-    Marker = View;
-    Polyline = View;
-    UrlTile = View;
-    PROVIDER_GOOGLE = undefined;
-  }
-} catch (e) {
-  console.warn("react-native-maps not found, map features will be disabled", e);
-  MapView = MockMap;
-  Marker = View;
-  Polyline = View;
-  UrlTile = View;
-  PROVIDER_GOOGLE = undefined;
-}
+import { VTCMap } from "../../src/map";
 
 export default function DashboardScreen() {
   const router = useRouter();
   useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
-  const [activeRouteCoordinates, setActiveRouteCoordinates] = useState<any[]>(
-    [],
-  );
 
   const {
     isOnline,
@@ -100,42 +41,6 @@ export default function DashboardScreen() {
     hasSeenRide,
   } = useDriverStore();
   useDriverLocation(isOnline);
-
-  useEffect(() => {
-    try {
-      console.log(
-        "Map runtime check - MapView:",
-        !!MapView,
-        "PROVIDER_GOOGLE:",
-        !!PROVIDER_GOOGLE,
-      );
-    } catch (e) {
-      console.log("Map runtime check error", e);
-    }
-  }, []);
-
-  // Fetch route for active ride
-  useEffect(() => {
-    const loadActiveRoute = async () => {
-      if (activeRide) {
-        const pickup = {
-          lat: activeRide.pickup_lat,
-          lng: activeRide.pickup_lon,
-        };
-        const dropoff = {
-          lat: activeRide.dropoff_lat,
-          lng: activeRide.dropoff_lon,
-        };
-
-        const route = await fetchRoute(pickup, dropoff);
-        if (route) setActiveRouteCoordinates(route);
-      } else {
-        setActiveRouteCoordinates([]);
-      }
-    };
-
-    loadActiveRoute();
-  }, [activeRide]);
 
   // Realtime subscription for rides
   useEffect(() => {
@@ -341,89 +246,25 @@ export default function DashboardScreen() {
         onDeclineRide={(rideId) => removeAvailableRide(rideId)}
       />
 
-      <View style={{ flex: 1, backgroundColor: "#171717" }}>
-        {/* Background Map */}
-        <MapView
-          style={StyleSheet.absoluteFill}
-          mapType="standard"
-          onMapReady={() => console.log("Dashboard Map onMapReady")}
-          onLayout={() => console.log("Dashboard Map onLayout")}
-          showsUserLocation={true}
-          showsMyLocationButton={false}
-          showsCompass={false}
-          initialRegion={{
-            latitude: currentLocation?.lat || 48.8566,
-            longitude: currentLocation?.lng || 2.3522,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          }}
-          region={
-            currentLocation
-              ? {
-                  latitude: currentLocation.lat,
-                  longitude: currentLocation.lng,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }
+      <View style={{ flex: 1, backgroundColor: "#171717", zIndex: -1 }}>
+        {/* VTC Map - Works in Expo Go */}
+        <VTCMap
+          style={{ zIndex: -2 }}
+          start={
+            activeRide
+              ? { lat: activeRide.pickup_lat, lng: activeRide.pickup_lon }
               : undefined
           }
-        >
-          {/* Using Google Maps provider only — UrlTile removed to respect OSM tile policy */}
-          {/* Active Ride Markers & Route */}
-          {activeRide && (
-            <>
-              <Marker
-                coordinate={{
-                  latitude: activeRide.pickup_lat,
-                  longitude: activeRide.pickup_lon,
-                }}
-                title="Pickup"
-                description={activeRide.pickup_address}
-              >
-                <View
-                  style={{
-                    backgroundColor: "#10b981",
-                    padding: 5,
-                    borderRadius: 15,
-                    borderWidth: 2,
-                    borderColor: "white",
-                  }}
-                >
-                  <Feather name="map-pin" size={14} color="white" />
-                </View>
-              </Marker>
-
-              <Marker
-                coordinate={{
-                  latitude: activeRide.dropoff_lat,
-                  longitude: activeRide.dropoff_lon,
-                }}
-                title="Dropoff"
-                description={activeRide.dropoff_address}
-              >
-                <View
-                  style={{
-                    backgroundColor: "#6366f1",
-                    padding: 5,
-                    borderRadius: 15,
-                    borderWidth: 2,
-                    borderColor: "white",
-                  }}
-                >
-                  <Feather name="flag" size={14} color="white" />
-                </View>
-              </Marker>
-
-              {activeRouteCoordinates.length > 0 && (
-                <Polyline
-                  coordinates={activeRouteCoordinates}
-                  strokeWidth={4}
-                  strokeColor="#10b981"
-                />
-              )}
-            </>
-          )}
-        </MapView>
+          end={
+            activeRide
+              ? { lat: activeRide.dropoff_lat, lng: activeRide.dropoff_lon }
+              : undefined
+          }
+          drivers={[]}
+          showRoute={!!activeRide}
+          onLocationUpdate={(coords) => console.log("GPS:", coords)}
+          onMapReady={() => console.log("VTC Map ready")}
+        />
 
         {/* Horizontal Status Pill - Bottom Right (Lower) */}
         <View style={{ position: "absolute", bottom: 100, right: 20 }}>

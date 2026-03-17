@@ -110,7 +110,7 @@ export const RideRequestMap = ({
   driverLocation,
   onReady,
 }: RideRequestMapProps) => {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
   const [approachCoordinates, setApproachCoordinates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
