@@ -328,7 +328,9 @@ export default function DashboardScreen() {
           <View style={{ flex: 1 }}>
             {/* Critical Alerts (Absolute Top Priority - Fixed at top of sheet) */}
             {(driverStatus === "incomplete" ||
-              driverStatus === "pending_validation") && (
+              driverStatus === "pending_validation" ||
+              driverStatus === "pending_review" ||
+              driverStatus === "submitted") && (
               <View className="px-6 mb-2">
                 <Pressable onPress={() => router.push("/(auth)/profile-setup")}>
                   <View
@@ -358,7 +360,7 @@ export default function DashboardScreen() {
                           className="text-base font-bold mb-0.5"
                           style={{ color: "#fbbf24" }}
                         >
-                          {driverStatus === "pending_validation"
+                          {driverStatus === "pending_validation" || driverStatus === "pending_review" || driverStatus === "submitted"
                             ? "Validation en cours"
                             : "Profil incomplet"}
                         </Text>
@@ -366,7 +368,7 @@ export default function DashboardScreen() {
                           className="text-xs font-medium"
                           style={{ color: "rgba(255,255,255,0.9)" }}
                         >
-                          {driverStatus === "pending_validation"
+                          {driverStatus === "pending_validation" || driverStatus === "pending_review" || driverStatus === "submitted"
                             ? "Votre profil est en cours de validation."
                             : "Complétez votre profil pour commencer."}
                         </Text>
