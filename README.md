@@ -5,29 +5,38 @@ Application mobile Expo pour les chauffeurs de Vector Elegans.
 ## Architecture
 
 - **Image Docker**: `expo/eas-cli:latest` (cloud-native, 2026)
-- **Framework**: Expo SDK 50 + React Native
+- **Framework**: Expo SDK 54.0.33 + React Native 0.81.5
+- **Navigation**: Expo Router 6.0.23 (file-based routing)
+- **State Management**: Zustand 5.0.11
 - **Authentification**: Supabase Auth avec SecureStore
 - **Upload Documents**: Supabase Storage avec signed URLs
 - **Notifications**: Expo Notifications
 - **Localisation**: Expo Location (background GPS)
+- **Styling**: NativeWind 4.2.1 (Tailwind-like)
+- **UI Components**: Gluestack-UI 3.0.11
 
 ## Structure
 
 ```
 vector-elegans/
 ├── src/
-│   ├── components/     # Composants réutilisables
-│   ├── screens/        # Écrans de l'app
-│   ├── navigation/     # Configuration navigation
-│   ├── lib/           # Clients/API (Supabase, etc.)
-│   ├── hooks/         # Custom React hooks
-│   └── types/         # Types TypeScript
-├── assets/            # Images, icônes
-├── Dockerfile         # Image expo/eas-cli
-├── docker-compose.yml # Services dev/build
-├── app.json          # Configuration Expo
-├── eas.json          # Configuration EAS Build
-└── package.json      # Dépendances
+│   ├── components/      # Composants réutilisables (GlassCard, ElegantButton, etc.)
+│   ├── screens/         # Écrans de l'app (HomeScreen, DocumentUploadScreen)
+│   ├── lib/             # Clients/API (Supabase, stores, services, utils)
+│   │   ├── stores/      # Zustand stores (driverStore, driverFolderStore)
+│   │   ├── services/    # Services métier (rideService, routing)
+│   │   └── utils/       # Utilitaires (auth-helpers, driverUtils, map)
+│   ├── hooks/           # Custom React hooks (useDriverLocation, useNotifications, useRealtimeRides)
+│   ├── i18n/            # Internationalisation (i18next + expo-localization)
+│   ├── map/             # Composants de cartographie
+│   └── types/           # Types TypeScript (nativewind, navigation)
+├── app/                 # Expo Router (app/(tabs)/, app/(auth)/)
+├── assets/              # Images, icônes
+├── Dockerfile           # Image expo/eas-cli
+├── docker-compose.yml   # Services dev/build
+├── app.json            # Configuration Expo
+├── eas.json            # Configuration EAS Build
+└── package.json        # Dépendances
 ```
 
 ## Démarrage Rapide
@@ -44,9 +53,36 @@ docker-compose up expo
 docker-compose --profile build up eas-build
 ```
 
-## Ce fichier database.types as été généré par supabase donc il seras d'une tres grande importance pour construire l'application mobile en respectant les types distants
+## Réseau — Expo + Supabase (développement)
 
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/types/database.types.ts
+Important : pour le développement mobile, n'utilisez jamais `localhost` dans les URLs exposées à l'app. Utilisez l'adresse IP LAN de la machine ou passez-la au démarrage du conteneur.
+
+Commandes recommandées (macOS) :
+
+```bash
+# Récupérer l'IP LAN
+HOST_IP=$(ipconfig getifaddr en0)
+
+# Mettre à jour .env (macOS)
+sed -i '' "s|^EXPO_PUBLIC_SUPABASE_URL=.*|EXPO_PUBLIC_SUPABASE_URL=http://$HOST_IP:54329|" .env
+sed -i '' "s|^EXPO_PUBLIC_API_URL=.*|EXPO_PUBLIC_API_URL=http://$HOST_IP:54329|" .env
+
+# Démarrer Expo en fournissant l'IP du packager
+REACT_NATIVE_PACKAGER_HOSTNAME=$HOST_IP docker compose up -d --build expo
+
+# Vérifier Metro et Supabase depuis l'hôte
+curl -I http://$HOST_IP:8081/
+curl -I http://$HOST_IP:54329/rest/v1
+
+# Si vos appareils sont sur des réseaux différents, utilisez le tunnel :
+# docker compose exec -T expo sh -c 'npx expo start --tunnel'
+```
+
+## Types Database
+
+Le fichier `database.types.ts` a été généré par Supabase et est crucial pour respecter les types distants :
+
+**Emplacement** : `elegance-mobilite tmp/src/lib/types/database.types.ts`
 
 ## Variables d'Environnement
 
@@ -58,37 +94,44 @@ docker-compose --profile build up eas-build
 | `EXPO_PUBLIC_API_URL`                   | URL API backend      |
 | `EXPO_TOKEN`                            | Token EAS pour CI/CD |
 
-## Migration depuis le Driver Portal Web
+## Migration depuis le Driver Portal Web (elegance-mobilite tmp)
 
-Les composants et dossiers suivants sont à migrer:
+**État de la migration** : En cours - Plusieurs composants déjà migrés
 
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/app/driver-portal
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/driver
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/drivers
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/app/driver-portal/login
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/layout/DriverHeader.tsx
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/map/DriverMap.tsx
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/map/RideRequestMap.tsx
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/components/map/UnifiedMap.tsx
+### Composants Migrés ✅
 
-1. **Auth flow** → `src/screens/AuthScreen.tsx`
-2. **DriverProfileSetup** → `src/screens/DocumentUploadScreen.tsx`
-3. **DriverDocumentUploader** → `src/components/DriverDocumentUploader.tsx`
+- `src/screens/DocumentUploadScreen.tsx` (DriverProfileSetup)
+- `src/components/DriverDocumentUploader.tsx`
+- `src/components/GlassCard.tsx`
+- `src/components/ElegantButton.tsx`
+- `src/components/SwipeButton.tsx`
+- `src/hooks/useDriverLocation.ts`
+- `src/hooks/useNotifications.ts`
+- `src/lib/stores/driverStore.ts`
 
-D'autres fichiers peuvent etre utiles tres utiles dans le dossier hooks:
+### Composants à Migrer 🔄
 
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/types/database.types.ts
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/stores/driversStore.ts
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/hooks
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/config/map.ts
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/services/rideService.ts
-mais aussi dans les dossiers lib, stores et services
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/services/directionsService.ts
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/stores/driverStore.ts
-[ ](<../elegance-mobilite tmp/src/styles>)
-/Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/constants/rideStatus.ts
-[text](<../elegance-mobilite tmp/src/lib/driver>)
+- `elegance-mobilite tmp/src/app/driver-portal/` → `app/(tabs)/`
+- `elegance-mobilite tmp/src/components/driver/` → `src/components/`
+- `elegance-mobilite tmp/src/components/map/` → `src/map/`
+
+### Fichiers Utiles à Consulter
+
+- `elegance-mobilite tmp/src/lib/types/database.types.ts` (types Supabase)
+- `elegance-mobilite tmp/src/lib/stores/driversStore.ts`
+- `elegance-mobilite tmp/src/services/rideService.ts`
+- `elegance-mobilite tmp/src/config/map.ts`
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/stores/driversStore.ts
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/hooks
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/config/map.ts
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/services/rideService.ts
+  mais aussi dans les dossiers lib, stores et services
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/services/directionsService.ts
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/stores/driverStore.ts
+  [ ](<../elegance-mobilite tmp/src/styles>)
+  /Users/beij/Documents/dev/vector-elegans-project/elegance-mobilite tmp/src/lib/constants/rideStatus.ts
+  [text](<../elegance-mobilite tmp/src/lib/driver>)
 
 ## Fonctionnalités Mobile
 

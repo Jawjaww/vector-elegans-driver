@@ -3,25 +3,23 @@
 Ce document décrit la configuration **éprouvée et fonctionnelle** pour l'environnement de développement Docker + Expo + Supabase.
 **Ne pas modifier cette configuration sans tester sur un device physique.**
 
-## 1. Principe Fondamental : IP Fixe
+## 1. Principe Fondamental : IP fixe (recommandation)
 
-Pour que l'application mobile (sur téléphone) puisse communiquer avec les services (Supabase, API) hébergés sur votre ordinateur via Docker, **l'utilisation de `localhost` ou `127.0.0.1` est INTERDITE** dans les variables d'environnement exposées à l'app.
+Pour que l'application mobile (sur téléphone) puisse communiquer avec les services (Supabase, API) hébergés sur votre ordinateur via Docker, **n'utilisez pas `localhost` ou `127.0.0.1`** dans les variables d'environnement exposées à l'app. Préférez l'adresse IP locale (LAN) de la machine ou passez-la au démarrage du conteneur.
 
-Il faut impérativement utiliser l'adresse IP locale de votre machine (ex: `10.89.89.240`).
-
-Pour connaître votre IP locale :
+Pour connaître votre IP locale (macOS) :
 ```bash
-ifconfig | grep "inet " | grep -v "127.0.0.1" | head -1
+ipconfig getifaddr en0
+# si votre Wi‑Fi est sur une autre interface : ipconfig getifaddr en1
 ```
 
 ## 2. Fichiers de Configuration Critiques
 
 ### A. `docker-compose.yml`
 
-Ce fichier doit contenir :
-1. La variable `REACT_NATIVE_PACKAGER_HOSTNAME` définie sur l'IP de votre machine.
-2. Les ports exposés (8081, 19000-19002).
+Ne mettez pas une IP statique hardcodée dans `docker-compose.yml`. Utilisez la substitution d'environnement au démarrage pour éviter les erreurs lorsque l'IP de la machine change.
 
+Exemple recommandé :
 ```yaml
 services:
   expo:
@@ -32,57 +30,64 @@ services:
       - "19001:19001"
       - "19002:19002"
     environment:
-      # ⚠️ CRITIQUE : L'IP doit être celle de votre machine (pas localhost)
-      - REACT_NATIVE_PACKAGER_HOSTNAME=10.89.89.240
       - EXPO_NO_TYPESCRIPT_SETUP=1
+      - REACT_NATIVE_PACKAGER_HOSTNAME=${REACT_NATIVE_PACKAGER_HOSTNAME} # passez l'IP au démarrage
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=1000
       - WATCHPACK_POLLING=true
-      # ... autres variables d'environnement
 ```
 
-**Note :** Ne pas utiliser `--tunnel` car cela cause des problèmes de stabilité avec ngrok. Utiliser `--host lan` ou laisser par défaut.
+Note : préférez `--host lan` ou la variable d'environnement ci‑dessus. `--tunnel` peut fonctionner en dernier recours (plus lent, moins stable).
 
 ### B. `.env` (Environnement)
 
-Le fichier `.env` utilisé par Expo doit également refléter cette IP pour les accès API.
+Le fichier `.env` utilisé par Expo doit contenir l'URL Supabase accessible depuis votre téléphone. Ne mettez pas `localhost` : remplacez par l'IP LAN de la machine.
 
+Exemple (remplacez `<YOUR_HOST_IP>` par votre IP locale) :
 ```bash
-# ⚠️ CRITIQUE : Pas de localhost ici !
-EXPO_PUBLIC_SUPABASE_URL=http://10.89.89.240:54329
-EXPO_PUBLIC_API_URL=http://10.89.89.240:54329
+# EXEMPLE :
+EXPO_PUBLIC_SUPABASE_URL=http://<YOUR_HOST_IP>:54329
+EXPO_PUBLIC_API_URL=http://<YOUR_HOST_IP>:54329
 
 # Clés Supabase (ne pas commiter les vraies clés en prod)
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 EXPO_PUBLIC_SUPABASE_STORAGE_ANON_KEY=...
 ```
 
-## 3. Comment lancer l'environnement
+## 3. Comment lancer l'environnement (recommandé)
+
+Suivez ces étapes (macOS) pour éviter toute erreur réseau :
 
 ```bash
-# 1. Vérifier l'IP de votre machine
-ipconfig getifaddr en0
-# ou
-ifconfig | grep "inet " | grep -v 127.0.0.1
+# 1. Récupérer l'IP LAN de la machine
+HOST_IP=$(ipconfig getifaddr en0) # ou en1 selon l'interface
 
-# 2. Mettre à jour les fichiers si nécessaire
-# - docker-compose.yml: REACT_NATIVE_PACKAGER_HOSTNAME
-# - .env: EXPO_PUBLIC_SUPABASE_URL
+# 2. Mettre à jour .env automatiquement (macOS)
+sed -i '' "s|^EXPO_PUBLIC_SUPABASE_URL=.*|EXPO_PUBLIC_SUPABASE_URL=http://$HOST_IP:54329|" .env
+sed -i '' "s|^EXPO_PUBLIC_API_URL=.*|EXPO_PUBLIC_API_URL=http://$HOST_IP:54329|" .env
 
-# 3. Lancer les services
-docker compose up -d --build expo
+# 3. Démarrer Expo en indiquant l'IP du packager
+REACT_NATIVE_PACKAGER_HOSTNAME=$HOST_IP docker compose up -d --build expo
 
-# 4. Scanner le QR code avec Expo Go
-# L'URL doit être: exp://10.89.89.240:8081
+# 4. Vérifier Metro et Supabase
+curl -I http://$HOST_IP:8081/
+curl -I http://$HOST_IP:54329/rest/v1
+
+# Remarque (Linux): utilisez `hostname -I` ou `ip addr` pour récupérer l'IP.
 ```
 
-## 4. Dépannage Rapide
+## 4. Dépannage rapide
 
 Si l'application ne se connecte plus :
-1. Vérifiez si votre IP locale a changé (changement de réseau Wi-Fi).
+1. Vérifiez si votre IP locale a changé (changement de réseau Wi‑Fi).
 2. Si l'IP a changé :
-   - Mettez à jour `docker-compose.yml` → `REACT_NATIVE_PACKAGER_HOSTNAME`
-   - Mettez à jour `.env` → `EXPO_PUBLIC_SUPABASE_URL`
-   - Redémarrez : `docker compose down && docker compose up -d --build expo`
-3. Vérifiez que Supabase est lancé : `supabase start`
-4. Vérifiez la connectivité : `curl http://10.89.89.240:54329/rest/v1/`
+  - Mettez à jour `.env` (voir la commande `sed` ci‑dessus) ou éditez‑le manuellement.
+  - Redémarrez : `REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0) docker compose down && REACT_NATIVE_PACKAGER_HOSTNAME=$(ipconfig getifaddr en0) docker compose up -d --build expo`
+3. Vérifiez que Supabase est lancé (infra) : `supabase start`
+4. Vérifiez la connectivité depuis votre téléphone ou machine :
+  - `curl -I http://<YOUR_HOST_IP>:54329/rest/v1/`
+  - `curl -I http://<YOUR_HOST_IP>:8081/`
+
+5. Si vos appareils sont sur des réseaux différents :
+  - Utilisez `npx expo start --tunnel` (solution de secours, plus lent), ou
+  - Pour Android avec USB : `adb reverse tcp:8081 tcp:8081`.
