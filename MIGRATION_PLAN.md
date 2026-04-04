@@ -15,13 +15,16 @@
 ### Current Stack (2026)
 
 - **Image Docker**: `expo/eas-cli:latest` (cloud-native)
-- **Framework**: Expo SDK 50 + React Native 0.73
-- **State Management**: Zustand with persistence
+- **Framework**: Expo SDK 54.0.33 + React Native 0.81.5
+- **Navigation**: Expo Router 6.0.23 (file-based routing)
+- **State Management**: Zustand 5.0.11 with persistence
 - **Backend**: Supabase (Auth, Realtime, Storage)
 - **GPS**: Expo Location with background tracking
-- **Maps**: React Native Maps
-- **Notifications**: Expo Notifications
-- **i18n**: expo-localization + i18next + react-i18next
+- **Maps**: React Native Maps 1.20.1
+- **Notifications**: Expo Notifications 0.32.16
+- **i18n**: expo-localization 17.0.8 + i18next 25.8.8 + react-i18next 16.5.4
+- **Styling**: NativeWind 4.2.1 (Tailwind-like)
+- **UI Components**: Gluestack-UI 3.0.11
 
 ### GitOps Workflow
 
@@ -40,15 +43,17 @@ docker pull expo/eas-cli:latest
 docker images | grep expo
 ```
 
-### 1.2 Upgrade Dependencies
+### 1.2 Dependencies Actuelles (Expo SDK 54)
 
 ```bash
-cd vector-elegans
-npm install expo@latest
-npx expo install expo-localization i18next react-i18next
-npm install zustand react-native-maps
-npm install @react-navigation/native @react-navigation/native-stack @react-navigation/bottom-tabs
-npx expo install expo-av expo-haptics expo-keep-awake
+# Déjà installé :
+npm install expo@54.0.33
+npm install react-native-maps@1.20.1
+npm install zustand@5.0.11
+npm install @react-navigation/native@7.1.8
+npm install expo-localization@17.0.8 i18next@25.8.8 react-i18next@16.5.4
+npm install expo-av expo-haptics expo-keep-awake
+npm install gluestack-ui@3.0.11 nativind@4.2.1
 ```
 
 ### 1.3 Environment Variables (.env.local)
