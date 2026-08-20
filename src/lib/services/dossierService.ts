@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../supabase';
-import { normalizeFolderStatus, type DriverFolderStatus } from '../stores/driverFolderStore';
+import { normalizeFolderStatus, type DriverFolderStatus } from '../folderStatus';
 
 export interface DossierStatus {
   status: DriverFolderStatus;

@@ -42,7 +42,9 @@ export default function ProfileScreen() {
     },
     { icon: 'settings', label: 'Settings', action: () => {} },
     { icon: 'help-circle', label: 'Help', action: () => {} },
-    { icon: 'tool', label: 'Test Runner', action: () => setShowTestRunner(true) },
+    ...(__DEV__
+      ? [{ icon: 'tool' as const, label: 'Test Runner', action: () => setShowTestRunner(true) }]
+      : []),
   ];
 
   return (

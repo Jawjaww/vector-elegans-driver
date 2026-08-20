@@ -7,40 +7,13 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { DriverStatus } from "../types/database.types";
+import {
+  normalizeFolderStatus,
+  type DriverFolderStatus,
+} from "../folderStatus";
 
-/** UI + RPC dossier statuses (subset / aliases of driver_status) */
-export type DriverFolderStatus =
-  | "draft"
-  | "submitting"
-  | "pending_review"
-  | "active"
-  | "rejected"
-  | "locked"
-  // Legacy aliases kept for persisted AsyncStorage / older builds
-  | "submitted"
-  | "validated"
-  | "incomplete"
-  | "pending_validation";
-
-export function normalizeFolderStatus(
-  status: string | null | undefined,
-): DriverFolderStatus {
-  const s = (status || "draft").toLowerCase();
-  if (s === "submitted" || s === "pending_validation") return "pending_review";
-  if (s === "validated" || s === "approved") return "active";
-  if (s === "incomplete") return "draft";
-  if (
-    s === "draft" ||
-    s === "submitting" ||
-    s === "pending_review" ||
-    s === "active" ||
-    s === "rejected" ||
-    s === "locked"
-  ) {
-    return s;
-  }
-  return "draft";
-}
+export type { DriverFolderStatus };
+export { normalizeFolderStatus };
 
 export interface DriverNotification {
   id: string;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
+import { pushDriverLocation } from '../lib/services/locationService';
 import { useDriverStore } from '../lib/stores/driverStore';
 
 const UPDATE_INTERVAL = 10000;
@@ -35,14 +36,7 @@ export function useDriverLocation(enabled: boolean) {
         } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Prefer RPC: resolves drivers.id from auth.uid() and writes lon+lng
-        const { error: rpcError } = await supabase.rpc('update_driver_location', {
-          p_lat: location.lat,
-          p_lng: location.lng,
-          p_heading: location.heading ?? undefined,
-          p_speed: location.speed ?? undefined,
-          p_accuracy: location.accuracy ?? undefined,
-        });
+        const { error: rpcError } = await pushDriverLocation(location);
 
         if (rpcError && retryCount.current < MAX_RETRY) {
           retryCount.current++;
