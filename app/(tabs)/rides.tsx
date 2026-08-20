@@ -1,28 +1,66 @@
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useDriverStore } from '../../src/lib/stores/driverStore';
+import { rideService } from '../../src/services/rideService';
 
 export default function RidesScreen() {
-  const { activeRide, completeRide, stats } = useDriverStore();
+  const { activeRide, setActiveRide, completeRide, stats } = useDriverStore();
+
+  const runProgress = async (
+    status: 'in-progress' | 'completed' | 'driver-canceled' | 'no-show',
+    label: string
+  ) => {
+    if (!activeRide) return;
+    const result = await rideService.updateRideProgress(activeRide.id, status);
+    if (!result.success) {
+      Alert.alert('Error', result.error || `Failed to ${label}`);
+      return;
+    }
+    if (status === 'completed') {
+      completeRide({ ...activeRide, status });
+    } else if (status === 'driver-canceled' || status === 'no-show') {
+      setActiveRide(null);
+    } else {
+      setActiveRide({ ...activeRide, status });
+    }
+    Alert.alert('Success', `Ride ${label}`);
+  };
+
+  const handleStartRide = () => {
+    Alert.alert('Start ride', 'Mark this ride as in progress?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Start',
+        onPress: () => {
+          void runProgress('in-progress', 'started');
+        },
+      },
+    ]);
+  };
 
   const handleCompleteRide = () => {
-    if (activeRide) {
-      Alert.alert(
-        "Complete Ride",
-        "Are you sure you want to complete this ride?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { 
-            text: "Complete", 
-            style: "default",
-            onPress: () => {
-              completeRide(activeRide);
-              Alert.alert("Success", "Ride completed successfully!");
-            }
-          }
-        ]
-      );
-    }
+    Alert.alert('Complete Ride', 'Are you sure you want to complete this ride?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Complete',
+        onPress: () => {
+          void runProgress('completed', 'completed');
+        },
+      },
+    ]);
+  };
+
+  const handleCancelRide = () => {
+    Alert.alert('Cancel ride', 'Cancel this ride as driver?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Cancel ride',
+        style: 'destructive',
+        onPress: () => {
+          void runProgress('driver-canceled', 'canceled');
+        },
+      },
+    ]);
   };
 
   return (
@@ -80,12 +118,43 @@ export default function RidesScreen() {
                 </View>
               </View>
 
-              <TouchableOpacity 
-                onPress={handleCompleteRide}
-                className="w-full bg-emerald-500 py-4 rounded-xl items-center shadow-lg shadow-emerald-500/20"
-              >
-                <Text className="text-white font-bold text-base uppercase tracking-wider">Complete Ride</Text>
-              </TouchableOpacity>
+              <Text className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">
+                Status: {activeRide.status}
+              </Text>
+
+              {activeRide.status === 'scheduled' && (
+                <TouchableOpacity
+                  onPress={handleStartRide}
+                  className="w-full bg-indigo-500 py-4 rounded-xl items-center mb-3"
+                >
+                  <Text className="text-white font-bold text-base uppercase tracking-wider">
+                    Start Ride
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {activeRide.status === 'in-progress' && (
+                <TouchableOpacity
+                  onPress={handleCompleteRide}
+                  className="w-full bg-emerald-500 py-4 rounded-xl items-center shadow-lg shadow-emerald-500/20 mb-3"
+                >
+                  <Text className="text-white font-bold text-base uppercase tracking-wider">
+                    Complete Ride
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {(activeRide.status === 'scheduled' ||
+                activeRide.status === 'in-progress') && (
+                <TouchableOpacity
+                  onPress={handleCancelRide}
+                  className="w-full bg-red-500/80 py-4 rounded-xl items-center"
+                >
+                  <Text className="text-white font-bold text-base uppercase tracking-wider">
+                    Cancel Ride
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </ScrollView>

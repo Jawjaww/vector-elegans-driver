@@ -52,6 +52,7 @@ describe('rideService.acceptRide', () => {
       success: true,
       rideId: 'ride-1',
       status: 'scheduled',
+      overrideVehicleId: null,
     });
   });
 
@@ -67,5 +68,41 @@ describe('rideService.acceptRide', () => {
     const result = await rideService.acceptRide('ride-1');
     expect(result.success).toBe(false);
     expect(result.error).toContain('inactif');
+  });
+});
+
+describe('rideService.offer + progress', () => {
+  beforeEach(() => {
+    mockRpc.mockReset();
+  });
+
+  it('recordOffer calls record_ride_offer', async () => {
+    mockRpc.mockResolvedValue({ data: { success: true }, error: null });
+    await rideService.recordOffer('ride-1');
+    expect(mockRpc).toHaveBeenCalledWith('record_ride_offer', {
+      p_ride_id: 'ride-1',
+    });
+  });
+
+  it('respondOffer calls respond_ride_offer', async () => {
+    mockRpc.mockResolvedValue({ data: { success: true }, error: null });
+    await rideService.respondOffer('ride-1', 'timeout');
+    expect(mockRpc).toHaveBeenCalledWith('respond_ride_offer', {
+      p_ride_id: 'ride-1',
+      p_response: 'timeout',
+    });
+  });
+
+  it('updateRideProgress calls update_ride_progress', async () => {
+    mockRpc.mockResolvedValue({
+      data: { success: true, status: 'in-progress' },
+      error: null,
+    });
+    const result = await rideService.updateRideProgress('ride-1', 'in-progress');
+    expect(mockRpc).toHaveBeenCalledWith('update_ride_progress', {
+      p_ride_id: 'ride-1',
+      p_status: 'in-progress',
+    });
+    expect(result.success).toBe(true);
   });
 });
