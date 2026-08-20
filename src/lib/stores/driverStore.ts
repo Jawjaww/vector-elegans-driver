@@ -71,18 +71,38 @@ export const useDriverStore = create<DriverState>()(
       setActiveRide: (ride) => set({ activeRide: ride }),
       availableRide: null,
       availableRides: [],
-      setAvailableRide: (ride) => set((state) => ({ 
-        availableRide: ride, 
-        hasSeenRide: ride ? true : state.hasSeenRide 
-      })),
-      setAvailableRides: (rides) => set({ availableRides: rides }),
-      addAvailableRide: (ride) => set((state) => ({ 
-        availableRides: [...state.availableRides, ride] 
-      })),
-      removeAvailableRide: (rideId) => set((state) => ({ 
-        availableRides: state.availableRides.filter(ride => ride.id !== rideId) 
-      })),
-      clearAvailableRide: () => set({ availableRide: null }),
+      setAvailableRide: (ride) =>
+        set(() => ({
+          availableRide: ride,
+          availableRides: ride ? [ride] : [],
+          hasSeenRide: false,
+        })),
+      setAvailableRides: (rides) =>
+        set({
+          availableRides: rides,
+          availableRide: rides[0] ?? null,
+        }),
+      addAvailableRide: (ride) =>
+        set((state) => {
+          if (state.availableRides.some((r) => r.id === ride.id)) return state;
+          const availableRides = [...state.availableRides, ride];
+          return {
+            availableRides,
+            availableRide: state.availableRide ?? ride,
+          };
+        }),
+      removeAvailableRide: (rideId) =>
+        set((state) => {
+          const availableRides = state.availableRides.filter((ride) => ride.id !== rideId);
+          return {
+            availableRides,
+            availableRide:
+              state.availableRide?.id === rideId
+                ? availableRides[0] ?? null
+                : state.availableRide,
+          };
+        }),
+      clearAvailableRide: () => set({ availableRide: null, availableRides: [] }),
       stats: {
         todayEarnings: 0,
         todayRides: 0,

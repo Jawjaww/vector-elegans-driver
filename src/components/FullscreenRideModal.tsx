@@ -1,11 +1,21 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { StyleSheet, View, Text, Modal, Dimensions, TouchableOpacity, Alert, Platform } from 'react-native';
-import { BlurView } from 'expo-blur';
+import React, { useEffect, useState, useMemo } from 'react';
+import { StyleSheet, View, Text, Modal, Dimensions, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import {
+  GestureHandlerRootView,
+  GestureDetector,
+  Gesture,
+} from 'react-native-gesture-handler';
 
 import { useDriverStore, Ride } from '../lib/stores/driverStore';
 import { NeonSwipeButton } from './NeonSwipeButton';
@@ -44,6 +54,7 @@ interface FullscreenRideModalProps {
   isActive?: boolean;
   onAccept: () => void;
   onDecline: () => void;
+  onTimeout?: () => void;
 }
 
 // Helper for formatting
@@ -69,15 +80,7 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return d;
 };
 
-import { GestureHandlerRootView, PanGestureHandler } from 'react-native-gesture-handler';
-import {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  runOnJS,
-} from 'react-native-reanimated';
-
-export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline }: FullscreenRideModalProps) => {
+export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline, onTimeout }: FullscreenRideModalProps) => {
   const { t } = useTranslation();
   const { availableRide, currentLocation } = useDriverStore();
   const currentRide = ride || availableRide;
@@ -91,7 +94,6 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
   }), [currentRide?.pickup_lat, currentRide?.pickup_lon, currentRide?.dropoff_lat, currentRide?.dropoff_lon, currentLocation?.lat, currentLocation?.lng]);
   const insets = useSafeAreaInsets();
   
-  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [mapReady, setMapReady] = useState(false);
   const [startKey, setStartKey] = useState(Date.now());
   
@@ -107,35 +109,75 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
     ],
   }));
 
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      translateX.value = event.translationX;
+      translateY.value = event.translationY;
+    })
+    .onEnd((event) => {
+      const translationX = event.translationX;
+      const translationY = event.translationY;
+      const velocityX = event.velocityX;
+      const velocityY = event.velocityY;
+
+      const distance = Math.hypot(translationX, translationY);
+      const screenDiagonal = Math.hypot(width, height);
+
+      if (
+        distance > screenDiagonal * 0.2 ||
+        Math.abs(velocityX) > 800 ||
+        Math.abs(velocityY) > 800
+      ) {
+        const exitDistance = screenDiagonal * 1.5;
+        const magnitude = Math.hypot(translationX, translationY) || 1;
+        const dirX = translationX / magnitude;
+        const dirY = translationY / magnitude;
+
+        let targetX: number;
+        let targetY: number;
+
+        if (
+          magnitude < 10 &&
+          (Math.abs(velocityX) > 100 || Math.abs(velocityY) > 100)
+        ) {
+          const vMag = Math.hypot(velocityX, velocityY);
+          targetX = (velocityX / vMag) * exitDistance;
+          targetY = (velocityY / vMag) * exitDistance;
+        } else {
+          targetX = dirX * exitDistance;
+          targetY = dirY * exitDistance;
+        }
+
+        translateX.value = withSpring(targetX, {
+          damping: 20,
+          stiffness: 100,
+          velocity: velocityX,
+        });
+        translateY.value = withSpring(targetY, {
+          damping: 20,
+          stiffness: 100,
+          velocity: velocityY,
+        });
+
+        setTimeout(() => {
+          onDecline();
+        }, 200);
+      } else {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 300 });
+        translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+      }
+    })
+    .runOnJS(true);
+
   // Reset when a new ride appears
   useEffect(() => {
     if (currentRide) {
-      setCountdown(COUNTDOWN_SECONDS);
       setStartKey(Date.now());
       setMapReady(false);
-      // Reset animation values for the new ride
       translateX.value = 0;
       translateY.value = 0;
     }
   }, [currentRide?.id]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (!currentRide) return;
-    
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          onDecline();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentRide, onDecline]);
 
   if (!currentRide) return null;
 
@@ -160,67 +202,7 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={styles.container}>
-          <PanGestureHandler
-              onGestureEvent={(event) => {
-                const nativeEvent = event.nativeEvent as any;
-                const translationX = nativeEvent.translationX as number;
-                const translationY = nativeEvent.translationY as number;
-                
-                // Mettre à jour la position avec un effet de traînée
-                translateX.value = translationX;
-                translateY.value = translationY;
-              }}
-              onEnded={(event) => {
-                const nativeEvent = event.nativeEvent as any;
-                const translationX = nativeEvent.translationX as number;
-                const translationY = nativeEvent.translationY as number;
-                const velocityX = nativeEvent.velocityX as number;
-                const velocityY = nativeEvent.velocityY as number;
-                
-                const distance = Math.sqrt(translationX * translationX + translationY * translationY);
-                const screenDiagonal = Math.sqrt(width * width + height * height);
-                
-                // Si déplacé de plus de 20% de l'écran OU vitesse élevée → rejet
-                if (distance > screenDiagonal * 0.20 || 
-                    Math.abs(velocityX) > 800 || 
-                    Math.abs(velocityY) > 800) {
-                  
-                  // Calculer la direction de sortie
-                  // On veut projeter la modal hors de l'écran dans la direction du geste
-                  const exitDistance = screenDiagonal * 1.5; // Suffisamment loin pour sortir de l'écran
-                  
-                  // Normaliser le vecteur de direction
-                  const magnitude = Math.sqrt(translationX * translationX + translationY * translationY) || 1;
-                  const dirX = translationX / magnitude;
-                  const dirY = translationY / magnitude;
-                  
-                  // Si la magnitude est très faible (ex: juste un tap), on utilise la vélocité
-                  let targetX, targetY;
-                  
-                  if (magnitude < 10 && (Math.abs(velocityX) > 100 || Math.abs(velocityY) > 100)) {
-                      const vMag = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
-                      targetX = (velocityX / vMag) * exitDistance;
-                      targetY = (velocityY / vMag) * exitDistance;
-                  } else {
-                      targetX = dirX * exitDistance;
-                      targetY = dirY * exitDistance;
-                  }
-
-                  // Animation de sortie rapide
-                  translateX.value = withSpring(targetX, { damping: 20, stiffness: 100, velocity: velocityX });
-                  translateY.value = withSpring(targetY, { damping: 20, stiffness: 100, velocity: velocityY });
-                  
-                  // Appeler onDecline après l'animation
-                  setTimeout(() => {
-                    runOnJS(onDecline)();
-                  }, 200);
-                } else {
-                  // Retour à la position initiale avec animation spring
-                  translateX.value = withSpring(0, { damping: 20, stiffness: 300 });
-                  translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
-                }
-              }}
-            >
+          <GestureDetector gesture={panGesture}>
             <Animated.View 
               entering={FadeIn.duration(300)} 
               exiting={FadeOut.duration(300)}
@@ -240,7 +222,7 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
               <NeonProgress
                 durationMs={COUNTDOWN_SECONDS * 1000}
                 startKey={startKey}
-                onExpire={onDecline}
+                onExpire={onTimeout || onDecline}
               />
             </View>
 
@@ -344,7 +326,7 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
 
           </View>
         </Animated.View>
-        </PanGestureHandler>
+          </GestureDetector>
         </View>
       </GestureHandlerRootView>
     </Modal>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  StyleSheet,
   Animated,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -20,6 +19,97 @@ import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet } from "../../src/components/BottomSheet";
 import { RideStackModal } from "../../src/components/RideStackModal";
 import { VTCMap } from "../../src/map";
+import { rideService } from "../../src/services/rideService";
+
+function usePendingRideChannel({
+  canReceiveOffers,
+  isOnline,
+  availableRide,
+  activeRide,
+  presentOffer,
+  removeAvailableRide,
+  setAvailableRide,
+}: {
+  canReceiveOffers: boolean;
+  isOnline: boolean;
+  availableRide: Ride | null;
+  activeRide: Ride | null;
+  presentOffer: (ride: Ride) => Promise<void>;
+  removeAvailableRide: (rideId: string) => void;
+  setAvailableRide: (ride: Ride | null) => void;
+}) {
+  useEffect(() => {
+    let channel: RealtimeChannel | undefined;
+
+    if (!canReceiveOffers) {
+      if (!isOnline) setAvailableRide(null);
+      return;
+    }
+
+    const fetchExistingRide = async () => {
+      if (availableRide || activeRide) return;
+      const { data, error } = await supabase
+        .from("rides")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (data && !error) {
+        await presentOffer(data as Ride);
+      }
+    };
+
+    void fetchExistingRide();
+
+    channel = supabase
+      .channel("public:rides")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "rides",
+          filter: "status=eq.pending",
+        },
+        (payload) => {
+          void presentOffer(payload.new as Ride);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rides",
+        },
+        (payload) => {
+          const updated = payload.new as Ride;
+          if (
+            availableRide?.id === updated.id &&
+            updated.status !== "pending"
+          ) {
+            removeAvailableRide(availableRide.id);
+            Alert.alert("Info", "The ride is no longer available.");
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [
+    canReceiveOffers,
+    isOnline,
+    availableRide,
+    activeRide,
+    presentOffer,
+    removeAvailableRide,
+    setAvailableRide,
+  ]);
+}
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -31,143 +121,65 @@ export default function DashboardScreen() {
     isOnline,
     setIsOnline,
     stats,
-    currentLocation,
     availableRide,
     availableRides,
     setAvailableRide,
+    addAvailableRide,
     removeAvailableRide,
     activeRide,
     setActiveRide,
-    hasSeenRide,
   } = useDriverStore();
   useDriverLocation(isOnline);
 
-  // Realtime subscription for rides
-  useEffect(() => {
-    let channel: RealtimeChannel;
+  const canReceiveOffers = isOnline && driverStatus === "active" && !activeRide;
 
-    if (isOnline) {
-      console.log("Subscribing to rides...");
+  const presentOffer = useCallback(
+    async (ride: Ride) => {
+      if (!canReceiveOffers) return;
+      addAvailableRide(ride);
+      await rideService.recordOffer(ride.id);
+    },
+    [addAvailableRide, canReceiveOffers],
+  );
 
-      // 1. Check for any existing pending rides (FIFO)
-      const fetchExistingRide = async () => {
-        // Only fetch if we don't have one, aren't busy, AND haven't seen one yet
-        if (!availableRide && !activeRide && !hasSeenRide) {
-          const { data, error } = await supabase
-            .from("rides")
-            .select("*")
-            .eq("status", "pending")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .single();
+  usePendingRideChannel({
+    canReceiveOffers,
+    isOnline,
+    availableRide,
+    activeRide,
+    presentOffer,
+    removeAvailableRide,
+    setAvailableRide,
+  });
 
-          if (data && !error) {
-            console.log("Found existing pending ride:", data.id);
-            setAvailableRide(data as Ride);
-          }
-        }
-      };
-
-      fetchExistingRide();
-
-      // 2. Subscribe to new rides
-      channel = supabase
-        .channel("public:rides")
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "rides",
-            filter: "status=eq.pending",
-          },
-          (payload) => {
-            console.log("New ride received!", payload);
-            // Simple logic: if we are free AND haven't seen a ride yet, take it
-            if (!activeRide && !hasSeenRide) {
-              setAvailableRide(payload.new as Ride);
-            }
-          },
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "rides",
-          },
-          (payload) => {
-            // If the ride we are looking at is no longer pending (e.g. taken by someone else or cancelled)
-            if (
-              availableRide &&
-              payload.new.id === availableRide.id &&
-              payload.new.status !== "pending"
-            ) {
-              console.log("Ride no longer available:", payload.new.id);
-              setAvailableRide(null);
-              Alert.alert("Info", "The ride is no longer available.");
-            }
-          },
-        )
-        .subscribe((status) => {
-          console.log("Subscription status:", status);
-        });
-    } else {
-      // If we go offline, unsubscribe and clear available ride
-      setAvailableRide(null);
+  const handleAcceptRide = async (rideId: string) => {
+    const ride =
+      availableRides.find((r) => r.id === rideId) ||
+      (availableRide?.id === rideId ? availableRide : null);
+    if (!ride) return;
+    if (driverStatus !== "active") {
+      Alert.alert("Error", "Only active drivers can accept rides");
+      return;
     }
 
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
-  }, [isOnline, availableRide, activeRide, hasSeenRide]); // Re-run if online status changes
-
-  const handleAcceptRide = async () => {
-    if (!availableRide) return;
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Get driver ID
-      const { data: driver } = await supabase
-        .from("drivers")
-        .select("id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!driver) {
-        Alert.alert("Error", "Driver profile not found");
-        return;
-      }
-
-      const { data, error } = await supabase.rpc("accept_ride", {
-        p_ride_id: availableRide.id,
-        p_driver_id: driver.id,
-      });
-
-      if (error) {
-        console.error("Error accepting ride:", error);
-        Alert.alert("Error", "Failed to accept ride: " + error.message);
-        return;
-      }
-
-      if (data && data.success) {
-        Alert.alert("Success", "Ride accepted!");
-        setActiveRide(availableRide);
-        setAvailableRide(null);
-      } else {
-        Alert.alert("Error", data?.error || "Failed to accept ride");
-        setAvailableRide(null); // Clear it as it's likely taken
-      }
-    } catch (e) {
-      console.error("Exception accepting ride:", e);
-      Alert.alert("Error", "An unexpected error occurred");
+    const result = await rideService.acceptRide(rideId);
+    if (!result.success) {
+      Alert.alert("Error", result.error || "Failed to accept ride");
+      removeAvailableRide(rideId);
+      return;
     }
+
+    setActiveRide({ ...ride, status: "scheduled" });
+    setAvailableRide(null);
+    Alert.alert("Success", "Ride accepted!");
+  };
+
+  const handleDeclineRide = async (
+    rideId: string,
+    reason: 'declined' | 'timeout' = 'declined',
+  ) => {
+    await rideService.respondOffer(rideId, reason);
+    removeAvailableRide(rideId);
   };
 
   useEffect(() => {
@@ -189,14 +201,6 @@ export default function DashboardScreen() {
 
         if (driver) {
           setDriverStatus(driver.status);
-          if (
-            driver.status !== "active" &&
-            driver.status !== "pending_review" &&
-            driver.status !== "draft" &&
-            driver.status !== "rejected"
-          ) {
-            console.log("Driver status:", driver.status);
-          }
         } else {
           router.replace("/(auth)/profile-setup");
         }
@@ -211,6 +215,13 @@ export default function DashboardScreen() {
   }, [router]);
 
   const handleToggleOnline = () => {
+    if (driverStatus !== "active" && !isOnline) {
+      Alert.alert(
+        "Unavailable",
+        "Your dossier must be active before going online.",
+      );
+      return;
+    }
     setIsOnline(!isOnline);
   };
 
@@ -242,8 +253,12 @@ export default function DashboardScreen() {
     <AnimatedPage>
       <RideStackModal
         rides={availableRides}
-        onAcceptRide={handleAcceptRide}
-        onDeclineRide={(rideId) => removeAvailableRide(rideId)}
+        onAcceptRide={(rideId) => {
+          void handleAcceptRide(rideId);
+        }}
+        onDeclineRide={(rideId) => {
+          void handleDeclineRide(rideId);
+        }}
       />
 
       <View style={{ flex: 1, backgroundColor: "#171717", zIndex: -1 }}>
@@ -266,126 +281,15 @@ export default function DashboardScreen() {
           onMapReady={() => console.log("VTC Map ready")}
         />
 
-        {/* Horizontal Status Pill - Bottom Right (Lower) */}
-        <View style={{ position: "absolute", bottom: 100, right: 20 }}>
-          <Pressable onPress={handleToggleOnline}>
-            <Animated.View
-              style={{
-                paddingHorizontal: 20,
-                paddingVertical: 12,
-                borderRadius: 25,
-                backgroundColor: "rgba(10, 10, 10, 0.9)",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 12,
-                borderWidth: 1,
-                borderColor: isOnline
-                  ? "rgba(16, 185, 129, 0.3)"
-                  : "rgba(255, 255, 255, 0.1)",
-                shadowColor: isOnline ? "#10b981" : "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isOnline ? 0.3 : 0.4,
-                shadowRadius: 10,
-                elevation: 10,
-              }}
-            >
-              {/* Status LED */}
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: isOnline ? "#10b981" : "#4b5563",
-                  shadowColor: isOnline ? "#10b981" : "transparent",
-                  shadowOpacity: isOnline ? 0.8 : 0,
-                  shadowRadius: 8,
-                }}
-              />
-
-              {/* Text */}
-              <Text
-                style={{
-                  color: isOnline ? "#34d399" : "#9ca3af",
-                  fontWeight: "600",
-                  fontSize: 13,
-                  letterSpacing: 1,
-                  textShadowColor: isOnline
-                    ? "rgba(16, 185, 129, 0.4)"
-                    : "transparent",
-                  textShadowOffset: { width: 0, height: 0 },
-                  textShadowRadius: 8,
-                }}
-              >
-                {isOnline ? "EN LIGNE" : "HORS LIGNE"}
-              </Text>
-            </Animated.View>
-          </Pressable>
-        </View>
+        <OnlineStatusPill isOnline={isOnline} onToggle={handleToggleOnline} />
 
         {/* Content Overlay */}
         <BottomSheet snapLevel={bottomSheetSnapLevel}>
           <View style={{ flex: 1 }}>
-            {/* Critical Alerts (Absolute Top Priority - Fixed at top of sheet) */}
-            {(driverStatus === "incomplete" ||
-              driverStatus === "draft" ||
-              driverStatus === "pending_validation" ||
-              driverStatus === "pending_review" ||
-              driverStatus === "rejected" ||
-              driverStatus === "submitted") && (
-              <View className="px-6 mb-2">
-                <Pressable onPress={() => router.push("/(auth)/profile-setup")}>
-                  <View
-                    style={{
-                      padding: 16,
-                    }}
-                  >
-                    <View className="flex-row items-center gap-3">
-                      <View
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 16,
-                          backgroundColor: "rgba(251, 191, 36, 0.2)",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Feather
-                          name="alert-triangle"
-                          size={16}
-                          color="#fbbf24"
-                        />
-                      </View>
-                      <View className="flex-1">
-                        <Text
-                          className="text-base font-bold mb-0.5"
-                          style={{ color: "#fbbf24" }}
-                        >
-                          {driverStatus === "pending_validation" || driverStatus === "pending_review" || driverStatus === "submitted"
-                            ? "Validation en cours"
-                            : "Profil incomplet"}
-                        </Text>
-                        <Text
-                          className="text-xs font-medium"
-                          style={{ color: "rgba(255,255,255,0.9)" }}
-                        >
-                          {driverStatus === "pending_validation" || driverStatus === "pending_review" || driverStatus === "submitted"
-                            ? "Votre profil est en cours de validation."
-                            : "Complétez votre profil pour commencer."}
-                        </Text>
-                      </View>
-                      <Feather
-                        name="chevron-right"
-                        size={20}
-                        color="#fbbf24"
-                        style={{ opacity: 0.8 }}
-                      />
-                    </View>
-                  </View>
-                </Pressable>
-              </View>
-            )}
+            <DriverStatusBanner
+              driverStatus={driverStatus}
+              onOpenProfile={() => router.push("/(auth)/profile-setup")}
+            />
 
             {/* Scrollable Content - Visible when expanded */}
             <ScrollView
@@ -459,104 +363,261 @@ export default function DashboardScreen() {
                   {activeRide ? "COURSE EN COURS" : "COURSES DISPONIBLES"}
                 </Text>
 
-                {activeRide ? (
-                  <Pressable onPress={() => router.push("/(tabs)/rides")}>
-                    <View
-                      style={{
-                        padding: 16,
-                        backgroundColor: "rgba(16, 185, 129, 0.1)",
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: "rgba(16, 185, 129, 0.3)",
-                      }}
-                    >
-                      <View className="flex-row justify-between items-start mb-2">
-                        <View className="bg-emerald-500/20 px-2 py-1 rounded">
-                          <Text className="text-emerald-400 text-xs font-bold">
-                            EN COURS
-                          </Text>
-                        </View>
-                        <Text className="text-white font-bold">
-                          €{activeRide.estimated_price?.toFixed(2)}
-                        </Text>
-                      </View>
-                      <Text
-                        className="text-white text-base font-semibold mb-1"
-                        numberOfLines={1}
-                      >
-                        {activeRide.pickup_address}
-                      </Text>
-                      <Text className="text-gray-400 text-sm mb-3">
-                        vers {activeRide.dropoff_address}
-                      </Text>
-                      <View className="flex-row items-center justify-between">
-                        <Text className="text-gray-500 text-xs">
-                          {(activeRide.distance || 0) / 1000} km •{" "}
-                          {Math.round((activeRide.duration || 0) / 60)} min
-                        </Text>
-                        <View className="flex-row items-center">
-                          <Text className="text-emerald-400 text-xs font-bold mr-1">
-                            Voir les détails
-                          </Text>
-                          <Feather
-                            name="chevron-right"
-                            size={14}
-                            color="#34d399"
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  </Pressable>
-                ) : availableRide ? (
-                  <View style={{ padding: 16 }}>
-                    <View className="flex-row justify-between items-start mb-2">
-                      <View className="bg-emerald-500/20 px-2 py-1 rounded">
-                        <Text className="text-emerald-400 text-xs font-bold">
-                          NOUVELLE DEMANDE
-                        </Text>
-                      </View>
-                      <Text className="text-white font-bold">
-                        {availableRide.estimated_price
-                          ? `€${availableRide.estimated_price.toFixed(2)}`
-                          : "Prix estimé"}
-                      </Text>
-                    </View>
-                    <Text
-                      className="text-white text-base font-semibold mb-1"
-                      numberOfLines={1}
-                    >
-                      {availableRide.pickup_address}
-                    </Text>
-                    <Text className="text-gray-400 text-sm mb-3">
-                      vers {availableRide.dropoff_address}
-                    </Text>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-500 text-xs">
-                        {availableRide.distance
-                          ? `${(availableRide.distance / 1000).toFixed(1)} km`
-                          : ""}{" "}
-                        •{" "}
-                        {availableRide.duration
-                          ? `${Math.round(availableRide.duration / 60)} min`
-                          : ""}
-                      </Text>
-                      <Text className="text-emerald-400 text-xs font-bold">
-                        Appuyez pour voir
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View className="items-center py-8 opacity-50">
-                    <Text style={{ color: "rgba(255,255,255,0.4)" }}>
-                      Aucune autre course disponible pour le moment.
-                    </Text>
-                  </View>
-                )}
+                <DashboardRidePreview
+                  activeRide={activeRide}
+                  availableRide={availableRide}
+                  onOpenActiveRide={() => router.push("/(tabs)/rides")}
+                />
               </View>
             </ScrollView>
           </View>
         </BottomSheet>
       </View>
     </AnimatedPage>
+  );
+}
+
+function OnlineStatusPill({
+  isOnline,
+  onToggle,
+}: Readonly<{
+  isOnline: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <View style={{ position: "absolute", bottom: 100, right: 20 }}>
+      <Pressable onPress={onToggle}>
+        <Animated.View
+          style={{
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            borderRadius: 25,
+            backgroundColor: "rgba(10, 10, 10, 0.9)",
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            borderWidth: 1,
+            borderColor: isOnline
+              ? "rgba(16, 185, 129, 0.3)"
+              : "rgba(255, 255, 255, 0.1)",
+            shadowColor: isOnline ? "#10b981" : "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isOnline ? 0.3 : 0.4,
+            shadowRadius: 10,
+            elevation: 10,
+          }}
+        >
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: isOnline ? "#10b981" : "#4b5563",
+              shadowColor: isOnline ? "#10b981" : "transparent",
+              shadowOpacity: isOnline ? 0.8 : 0,
+              shadowRadius: 8,
+            }}
+          />
+          <Text
+            style={{
+              color: isOnline ? "#34d399" : "#9ca3af",
+              fontWeight: "600",
+              fontSize: 13,
+              letterSpacing: 1,
+              textShadowColor: isOnline
+                ? "rgba(16, 185, 129, 0.4)"
+                : "transparent",
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 8,
+            }}
+          >
+            {isOnline ? "EN LIGNE" : "HORS LIGNE"}
+          </Text>
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+}
+
+const NEEDS_PROFILE_ATTENTION = new Set([
+  "incomplete",
+  "draft",
+  "pending_validation",
+  "pending_review",
+  "rejected",
+  "submitted",
+]);
+
+const PENDING_REVIEW_STATUSES = new Set([
+  "pending_validation",
+  "pending_review",
+  "submitted",
+]);
+
+function DriverStatusBanner({
+  driverStatus,
+  onOpenProfile,
+}: Readonly<{
+  driverStatus: string | null;
+  onOpenProfile: () => void;
+}>) {
+  if (!driverStatus || !NEEDS_PROFILE_ATTENTION.has(driverStatus)) {
+    return null;
+  }
+
+  const isPendingReview = PENDING_REVIEW_STATUSES.has(driverStatus);
+
+  return (
+    <View className="px-6 mb-2">
+      <Pressable onPress={onOpenProfile}>
+        <View style={{ padding: 16 }}>
+          <View className="flex-row items-center gap-3">
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: "rgba(251, 191, 36, 0.2)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Feather name="alert-triangle" size={16} color="#fbbf24" />
+            </View>
+            <View className="flex-1">
+              <Text
+                className="text-base font-bold mb-0.5"
+                style={{ color: "#fbbf24" }}
+              >
+                {isPendingReview ? "Validation en cours" : "Profil incomplet"}
+              </Text>
+              <Text
+                className="text-xs font-medium"
+                style={{ color: "rgba(255,255,255,0.9)" }}
+              >
+                {isPendingReview
+                  ? "Votre profil est en cours de validation."
+                  : "Complétez votre profil pour commencer."}
+              </Text>
+            </View>
+            <Feather
+              name="chevron-right"
+              size={20}
+              color="#fbbf24"
+              style={{ opacity: 0.8 }}
+            />
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function DashboardRidePreview({
+  activeRide,
+  availableRide,
+  onOpenActiveRide,
+}: Readonly<{
+  activeRide: Ride | null;
+  availableRide: Ride | null;
+  onOpenActiveRide: () => void;
+}>) {
+  if (activeRide) {
+    return (
+      <Pressable onPress={onOpenActiveRide}>
+        <View
+          style={{
+            padding: 16,
+            backgroundColor: "rgba(16, 185, 129, 0.1)",
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: "rgba(16, 185, 129, 0.3)",
+          }}
+        >
+          <View className="flex-row justify-between items-start mb-2">
+            <View className="bg-emerald-500/20 px-2 py-1 rounded">
+              <Text className="text-emerald-400 text-xs font-bold">
+                EN COURS
+              </Text>
+            </View>
+            <Text className="text-white font-bold">
+              €{activeRide.estimated_price?.toFixed(2)}
+            </Text>
+          </View>
+          <Text
+            className="text-white text-base font-semibold mb-1"
+            numberOfLines={1}
+          >
+            {activeRide.pickup_address}
+          </Text>
+          <Text className="text-gray-400 text-sm mb-3">
+            vers {activeRide.dropoff_address}
+          </Text>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-gray-500 text-xs">
+              {(activeRide.distance || 0) / 1000} km •{" "}
+              {Math.round((activeRide.duration || 0) / 60)} min
+            </Text>
+            <View className="flex-row items-center">
+              <Text className="text-emerald-400 text-xs font-bold mr-1">
+                Voir les détails
+              </Text>
+              <Feather name="chevron-right" size={14} color="#34d399" />
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    );
+  }
+
+  if (availableRide) {
+    const priceLabel = availableRide.estimated_price
+      ? `€${availableRide.estimated_price.toFixed(2)}`
+      : "Prix estimé";
+    const distanceLabel = availableRide.distance
+      ? `${(availableRide.distance / 1000).toFixed(1)} km`
+      : "";
+    const durationLabel = availableRide.duration
+      ? `${Math.round(availableRide.duration / 60)} min`
+      : "";
+
+    return (
+      <View style={{ padding: 16 }}>
+        <View className="flex-row justify-between items-start mb-2">
+          <View className="bg-emerald-500/20 px-2 py-1 rounded">
+            <Text className="text-emerald-400 text-xs font-bold">
+              NOUVELLE DEMANDE
+            </Text>
+          </View>
+          <Text className="text-white font-bold">{priceLabel}</Text>
+        </View>
+        <Text
+          className="text-white text-base font-semibold mb-1"
+          numberOfLines={1}
+        >
+          {availableRide.pickup_address}
+        </Text>
+        <Text className="text-gray-400 text-sm mb-3">
+          vers {availableRide.dropoff_address}
+        </Text>
+        <View className="flex-row justify-between">
+          <Text className="text-gray-500 text-xs">
+            {distanceLabel} • {durationLabel}
+          </Text>
+          <Text className="text-emerald-400 text-xs font-bold">
+            Appuyez pour voir
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View className="items-center py-8 opacity-50">
+      <Text style={{ color: "rgba(255,255,255,0.4)" }}>
+        Aucune autre course disponible pour le moment.
+      </Text>
+    </View>
   );
 }

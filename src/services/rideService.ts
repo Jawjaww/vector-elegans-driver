@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Ride } from '../lib/types/database.types';
+import type { Ride, RideStatus } from '../lib/types/database.types';
 
 export interface PendingRide {
   id: string;
@@ -26,6 +26,7 @@ export interface AcceptRideResult {
   error?: string;
   rideId?: string;
   status?: string;
+  overrideVehicleId?: string | null;
 }
 
 class RideService {
@@ -49,8 +50,7 @@ class RideService {
           filter: 'status=eq.pending',
         },
         (payload) => {
-          const ride = this.mapToPendingRide(payload.new as Ride);
-          onNewRide(ride);
+          onNewRide(this.mapToPendingRide(payload.new as Ride));
         }
       )
       .on(
@@ -62,8 +62,7 @@ class RideService {
           filter: 'status=eq.pending',
         },
         (payload) => {
-          const ride = this.mapToPendingRide(payload.new as Ride);
-          onRideUpdated(ride);
+          onRideUpdated(this.mapToPendingRide(payload.new as Ride));
         }
       )
       .on(
@@ -106,9 +105,39 @@ class RideService {
     return (data || []).map(this.mapToPendingRide);
   }
 
+  async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {
+    const { data, error } = await supabase.rpc('record_ride_offer', {
+      p_ride_id: rideId,
+    });
+    if (error) return { success: false, error: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.success === false) {
+      return { success: false, error: row.error || 'record failed' };
+    }
+    return { success: true };
+  }
+
+  async respondOffer(
+    rideId: string,
+    response: 'declined' | 'timeout'
+  ): Promise<{ success: boolean; error?: string }> {
+    const { data, error } = await supabase.rpc('respond_ride_offer', {
+      p_ride_id: rideId,
+      p_response: response,
+    });
+    if (error) return { success: false, error: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.success === false) {
+      return { success: false, error: row.error || 'respond failed' };
+    }
+    return { success: true };
+  }
+
   async acceptRide(rideId: string): Promise<AcceptRideResult> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         return { success: false, error: 'Not authenticated' };
       }
@@ -139,6 +168,7 @@ class RideService {
         success: true,
         rideId: rpcResult.ride_id ?? rideId,
         status: rpcResult.status ?? 'scheduled',
+        overrideVehicleId: rpcResult.override_vehicle_id ?? null,
       };
     } catch (error) {
       console.error('[RideService] Error accepting ride:', error);
@@ -149,16 +179,20 @@ class RideService {
     }
   }
 
-  async updateRideStatus(rideId: string, status: string) {
-    const { error } = await supabase
-      .from('rides')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', rideId);
-
-    if (error) {
-      console.error('[RideService] Error updating ride status:', error);
-      throw error;
+  async updateRideProgress(
+    rideId: string,
+    status: Extract<RideStatus, 'in-progress' | 'completed' | 'driver-canceled' | 'no-show'>
+  ): Promise<{ success: boolean; error?: string; status?: string }> {
+    const { data, error } = await supabase.rpc('update_ride_progress', {
+      p_ride_id: rideId,
+      p_status: status,
+    });
+    if (error) return { success: false, error: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.success !== true) {
+      return { success: false, error: row?.error || 'progress failed' };
     }
+    return { success: true, status: row.status };
   }
 
   private mapToPendingRide(ride: Ride): PendingRide {

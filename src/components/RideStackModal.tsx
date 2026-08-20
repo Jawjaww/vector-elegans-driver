@@ -6,32 +6,28 @@ import { Ride } from '../lib/stores/driverStore';
 interface RideStackModalProps {
   rides: Ride[];
   onAcceptRide: (rideId: string) => void;
-  onDeclineRide: (rideId: string) => void;
+  onDeclineRide: (rideId: string, reason?: 'declined' | 'timeout') => void;
 }
 
 export const RideStackModal = ({ rides, onAcceptRide, onDeclineRide }: RideStackModalProps) => {
-  const [currentRideIndex, setCurrentRideIndex] = useState(0);
+  const [currentRideIndex] = useState(0);
 
   if (rides.length === 0) return null;
 
-  // Afficher seulement les 3 premières rides pour éviter l'overcrowding
   const visibleRides = rides.slice(0, 3);
-  const currentRide = visibleRides[currentRideIndex];
+  const safeIndex = Math.min(currentRideIndex, visibleRides.length - 1);
+  const currentRide = visibleRides[safeIndex];
 
   const handleAccept = () => {
     onAcceptRide(currentRide.id);
-    // Passer à la ride suivante ou fermer si c'était la dernière
-    if (currentRideIndex < visibleRides.length - 1) {
-      setCurrentRideIndex(currentRideIndex + 1);
-    }
   };
 
   const handleDecline = () => {
-    onDeclineRide(currentRide.id);
-    // Passer à la ride suivante ou fermer si c'était la dernière
-    if (currentRideIndex < visibleRides.length - 1) {
-      setCurrentRideIndex(currentRideIndex + 1);
-    }
+    onDeclineRide(currentRide.id, 'declined');
+  };
+
+  const handleTimeout = () => {
+    onDeclineRide(currentRide.id, 'timeout');
   };
 
   return (
@@ -61,6 +57,7 @@ export const RideStackModal = ({ rides, onAcceptRide, onDeclineRide }: RideStack
                 isActive={isActive}
                 onAccept={handleAccept}
                 onDecline={handleDecline}
+                onTimeout={handleTimeout}
               />
             </View>
           );
