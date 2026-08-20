@@ -1,12 +1,13 @@
 /**
  * Service de gestion des états de dossier
- * Gère la communication avec les endpoints API pour les opérations de dossier
+ * Aligné sur RPCs get_driver_dossier_status / submit_driver_dossier / validate_driver_dossier
  */
 
 import { supabase } from '../supabase';
+import { normalizeFolderStatus, type DriverFolderStatus } from '../stores/driverFolderStore';
 
 export interface DossierStatus {
-  status: 'draft' | 'submitted' | 'validated' | 'rejected';
+  status: DriverFolderStatus;
   submitted_at: string | null;
   validated_at: string | null;
   rejected_at: string | null;
@@ -23,42 +24,40 @@ export interface DossierSubmissionResult {
   message: string;
 }
 
-/**
- * Obtient l'état actuel du dossier d'un conducteur
- */
 export async function getDossierStatus(driverId: string): Promise<DossierStatus | null> {
   try {
-    console.log('[dossierService] getDossierStatus - driverId:', driverId);
     const { data, error } = await supabase
       .rpc('get_driver_dossier_status', { p_driver_id: driverId });
-
-    console.log('[dossierService] getDossierStatus - result:', { data, error });
 
     if (error) {
       console.error('[dossierService] getDossierStatus - error:', error);
       return null;
     }
 
-    return data && data.length > 0 ? data[0] : null;
+    const row = data && data.length > 0 ? data[0] : null;
+    if (!row) return null;
+
+    return {
+      ...row,
+      status: normalizeFolderStatus(row.status),
+      submitted_at: row.submitted_at ?? null,
+      validated_at: row.validated_at ?? null,
+      rejected_at: row.rejected_at ?? null,
+      rejection_reason: row.rejection_reason ?? null,
+    };
   } catch (error) {
     console.error('[dossierService] getDossierStatus - exception:', error);
     return null;
   }
 }
 
-/**
- * Vérifie si un utilisateur peut éditer un dossier
- */
 export async function canEditDossier(driverId: string, userId: string): Promise<boolean> {
   try {
-    console.log('[dossierService] canEditDossier - driverId:', driverId, 'userId:', userId);
     const { data, error } = await supabase
       .rpc('can_edit_driver_dossier', { 
         p_driver_id: driverId,
         p_user_id: userId 
       });
-
-    console.log('[dossierService] canEditDossier - result:', { data, error });
 
     if (error) {
       console.error('[dossierService] canEditDossier - error:', error);
@@ -72,19 +71,13 @@ export async function canEditDossier(driverId: string, userId: string): Promise<
   }
 }
 
-/**
- * Soumet un dossier pour validation
- */
 export async function submitDossier(driverId: string, userId: string): Promise<DossierSubmissionResult> {
   try {
-    console.log('[dossierService] submitDossier - driverId:', driverId, 'userId:', userId);
     const { data, error } = await supabase
       .rpc('submit_driver_dossier', { 
         p_driver_id: driverId,
         p_user_id: userId 
       });
-
-    console.log('[dossierService] submitDossier - result:', { data, error });
 
     if (error) {
       console.error('[dossierService] submitDossier - error:', error);
@@ -95,7 +88,8 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
       };
     }
 
-    return data && data.length > 0 ? data[0] : {
+    const row = data && data.length > 0 ? data[0] : null;
+    return row || {
       success: false,
       new_status: 'error',
       message: 'Réponse invalide du serveur'
@@ -110,9 +104,6 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
   }
 }
 
-/**
- * Valide ou rejette un dossier (admin only)
- */
 export async function validateDossier(
   driverId: string, 
   adminUserId: string, 
@@ -120,7 +111,6 @@ export async function validateDossier(
   rejectionReason?: string
 ): Promise<DossierSubmissionResult> {
   try {
-    console.log('[dossierService] validateDossier - driverId:', driverId, 'adminUserId:', adminUserId, 'approved:', approved);
     const { data, error } = await supabase
       .rpc('validate_driver_dossier', { 
         p_driver_id: driverId,
@@ -128,8 +118,6 @@ export async function validateDossier(
         p_approved: approved,
         p_rejection_reason: rejectionReason || null
       });
-
-    console.log('[dossierService] validateDossier - result:', { data, error });
 
     if (error) {
       console.error('[dossierService] validateDossier - error:', error);
@@ -140,7 +128,8 @@ export async function validateDossier(
       };
     }
 
-    return data && data.length > 0 ? data[0] : {
+    const row = data && data.length > 0 ? data[0] : null;
+    return row || {
       success: false,
       new_status: 'error',
       message: 'Réponse invalide du serveur'
@@ -155,14 +144,8 @@ export async function validateDossier(
   }
 }
 
-/**
- * Synchronise l'état du dossier avec le backend
- * Met à jour le store local avec les données du backend
- */
 export async function syncDossierState(driverId: string, userId: string) {
   try {
-    console.log('[dossierService] syncDossierState - driverId:', driverId, 'userId:', userId);
-    // Récupérer l'état actuel du backend
     const status = await getDossierStatus(driverId);
     
     if (!status) {
@@ -170,9 +153,7 @@ export async function syncDossierState(driverId: string, userId: string) {
       return null;
     }
 
-    // Vérifier les permissions d'édition
     const canEdit = await canEditDossier(driverId, userId);
-    console.log('[dossierService] syncDossierState - canEdit:', canEdit);
 
     return {
       status: status.status,

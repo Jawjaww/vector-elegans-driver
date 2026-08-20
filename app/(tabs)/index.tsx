@@ -328,8 +328,10 @@ export default function DashboardScreen() {
           <View style={{ flex: 1 }}>
             {/* Critical Alerts (Absolute Top Priority - Fixed at top of sheet) */}
             {(driverStatus === "incomplete" ||
+              driverStatus === "draft" ||
               driverStatus === "pending_validation" ||
               driverStatus === "pending_review" ||
+              driverStatus === "rejected" ||
               driverStatus === "submitted") && (
               <View className="px-6 mb-2">
                 <Pressable onPress={() => router.push("/(auth)/profile-setup")}>

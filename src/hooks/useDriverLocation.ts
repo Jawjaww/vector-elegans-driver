@@ -35,27 +35,25 @@ export function useDriverLocation(enabled: boolean) {
         } = await supabase.auth.getUser();
         if (!user) return;
 
-        const { error } = await supabase.from('driver_locations').upsert(
-          {
-            driver_id: user.id,
-            lat: location.lat,
-            lon: location.lng,
-            heading: location.heading,
-            speed: location.speed,
-            accuracy: location.accuracy,
-            is_online: true,
-            recorded_at: new Date().toISOString(),
-          },
-          { onConflict: 'driver_id', ignoreDuplicates: false }
-        );
+        // Prefer RPC: resolves drivers.id from auth.uid() and writes lon+lng
+        const { error: rpcError } = await supabase.rpc('update_driver_location', {
+          p_lat: location.lat,
+          p_lng: location.lng,
+          p_heading: location.heading ?? undefined,
+          p_speed: location.speed ?? undefined,
+          p_accuracy: location.accuracy ?? undefined,
+        });
 
-        if (error && retryCount.current < MAX_RETRY) {
+        if (rpcError && retryCount.current < MAX_RETRY) {
           retryCount.current++;
           setTimeout(() => {
             updateLocation(position);
           }, 1000 * retryCount.current);
         } else {
           retryCount.current = 0;
+          if (rpcError) {
+            console.error('[Location] update_driver_location failed:', rpcError);
+          }
         }
       } catch (err) {
         console.error('[Location] Update failed:', err);

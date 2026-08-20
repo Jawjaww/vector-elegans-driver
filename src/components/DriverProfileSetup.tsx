@@ -669,7 +669,7 @@ export default function DriverProfileSetup({
       const { error } = await supabase
         .from("drivers")
         .update({
-          submission_status: "draft",
+          status: "draft",
           updated_at: new Date().toISOString(),
         })
         .eq("id", driverId);

@@ -1,19 +1,46 @@
 /**
  * Store Zustand pour la gestion d'état des dossiers conducteurs
- * Gère le statut, les permissions, les notifications et les logs
+ * Aligné sur drivers.status / RPCs get_driver_dossier_status & submit_driver_dossier
  */
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { DriverStatus } from "../types/database.types";
 
+/** UI + RPC dossier statuses (subset / aliases of driver_status) */
 export type DriverFolderStatus =
-  | "draft" // Brouillon - édition autorisée
-  | "submitting" // En cours de soumission
-  | "submitted" // Soumis - en attente de validation
-  | "validated" // Validé - accepté
-  | "rejected" // Rejeté - nécessite des modifications
-  | "locked"; // Verrouillé - lecture seule
+  | "draft"
+  | "submitting"
+  | "pending_review"
+  | "active"
+  | "rejected"
+  | "locked"
+  // Legacy aliases kept for persisted AsyncStorage / older builds
+  | "submitted"
+  | "validated"
+  | "incomplete"
+  | "pending_validation";
+
+export function normalizeFolderStatus(
+  status: string | null | undefined,
+): DriverFolderStatus {
+  const s = (status || "draft").toLowerCase();
+  if (s === "submitted" || s === "pending_validation") return "pending_review";
+  if (s === "validated" || s === "approved") return "active";
+  if (s === "incomplete") return "draft";
+  if (
+    s === "draft" ||
+    s === "submitting" ||
+    s === "pending_review" ||
+    s === "active" ||
+    s === "rejected" ||
+    s === "locked"
+  ) {
+    return s;
+  }
+  return "draft";
+}
 
 export interface DriverNotification {
   id: string;
@@ -29,27 +56,18 @@ export interface DriverNotification {
 }
 
 export interface DriverFolderState {
-  // État du dossier
   status: DriverFolderStatus;
   submittedAt: string | null;
   validatedAt: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
-
-  // Permissions
   isEditable: boolean;
   canSubmit: boolean;
   canEditDocuments: boolean;
-
-  // Notifications
   notifications: DriverNotification[];
   unreadCount: number;
-
-  // Logs
   recentLogs: any[];
-
-  // Actions
-  setStatus: (status: DriverFolderStatus) => void;
+  setStatus: (status: DriverFolderStatus | DriverStatus | string) => void;
   setSubmissionTimestamp: (timestamp: string) => void;
   setValidationTimestamp: (timestamp: string) => void;
   setRejection: (reason: string, timestamp: string) => void;
@@ -83,8 +101,7 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       ...initialState,
 
       setStatus: (status) => {
-        set({ status });
-        // Mettre à jour les permissions automatiquement
+        set({ status: normalizeFolderStatus(status) });
         get().updatePermissions();
       },
 
@@ -134,14 +151,13 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       },
 
       updatePermissions: () => {
-        const { status } = get();
-
-        // Définir les permissions basées sur le statut
+        const status = normalizeFolderStatus(get().status);
         const isEditable = status === "draft" || status === "rejected";
         const canSubmit = status === "draft" || status === "rejected";
         const canEditDocuments = status === "draft" || status === "rejected";
 
         set({
+          status,
           isEditable,
           canSubmit,
           canEditDocuments,
@@ -149,7 +165,9 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       },
 
       completeSubmission: (success, error) => {
-        const newStatus = success ? "submitted" : "draft";
+        const newStatus: DriverFolderStatus = success
+          ? "pending_review"
+          : "draft";
         const submittedAt = success ? new Date().toISOString() : null;
 
         set({
@@ -157,17 +175,16 @@ export const useDriverFolderStore = create<DriverFolderState>()(
           submittedAt,
           isEditable: !success,
           canSubmit: false,
+          canEditDocuments: !success,
         });
 
         if (success) {
-          // Ajouter une notification de succès
           get().addNotification({
             type: "success",
             title: "Dossier soumis",
             message:
               "Votre dossier a été soumis avec succès et est en cours de validation.",
           });
-          // Retirer d'anciennes notifications liées au profil incomplet
           set((state) => ({
             notifications: state.notifications.filter((n) => {
               const txt = (
@@ -177,20 +194,18 @@ export const useDriverFolderStore = create<DriverFolderState>()(
               ).toLowerCase();
               return !txt.includes("incomplet") && !txt.includes("incomplete");
             }),
-            unreadCount: 0,
           }));
-        } else {
-          // Ajouter une notification d'erreur
+        } else if (error) {
           get().addNotification({
             type: "error",
             title: "Erreur de soumission",
-            message: error || "Une erreur est survenue lors de la soumission.",
+            message: error,
           });
         }
       },
 
       resetFolder: () => {
-        set(initialState);
+        set({ ...initialState, notifications: [], unreadCount: 0 });
       },
     }),
     {
@@ -202,35 +217,16 @@ export const useDriverFolderStore = create<DriverFolderState>()(
         validatedAt: state.validatedAt,
         rejectedAt: state.rejectedAt,
         rejectionReason: state.rejectionReason,
-        notifications: state.notifications,
-        unreadCount: state.unreadCount,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.setStatus(normalizeFolderStatus(state.status));
+        }
+      },
     },
   ),
 );
 
-/**
- * Hook pour accéder facilement aux notifications
- */
-export function useDriverNotifications() {
-  const {
-    notifications,
-    unreadCount,
-    markNotificationAsRead,
-    addNotification,
-  } = useDriverFolderStore();
-
-  return {
-    notifications,
-    unreadCount,
-    markNotificationAsRead,
-    addNotification,
-  };
-}
-
-/**
- * Hook pour accéder au statut du dossier
- */
 export function useDriverFolderStatus() {
   const {
     status,
@@ -243,8 +239,10 @@ export function useDriverFolderStatus() {
     rejectionReason,
   } = useDriverFolderStore();
 
+  const normalized = normalizeFolderStatus(status);
+
   return {
-    status,
+    status: normalized,
     isEditable,
     canSubmit,
     canEditDocuments,
@@ -252,5 +250,22 @@ export function useDriverFolderStatus() {
     validatedAt,
     rejectedAt,
     rejectionReason,
+  };
+}
+
+export function useDriverNotifications() {
+  const {
+    notifications,
+    unreadCount,
+    markNotificationAsRead,
+    clearNotifications,
+    addNotification,
+  } = useDriverFolderStore();
+  return {
+    notifications,
+    unreadCount,
+    markNotificationAsRead,
+    clearNotifications,
+    addNotification,
   };
 }

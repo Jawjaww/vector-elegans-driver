@@ -35,7 +35,13 @@ EXPO_PUBLIC_API_URL=http://10.89.89.240:54329
 - Toujours utiliser `docker compose up -d --build expo` après modifications
 - Vérifier les logs: `docker compose logs -f expo`
 
-## Notes rapdes
+## Types Supabase
+
+- Source de vérité: `infra-supabase/supabase/migrations/` + types générés dans `infra-supabase/supabase/types/database.types.ts`
+- Ne pas éditer à la main `src/lib/types/database.types.ts` (copie syncée)
+- Régénérer depuis `infra-supabase`: `./scripts/gen-types.sh`
+
+## Notes rapides
 
 - Pour appliquer une migration SQL immédiatement :
 ```bash

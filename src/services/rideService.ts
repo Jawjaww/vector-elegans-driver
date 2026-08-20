@@ -138,7 +138,7 @@ class RideService {
       return {
         success: true,
         rideId: rpcResult.ride_id ?? rideId,
-        status: rpcResult.status ?? 'accepted',
+        status: rpcResult.status ?? 'scheduled',
       };
     } catch (error) {
       console.error('[RideService] Error accepting ride:', error);

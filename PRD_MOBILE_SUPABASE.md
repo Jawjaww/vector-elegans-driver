@@ -56,7 +56,7 @@
 
 **Fonctionnalités Supabase**:
 - ⚡ **WebSocket temps réel** pour nouvelles réservations
-- 🔄 **Statuts de course**: en attente → acceptée → en cours → terminée
+**Statuts de course**: pending → scheduled → in-progress → completed (enum `ride_status` ; pas de valeur `accepted`)
 - 📍 **Mise à jour position** chauffeur toutes les 5 secondes
 - 💰 **Calcul prix automatique** via fonctions SQL
 - 📱 **Synchronisation** offline/online automatique

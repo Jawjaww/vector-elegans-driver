@@ -89,7 +89,7 @@ export default function LoginScreen() {
         if (!driver) {
           router.replace("/(auth)/profile-setup");
         } else if (
-          ["active", "incomplete", "pending_validation"].includes(driver.status)
+          ["active", "draft", "incomplete", "pending_validation", "pending_review", "rejected"].includes(driver.status)
         ) {
           router.replace("/(tabs)");
         } else {

@@ -129,6 +129,7 @@ export const DriverFolderStatusBanner: React.FC = () => {
 
   const getStatusConfig = () => {
     switch (status) {
+      case 'pending_review':
       case 'submitted':
         return {
           icon: 'clock' as const,
@@ -136,6 +137,7 @@ export const DriverFolderStatusBanner: React.FC = () => {
           message: 'Votre dossier a été soumis et est en cours de vérification par notre équipe.',
           color: 'bg-yellow-500'
         };
+      case 'active':
       case 'validated':
         return {
           icon: 'check-circle' as const,
