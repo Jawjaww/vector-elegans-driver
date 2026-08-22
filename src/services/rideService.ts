@@ -1,5 +1,9 @@
 import { supabase } from '../lib/supabase';
 import type { Ride, RideStatus } from '../lib/types/database.types';
+import {
+  isRidePickupStillOfferable,
+  ridePickupExpiryCutoffIso,
+} from '../lib/utils/ridePickup';
 
 export interface PendingRide {
   id: string;
@@ -50,7 +54,9 @@ class RideService {
           filter: 'status=eq.pending',
         },
         (payload) => {
-          onNewRide(this.mapToPendingRide(payload.new as Ride));
+          const ride = payload.new as Ride;
+          if (!isRidePickupStillOfferable(ride.pickup_time)) return;
+          onNewRide(this.mapToPendingRide(ride));
         }
       )
       .on(
@@ -62,7 +68,12 @@ class RideService {
           filter: 'status=eq.pending',
         },
         (payload) => {
-          onRideUpdated(this.mapToPendingRide(payload.new as Ride));
+          const ride = payload.new as Ride;
+          if (!isRidePickupStillOfferable(ride.pickup_time)) {
+            onRideRemoved(ride.id);
+            return;
+          }
+          onRideUpdated(this.mapToPendingRide(ride));
         }
       )
       .on(
@@ -94,6 +105,7 @@ class RideService {
       .from('rides')
       .select('*')
       .eq('status', 'pending')
+      .gt('pickup_time', ridePickupExpiryCutoffIso())
       .order('created_at', { ascending: false })
       .limit(10);
 

@@ -41,6 +41,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { useDriverSubmissionLogger } from "../lib/services/driverSubmissionLogger";
 import { DriverStatus } from "../lib/types/database.types";
 import {
@@ -163,7 +165,8 @@ export default function DriverProfileSetup({
   const [userId, setUserId] = useState<string | null>(null);
 
   // Dossier state management
-  const { status, isEditable, canSubmit } = useDriverFolderStatus();
+  const { status, isEditable, canSubmit, canEditDocuments } =
+    useDriverFolderStatus();
   const { setStatus, completeSubmission } = useDriverFolderStore();
   const {
     logger,
@@ -208,29 +211,25 @@ export default function DriverProfileSetup({
     id_card: null,
     proof_of_address: null,
   });
+  const [documentMeta, setDocumentMeta] = useState<
+    Partial<
+      Record<
+        keyof DocumentStatus,
+        {
+          status: string;
+          rejectionReason: string | null;
+          expiryDate: string | null;
+        }
+      >
+    >
+  >({});
+  const [rpcCompletion, setRpcCompletion] = useState(0);
+  const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Calculer le pourcentage de complétion
-  const calculateCompletion = (): number => {
-    const profilFields = REQUIRED_FIELDS.profil.filter(
-      (f) => formData[f]?.trim() !== "",
-    ).length;
-    const professionnelFields = REQUIRED_FIELDS.professionnel.filter(
-      (f) => formData[f]?.trim() !== "",
-    ).length;
-    const documentsCount = Object.values(documents).filter(Boolean).length;
-
-    const profilScore = (profilFields / REQUIRED_FIELDS.profil.length) * 30;
-    const professionnelScore =
-      (professionnelFields / REQUIRED_FIELDS.professionnel.length) * 30;
-    const documentsScore = (documentsCount / REQUIRED_DOCUMENTS.length) * 40;
-
-    return Math.min(100, profilScore + professionnelScore + documentsScore);
-  };
-
-  const completionPercentage = calculateCompletion();
-
-  // Vérifier si le profil est complet
-  const isProfileComplete = completionPercentage >= 100;
+  const completionPercentage = rpcCompletion;
+  const isProfileComplete = canSubmit;
 
   // Animer l'entête au montage avec effet de séquence
   useEffect(() => {
@@ -313,6 +312,7 @@ export default function DriverProfileSetup({
             city: existingDriver.city || "",
             postal_code: existingDriver.postal_code || "",
           });
+          setAvatarUrl(existingDriver.avatar_url || null);
         }
       } catch (error) {
         console.error("Error loading profile:", error);
@@ -345,46 +345,36 @@ export default function DriverProfileSetup({
     try {
       const { data: docs, error } = await supabase
         .from("driver_documents")
-        .select("document_type, validation_status, file_url")
+        .select("document_type, validation_status, file_url, rejection_reason")
         .eq("driver_id", driverId)
-        .in("validation_status", ["approved", "pending"]);
+        .in("validation_status", ["approved", "pending", "rejected"])
+        .order("upload_date", { ascending: false });
 
       if (!error && docs) {
-        const approvedDocs = docs.reduce((acc, doc) => {
-          acc[doc.document_type as keyof DocumentStatus] = doc.file_url;
-          return acc;
-        }, {} as DocumentStatus);
+        const nextDocs: DocumentStatus = {
+          driving_license: null,
+          vtc_card: null,
+          insurance: null,
+          id_card: null,
+          proof_of_address: null,
+        };
+        const nextMeta: typeof documentMeta = {};
 
-        setDocuments((prev) => ({ ...prev, ...approvedDocs }));
-        // Backfill from storage for any required docs missing DB records
-        const missing = REQUIRED_DOCUMENTS.filter(
-          (dt) => !approvedDocs[dt as keyof DocumentStatus],
-        );
-        if (missing.length > 0) {
-          for (const docType of missing) {
-            try {
-              const path = `${driverId}/${docType}`;
-              const { data: list, error: listErr } = await supabase.storage
-                .from("driver-documents")
-                .list(path);
-
-              if (!list || list.length === 0 || listErr) continue;
-
-              // pick the most recent file (last in list)
-              const fileEntry = list[list.length - 1];
-              const filePath = `${path}/${fileEntry.name}`;
-              const {
-                data: { publicUrl },
-              } = supabase.storage
-                .from("driver-documents")
-                .getPublicUrl(filePath);
-
-              setDocuments((prev) => ({ ...prev, [docType]: publicUrl }));
-            } catch (e) {
-              console.warn("Error backfilling from storage for", docType, e);
-            }
-          }
+        for (const doc of docs) {
+          const key = doc.document_type as keyof DocumentStatus;
+          if (!(key in nextDocs)) continue;
+          // Keep first (latest) per type
+          if (nextDocs[key]) continue;
+          nextDocs[key] = doc.file_url;
+          nextMeta[key] = {
+            status: doc.validation_status ?? "pending",
+            rejectionReason: doc.rejection_reason ?? null,
+            expiryDate: doc.expiry_date ?? null,
+          };
         }
+
+        setDocuments(nextDocs);
+        setDocumentMeta(nextMeta);
       }
     } catch (error) {
       console.error("Error checking documents:", error);
@@ -473,21 +463,35 @@ export default function DriverProfileSetup({
     }
   };
 
-  const handleDocumentUpload = (documentType: string, fileUrl: string) => {
-    // Vérifier si le dossier peut être modifié
-    if (!isEditable) {
+  const handleDocumentUpload = (
+    documentType: string,
+    fileUrl: string,
+    expiryDate?: string,
+  ) => {
+    const key = documentType as keyof DocumentStatus;
+    const canReplaceRejected =
+      canEditDocuments && documentMeta[key]?.status === "rejected";
+    if (!isEditable && !canReplaceRejected) {
       Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
       return;
     }
 
     setDocuments((prev) => ({
       ...prev,
-      [documentType]: fileUrl,
+      [key]: fileUrl,
     }));
+    setDocumentMeta((prev) => ({
+      ...prev,
+      [key]: {
+        status: "pending",
+        rejectionReason: null,
+        expiryDate: expiryDate ?? prev[key]?.expiryDate ?? null,
+      },
+    }));
+    void syncDossierStateWithBackend();
 
-    // Log l'upload du document
     if (logger) {
-      logDocumentUpload(documentType, fileUrl, 0); // Taille du fichier non disponible ici
+      logDocumentUpload(documentType, fileUrl, 0);
     }
   };
 
@@ -501,11 +505,17 @@ export default function DriverProfileSetup({
     try {
       const syncedState = await syncDossierState(driverId, userId);
       if (syncedState) {
-        // Mettre à jour le store local avec les données du backend
         setStatus(syncedState.status);
-        // Recharger les documents après changement de statut pour refléter uploads récents
+        useDriverFolderStore.setState({
+          isEditable: syncedState.isEditable,
+          canSubmit: syncedState.canSubmit,
+          canEditDocuments: syncedState.canEditDocuments,
+          rejectionReason: syncedState.rejectionReason,
+          rejectedAt: syncedState.rejectedAt,
+        });
+        setRpcCompletion(Number(syncedState.completionPercentage ?? 0));
+        setMissingForSubmit(syncedState.missingForSubmit ?? []);
         await loadDriverDocuments();
-        // Les autres propriétés sont déjà gérées par le hook useDriverFolderStatus
       }
     } catch (error) {
       console.error("Erreur lors de la synchronisation du dossier:", error);
@@ -768,6 +778,58 @@ export default function DriverProfileSetup({
     }
   };
 
+  const uploadAvatar = async () => {
+    if (!isFieldEditable() || !driverId) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled) return;
+
+      setUploadingAvatar(true);
+      const asset = result.assets[0];
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: "base64",
+      });
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const path = `${driverId}/avatar_${Date.now()}.jpg`;
+      const { error: upErr } = await supabase.storage
+        .from("driver-avatars")
+        .upload(path, bytes.buffer, {
+          contentType: "image/jpeg",
+          upsert: true,
+        });
+      if (upErr) {
+        Alert.alert(t("documents.error"), upErr.message);
+        return;
+      }
+      const { error: updErr } = await supabase
+        .from("drivers")
+        .update({ avatar_url: path })
+        .eq("id", driverId);
+      if (updErr) {
+        Alert.alert(t("documents.error"), updErr.message);
+        return;
+      }
+      setAvatarUrl(path);
+      await syncDossierStateWithBackend();
+    } catch (e) {
+      Alert.alert(
+        t("documents.error"),
+        e instanceof Error ? e.message : t("documents.failedToUpload"),
+      );
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const renderSectionContent = () => {
     switch (currentSection) {
       case 0: // Profil
@@ -785,6 +847,38 @@ export default function DriverProfileSetup({
             >
               {t("profile.personalInfo")}
             </Animated.Text>
+
+            <Animated.View entering={FadeInDown.duration(400).delay(120)} className="mb-4">
+              <Text className="text-sm text-white font-medium mb-2">
+                {t("profile.avatar")} *
+              </Text>
+              <Pressable
+                onPress={uploadAvatar}
+                disabled={!isFieldEditable() || uploadingAvatar}
+                className="flex-row items-center bg-white/10 rounded-lg px-4 py-3 border border-white/20"
+              >
+                <View className="w-12 h-12 rounded-full bg-emerald-500/20 items-center justify-center mr-3">
+                  <Feather
+                    name={avatarUrl ? "check" : "camera"}
+                    size={22}
+                    color="#10b981"
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white font-medium">
+                    {uploadingAvatar
+                      ? t("documents.uploading")
+                      : avatarUrl
+                        ? t("profile.avatarReady")
+                        : t("profile.avatarUpload")}
+                  </Text>
+                  <Text className="text-slate-400 text-xs mt-0.5">
+                    {t("profile.avatarHint")}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#64748b" />
+              </Pressable>
+            </Animated.View>
 
             <Animated.View style={animatedFieldStyle}>
               <Animated.Text
@@ -1140,7 +1234,14 @@ export default function DriverProfileSetup({
               {t("profile.uploadAllDocuments")}
             </Text>
 
-            {REQUIRED_DOCUMENTS.map((docType, index) => (
+            {REQUIRED_DOCUMENTS.map((docType, index) => {
+              const meta = documentMeta[docType];
+              const isRejected = meta?.status === "rejected";
+              const canEditThisDoc =
+                (!submitting && isEditable) ||
+                (!submitting && canEditDocuments && isRejected);
+
+              return (
               <Animated.View
                 key={docType}
                 entering={FadeInDown.duration(400).delay(index * 150)}
@@ -1156,28 +1257,44 @@ export default function DriverProfileSetup({
                   >
                     {t(`documents.${docType}`) || DOC_LABELS[docType]}
                   </Animated.Text>
-                  {documents[docType] && (
+                  {isRejected ? (
+                    <Text className="text-xs text-rose-400 font-medium">
+                      {t("documents.status.rejected")}
+                    </Text>
+                  ) : documents[docType] ? (
                     <Animated.View
                       entering={BounceIn.duration(500).delay(index * 150 + 100)}
                     >
                       <Feather name="check-circle" size={16} color="#10b981" />
                     </Animated.View>
-                  )}
+                  ) : null}
                 </Animated.View>
+                {isRejected && meta?.rejectionReason ? (
+                  <Text className="text-xs text-rose-300 mb-2">
+                    {t("documents.rejectionReason")}: {meta.rejectionReason}
+                  </Text>
+                ) : null}
+                {isRejected && !meta?.rejectionReason ? (
+                  <Text className="text-xs text-rose-300 mb-2">
+                    {t("documents.replaceRejectedHint")}
+                  </Text>
+                ) : null}
                 <Animated.View
                   entering={FadeInRight.duration(400).delay(index * 150 + 100)}
                 >
                   <DriverDocumentUploader
                     documentType={docType}
-                    onUploadComplete={(fileUrl) =>
-                      handleDocumentUpload(docType, fileUrl)
+                    onUploadComplete={(fileUrl, expiry) =>
+                      handleDocumentUpload(docType, fileUrl, expiry)
                     }
                     currentUrl={documents[docType] || undefined}
-                    isEditable={isEditable}
+                    currentExpiry={meta?.expiryDate}
+                    isEditable={canEditThisDoc}
                   />
                 </Animated.View>
               </Animated.View>
-            ))}
+            );
+            })}
           </Animated.View>
         );
 
@@ -1258,6 +1375,15 @@ export default function DriverProfileSetup({
                   </Text>
                 )}
               </Animated.View>
+              {missingForSubmit.length > 0 && (
+                <View className="mt-3 space-y-1">
+                  {missingForSubmit.slice(0, 8).map((item) => (
+                    <Text key={item} className="text-xs text-amber-200/90">
+                      • {item}
+                    </Text>
+                  ))}
+                </View>
+              )}
             </Animated.View>
 
             <Animated.View

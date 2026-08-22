@@ -2,6 +2,11 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useDriverStore } from '../../src/lib/stores/driverStore';
 import { rideService } from '../../src/services/rideService';
+import { RideOfferExtras } from '../../src/components/RideOfferExtras';
+import {
+  formatRideDistanceKm,
+  formatRideDurationMin,
+} from '../../src/lib/utils/rideMetrics';
 
 export default function RidesScreen() {
   const { activeRide, setActiveRide, completeRide, stats } = useDriverStore();
@@ -106,15 +111,26 @@ export default function RidesScreen() {
                 </View>
               </View>
 
+              <View className="mb-6">
+                <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">
+                  Véhicule & options
+                </Text>
+                <RideOfferExtras
+                  variant="dark"
+                  options={activeRide.options}
+                  vehicleType={activeRide.vehicle_type}
+                />
+              </View>
+
               <View className="flex-row justify-between items-center mb-6 bg-black/20 p-4 rounded-xl">
                 <View>
                   <Text className="text-slate-400 text-xs mb-1">Distance</Text>
-                  <Text className="text-white font-bold text-lg">{(activeRide.distance || 0) / 1000} km</Text>
+                  <Text className="text-white font-bold text-lg">{formatRideDistanceKm(activeRide.distance)}</Text>
                 </View>
                 <View className="w-[1px] h-8 bg-white/10" />
                 <View>
                   <Text className="text-slate-400 text-xs mb-1">Est. Time</Text>
-                  <Text className="text-white font-bold text-lg">{Math.round((activeRide.duration || 0) / 60)} min</Text>
+                  <Text className="text-white font-bold text-lg">{formatRideDurationMin(activeRide.duration, activeRide.distance)}</Text>
                 </View>
               </View>
 

@@ -19,8 +19,13 @@ import {
 
 import { useDriverStore, Ride } from '../lib/stores/driverStore';
 import { NeonSwipeButton } from './NeonSwipeButton';
-import { RideRequestMap } from './RideRequestMap';
 import { NeonProgress } from './NeonProgress';
+import { RideOfferExtras } from './RideOfferExtras';
+import { VTCMap } from '../map';
+import {
+  resolveRideTripMetrics,
+  formatPickupDateTime,
+} from '../lib/utils/rideMetrics';
 
 const COUNTDOWN_SECONDS = 20;
 const { width, height } = Dimensions.get('window');
@@ -85,13 +90,29 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
   const { availableRide, currentLocation } = useDriverStore();
   const currentRide = ride || availableRide;
   
-  // Memoize RideRequestMap props to prevent unnecessary re-renders from location updates
-  const rideRequestMapProps = useMemo(() => ({
-    pickup: currentRide ? { lat: currentRide.pickup_lat, lng: currentRide.pickup_lon } : { lat: 0, lng: 0 },
-    dropoff: currentRide ? { lat: currentRide.dropoff_lat, lng: currentRide.dropoff_lon } : { lat: 0, lng: 0 },
-    driverLocation: currentLocation ? { lat: currentLocation.lat, lng: currentLocation.lng } : null,
-    onReady: () => setMapReady(true)
-  }), [currentRide?.pickup_lat, currentRide?.pickup_lon, currentRide?.dropoff_lat, currentRide?.dropoff_lon, currentLocation?.lat, currentLocation?.lng]);
+  // Memoize map route endpoints (avoid re-renders from unrelated location ticks)
+  const mapStart = useMemo(
+    () =>
+      currentRide
+        ? { lat: currentRide.pickup_lat, lng: currentRide.pickup_lon }
+        : undefined,
+    [currentRide?.pickup_lat, currentRide?.pickup_lon],
+  );
+  const mapEnd = useMemo(
+    () =>
+      currentRide
+        ? { lat: currentRide.dropoff_lat, lng: currentRide.dropoff_lon }
+        : undefined,
+    [currentRide?.dropoff_lat, currentRide?.dropoff_lon],
+  );
+  const mapApproach = useMemo(() => {
+    if (!currentLocation) return undefined;
+    // Coarse quantize (~50 m) — avoid thrashing OSRM / WebGL in the offer modal
+    return {
+      lat: Math.round(currentLocation.lat * 2e3) / 2e3,
+      lng: Math.round(currentLocation.lng * 2e3) / 2e3,
+    };
+  }, [currentLocation?.lat, currentLocation?.lng]);
   const insets = useSafeAreaInsets();
   
   const [mapReady, setMapReady] = useState(false);
@@ -160,7 +181,9 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
         });
 
         setTimeout(() => {
-          onDecline();
+          // Swipe-away = defer to bottomsheet (same as timeout), not hard refuse
+          if (onTimeout) onTimeout();
+          else onDecline();
         }, 200);
       } else {
         translateX.value = withSpring(0, { damping: 20, stiffness: 300 });
@@ -189,15 +212,20 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
   // Assume 30km/h average speed in city for approach time
   const driverTimeMin = driverDistKm > 0 ? (driverDistKm / 30) * 60 : 0;
 
-  const tripDistKm = currentRide.distance ? Number(currentRide.distance) / 1000 : 0;
-  const tripTimeMin = currentRide.duration ? Number(currentRide.duration) / 60 : 0;
+  const tripMetrics = resolveRideTripMetrics(currentRide);
+  const tripDistKm = tripMetrics.distanceKm;
+  const tripTimeMin = tripMetrics.durationMin;
+  const pickupWhen = formatPickupDateTime(currentRide.pickup_time);
 
   return (
     <Modal
       visible={!!currentRide}
       transparent
       animationType="none"
-      onRequestClose={onDecline}
+      onRequestClose={() => {
+        if (onTimeout) onTimeout();
+        else onDecline();
+      }}
       statusBarTranslucent
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -269,7 +297,10 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
                   </View>
                   <Text style={styles.separator}>|</Text>
                   <Text style={styles.tripText}>
-                    {tripDistKm.toFixed(1)} km · {formatDuration(tripTimeMin)}
+                    {tripDistKm < 10
+                      ? tripDistKm.toFixed(1)
+                      : Math.round(tripDistKm)}{" "}
+                    km · {Math.max(1, Math.round(tripTimeMin))} min
                   </Text>
                   {/* Badge de rentabilité dans le coin droit pour les autres cas */}
                   {(currentRide.estimated_price || 0) / (tripDistKm || 1) < 2.5 && (
@@ -283,12 +314,37 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
                 </View>
               </View>
 
-              {/* Map Area */}
+              {/* Map Area — MapLibre WebView (works in Expo Go) */}
               <View style={styles.mapContainer}>
-                <RideRequestMap {...rideRequestMapProps} />
+                <VTCMap
+                  style={StyleSheet.absoluteFill}
+                  start={mapStart}
+                  end={mapEnd}
+                  approachFrom={mapApproach}
+                  showRoute
+                  followUser={false}
+                  routeFitPaddingBottom={120}
+                  prefetchConfig={{
+                    enabled: false,
+                    aggressiveMode: false,
+                    debugMode: false,
+                  }}
+                  onMapReady={() => setMapReady(true)}
+                />
 
-                {/* Overlays: Pickup/Dropoff Addresses */}
-                <View style={styles.addressOverlay}>
+                <View style={styles.addressOverlay} pointerEvents="box-none">
+                  <RideOfferExtras
+                    options={currentRide.options}
+                    vehicleType={currentRide.vehicle_type}
+                  />
+                  {pickupWhen ? (
+                    <View style={styles.pickupTimePill}>
+                      <Feather name="clock" size={13} color="#b45309" />
+                      <Text style={styles.pickupTimePillText} numberOfLines={1}>
+                        {pickupWhen}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.addressPill}>
                     <Feather name="map-pin" size={14} color="#94a3b8" />
                     <Text style={styles.addressText} numberOfLines={1}>
@@ -303,9 +359,8 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
                   </View>
                 </View>
 
-                {/* Loading Spinner for Map */}
                 {!mapReady && (
-                  <View style={styles.mapLoadingOverlay}>
+                  <View style={styles.mapLoadingOverlay} pointerEvents="none">
                     <View style={styles.spinner} />
                     <Text style={styles.loadingText}>{t('ride.loadingRoutes')}</Text>
                   </View>
@@ -449,10 +504,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 8,
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    paddingTop: 4,
+    gap: 4,
     zIndex: 10,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    backgroundColor: 'transparent',
   },
   addressPill: {
     flexDirection: 'row',
@@ -469,6 +526,23 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
     gap: 8,
+  },
+  pickupTimePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 247, 237, 0.96)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.45)',
+    gap: 6,
+  },
+  pickupTimePillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400e',
   },
   addressText: {
     fontSize: 12,

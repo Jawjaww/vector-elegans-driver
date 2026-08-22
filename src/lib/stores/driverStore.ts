@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isRidePickupStillOfferable } from '../utils/ridePickup';
 
 export interface Ride {
   id: string;
@@ -14,8 +15,8 @@ export interface Ride {
   dropoff_lat: number;
   dropoff_lon: number;
   pickup_time: string;
-  distance: number | null; 
-  duration: number | null; 
+  distance: number | null;
+  duration: number | null;
   vehicle_type: string;
   options?: string[];
   estimated_price: number | null;
@@ -41,12 +42,48 @@ export interface Location {
   accuracy?: number | null;
 }
 
+/** Pure helper — used by presentOffer + Jest */
+export function canPresentRideOffer(
+  rideId: string,
+  state: {
+    suppressedRideIds: string[];
+    deferredRides: Ride[];
+    availableRides: Ride[];
+  },
+): boolean {
+  if (state.suppressedRideIds.includes(rideId)) return false;
+  if (state.deferredRides.some((r) => r.id === rideId)) return false;
+  if (state.availableRides.some((r) => r.id === rideId)) return false;
+  return true;
+}
+
+export function pickNextPendingRide(
+  pending: Ride[],
+  state: {
+    suppressedRideIds: string[];
+    deferredRides: Ride[];
+    availableRides: Ride[];
+  },
+): Ride | null {
+  return (
+    pending.find(
+      (ride) =>
+        isRidePickupStillOfferable(ride.pickup_time) &&
+        canPresentRideOffer(ride.id, state),
+    ) ?? null
+  );
+}
+
 interface DriverState {
   isOnline: boolean;
-  hasSeenRide: boolean; // Track if a ride has been shown in this session
+  hasSeenRide: boolean;
   activeRide: Ride | null;
   availableRide: Ride | null;
-  availableRides: Ride[]; // Liste des rides disponibles pour l'empilement
+  availableRides: Ride[];
+  /** Timed-out offers shown in bottomsheet until promoted or suppressed */
+  deferredRides: Ride[];
+  /** Declined this session — never re-present */
+  suppressedRideIds: string[];
   stats: DriverStats;
   currentLocation: Location | null;
   setIsOnline: (online: boolean) => void;
@@ -56,6 +93,9 @@ interface DriverState {
   addAvailableRide: (ride: Ride) => void;
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
+  deferAvailableRide: (rideId: string) => void;
+  suppressRide: (rideId: string) => void;
+  promoteDeferredRide: (rideId: string) => void;
   updateStats: (stats: Partial<DriverStats>) => void;
   completeRide: (ride: Ride) => void;
   setCurrentLocation: (location: Location | null) => void;
@@ -66,11 +106,25 @@ export const useDriverStore = create<DriverState>()(
     (set) => ({
       isOnline: false,
       hasSeenRide: false,
-      setIsOnline: (online) => set({ isOnline: online, hasSeenRide: false }), // Reset on toggle
+      setIsOnline: (online) =>
+        set(
+          online
+            ? { isOnline: true, hasSeenRide: false }
+            : {
+                isOnline: false,
+                hasSeenRide: false,
+                availableRide: null,
+                availableRides: [],
+                deferredRides: [],
+                suppressedRideIds: [],
+              },
+        ),
       activeRide: null,
       setActiveRide: (ride) => set({ activeRide: ride }),
       availableRide: null,
       availableRides: [],
+      deferredRides: [],
+      suppressedRideIds: [],
       setAvailableRide: (ride) =>
         set(() => ({
           availableRide: ride,
@@ -84,7 +138,7 @@ export const useDriverStore = create<DriverState>()(
         }),
       addAvailableRide: (ride) =>
         set((state) => {
-          if (state.availableRides.some((r) => r.id === ride.id)) return state;
+          if (!canPresentRideOffer(ride.id, state)) return state;
           const availableRides = [...state.availableRides, ride];
           return {
             availableRides,
@@ -93,7 +147,9 @@ export const useDriverStore = create<DriverState>()(
         }),
       removeAvailableRide: (rideId) =>
         set((state) => {
-          const availableRides = state.availableRides.filter((ride) => ride.id !== rideId);
+          const availableRides = state.availableRides.filter(
+            (ride) => ride.id !== rideId,
+          );
           return {
             availableRides,
             availableRide:
@@ -102,18 +158,74 @@ export const useDriverStore = create<DriverState>()(
                 : state.availableRide,
           };
         }),
-      clearAvailableRide: () => set({ availableRide: null, availableRides: [] }),
+      clearAvailableRide: () =>
+        set({ availableRide: null, availableRides: [] }),
+      deferAvailableRide: (rideId) =>
+        set((state) => {
+          const ride =
+            state.availableRides.find((r) => r.id === rideId) ??
+            (state.availableRide?.id === rideId ? state.availableRide : null);
+          if (!ride) return state;
+          const availableRides = state.availableRides.filter(
+            (r) => r.id !== rideId,
+          );
+          const deferredRides = state.deferredRides.some((r) => r.id === rideId)
+            ? state.deferredRides
+            : [...state.deferredRides, ride];
+          return {
+            availableRides,
+            availableRide:
+              state.availableRide?.id === rideId
+                ? availableRides[0] ?? null
+                : state.availableRide,
+            deferredRides,
+          };
+        }),
+      suppressRide: (rideId) =>
+        set((state) => {
+          const availableRides = state.availableRides.filter(
+            (r) => r.id !== rideId,
+          );
+          return {
+            availableRides,
+            availableRide:
+              state.availableRide?.id === rideId
+                ? availableRides[0] ?? null
+                : state.availableRide,
+            deferredRides: state.deferredRides.filter((r) => r.id !== rideId),
+            suppressedRideIds: state.suppressedRideIds.includes(rideId)
+              ? state.suppressedRideIds
+              : [...state.suppressedRideIds, rideId],
+          };
+        }),
+      promoteDeferredRide: (rideId) =>
+        set((state) => {
+          const ride = state.deferredRides.find((r) => r.id === rideId);
+          if (!ride) return state;
+          const deferredRides = state.deferredRides.filter(
+            (r) => r.id !== rideId,
+          );
+          if (state.availableRides.some((r) => r.id === rideId)) {
+            return { deferredRides };
+          }
+          const availableRides = [...state.availableRides, ride];
+          return {
+            deferredRides,
+            availableRides,
+            availableRide: state.availableRide ?? ride,
+          };
+        }),
       stats: {
         todayEarnings: 0,
         todayRides: 0,
         onlineTimeMinutes: 0,
-        rating: 0
+        rating: 0,
       },
-      updateStats: (newStats) => 
-        set((state) => ({ 
-          stats: { ...state.stats, ...newStats } 
+      updateStats: (newStats) =>
+        set((state) => ({
+          stats: { ...state.stats, ...newStats },
         })),
-      completeRide: (ride) => 
+      completeRide: (ride) =>
         set((state) => {
           const earnings = ride.final_price || ride.estimated_price || 0;
           return {
@@ -121,20 +233,20 @@ export const useDriverStore = create<DriverState>()(
             stats: {
               ...state.stats,
               todayEarnings: state.stats.todayEarnings + earnings,
-              todayRides: state.stats.todayRides + 1
-            }
+              todayRides: state.stats.todayRides + 1,
+            },
           };
         }),
       currentLocation: null,
-      setCurrentLocation: (location) => set({ currentLocation: location })
+      setCurrentLocation: (location) => set({ currentLocation: location }),
     }),
     {
       name: 'driver-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ 
+      partialize: (state) => ({
         stats: state.stats,
-        activeRide: state.activeRide 
-      })
-    }
-  )
+        activeRide: state.activeRide,
+      }),
+    },
+  ),
 );

@@ -16,11 +16,17 @@ export interface DriverMarker {
 export interface MapProps {
   initialCenter?: LatLng;
   initialZoom?: number;
+  /** Trip pickup (or route start) */
   start?: LatLng;
+  /** Trip dropoff (or route end) */
   end?: LatLng;
+  /** Optional driver GPS → dashed approach to start */
+  approachFrom?: LatLng;
   drivers?: DriverMarker[];
   followUser?: boolean;
   showRoute?: boolean;
+  /** Extra bottom padding when fitting route (overlay height in px) */
+  routeFitPaddingBottom?: number;
   style?: StyleProp<ViewStyle>;
   onMapPress?: (coord: LatLng) => void;
   onRouteReady?: (distanceMeters: number, durationSeconds: number) => void;

@@ -1549,9 +1549,11 @@ export type Database = {
       check_driver_profile_completeness: {
         Args: { driver_user_id: string }
         Returns: {
+          can_submit: boolean
           completion_percentage: number
           is_complete: boolean
           missing_fields: string[]
+          missing_for_submit: string[]
         }[]
       }
       check_driver_upload_permission: {
@@ -1601,6 +1603,10 @@ export type Database = {
           is_valid: boolean
         }[]
       }
+      delete_driver_documents_of_type: {
+        Args: { p_document_type: string; p_driver_id: string }
+        Returns: number
+      }
       delete_driver_file: {
         Args: {
           document_type_param?: string
@@ -1615,6 +1621,14 @@ export type Database = {
         Returns: undefined
       }
       delete_user_by_id: { Args: { p_user_id: string }; Returns: undefined }
+      driver_has_document_with_expiry: {
+        Args: { p_document_types: string[]; p_driver_id: string }
+        Returns: boolean
+      }
+      driver_has_valid_approved_document: {
+        Args: { p_document_types: string[]; p_driver_id: string }
+        Returns: boolean
+      }
       ensure_driver_profile: {
         Args: { driver_user_id: string }
         Returns: string
@@ -1665,8 +1679,15 @@ export type Database = {
           can_edit_documents: boolean
           can_submit: boolean
           completion_percentage: number
+          expired_document_types: string[]
+          expiring_documents: Json
+          is_complete: boolean
           is_editable: boolean
+          missing_fields: string[]
+          missing_for_submit: string[]
           rejected_at: string
+          rejected_document_count: number
+          rejected_document_types: string[]
           rejection_reason: string
           status: string
           submitted_at: string
@@ -1734,12 +1755,24 @@ export type Database = {
         Returns: undefined
       }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
+      replace_driver_document: {
+        Args: {
+          p_document_type: string
+          p_driver_id: string
+          p_expiry_date?: string
+          p_file_name?: string
+          p_file_size?: number
+          p_file_url: string
+        }
+        Returns: Json
+      }
       respond_ride_offer: {
         Args: { p_response: string; p_ride_id: string }
         Returns: Json
       }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
+      storage_path_from_file_url: { Args: { p_url: string }; Returns: string }
       submit_driver_dossier: {
         Args: { p_driver_id: string; p_user_id: string }
         Returns: {
@@ -1748,6 +1781,14 @@ export type Database = {
           success: boolean
         }[]
       }
+      sync_driver_expiry_from_document: {
+        Args: {
+          p_document_type: string
+          p_driver_id: string
+          p_expiry_date: string
+        }
+        Returns: undefined
+      }
       test_driver_completeness_full: {
         Args: { target_user_id?: string }
         Returns: {
@@ -1755,6 +1796,10 @@ export type Database = {
           info: string
           section: string
         }[]
+      }
+      update_driver_document_expiry: {
+        Args: { p_document_id: string; p_expiry_date: string }
+        Returns: Json
       }
       update_driver_document_url: {
         Args: {

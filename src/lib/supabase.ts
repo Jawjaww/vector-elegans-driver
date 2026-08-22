@@ -40,3 +40,42 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
+
+function isStaleRefreshTokenError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const message =
+    "message" in err ? String((err as { message?: unknown }).message ?? "") : "";
+  return /invalid refresh token|refresh token not found/i.test(message);
+}
+
+/**
+ * After local `supabase db reset`, SecureStore still holds the previous refresh token.
+ * Clear it so Expo Go does not spam AuthApiError on every cold start.
+ */
+export async function clearStaleAuthSession(): Promise<void> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error && isStaleRefreshTokenError(error)) {
+      await supabase.auth.signOut({ scope: "local" });
+      return;
+    }
+    // Force a refresh when a session exists — catches invalid refresh early.
+    if (data.session) {
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError && isStaleRefreshTokenError(refreshError)) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+    }
+  } catch (err) {
+    if (isStaleRefreshTokenError(err)) {
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+// Run once at module load (non-blocking)
+void clearStaleAuthSession();

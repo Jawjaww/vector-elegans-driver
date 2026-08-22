@@ -20,14 +20,26 @@ services:
 ### Configuration .env
 
 ```bash
-EXPO_PUBLIC_SUPABASE_URL=http://10.89.89.240:54329
-EXPO_PUBLIC_API_URL=http://10.89.89.240:54329
+# Sync IP LAN + anon key from local Supabase (recommended):
+./scripts/sync-local-supabase-env.sh
+
+# Or set manually (IP must be current Wi-Fi address, not localhost):
+EXPO_PUBLIC_SUPABASE_URL=http://10.84.30.240:54329
+EXPO_PUBLIC_API_URL=http://10.84.30.240:54329
 ```
+
+After changing `.env`, restart Metro with cache clear:
+
+```bash
+npx expo start -c
+```
+
+Smoke test (phone Safari, same Wi-Fi): `http://<LAN_IP>:54329/auth/v1/health`
 
 ### Clés à utiliser
 
 - Voir `.env` pour les clés anon (EXPO_PUBLIC_SUPABASE_ANON_KEY)
-- NE JAMAIS utiliser localhost ou 127.0.0.1 dans le code ou config
+- NE JAMAIS utiliser localhost ou 127.0.0.1 dans le code ou config (Expo Go sur téléphone)
 - NE JAMAIS utiliser l'URL du cloud Supabase (supabase.co)
 
 ## Commandes Docker

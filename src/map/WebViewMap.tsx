@@ -44,8 +44,11 @@ export function WebViewMap({
   initialCenter,
   start,
   end,
+  approachFrom,
   drivers = [],
   followUser = true,
+  showRoute = true,
+  routeFitPaddingBottom = 48,
   style,
   onMapReady,
   onRouteReady,
@@ -108,6 +111,8 @@ export function WebViewMap({
   );
 
   useEffect(() => {
+    if (!followUser) return;
+
     let watch: Location.LocationSubscription | null = null;
 
     const setupGPSTracking = async () => {
@@ -122,20 +127,20 @@ export function WebViewMap({
 
       watch = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
-          distanceInterval: 5,
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 25,
         },
         handleGPSPosition,
       );
     };
 
-    setupGPSTracking();
+    void setupGPSTracking();
 
     return () => {
       watch?.remove();
     };
-  }, [handleGPSPosition]);
+  }, [handleGPSPosition, followUser]);
 
   // ========================================================================
   // App State Listener (Background/Foreground)
@@ -153,10 +158,15 @@ export function WebViewMap({
       appState.current = state;
 
       const newMode = getPrefetchModeForState(state);
-
       webViewRef.current?.postMessage(
         JSON.stringify({ type: "setPrefetchMode", mode: newMode }),
       );
+
+      if (state === "active") {
+        webViewRef.current?.injectJavaScript(
+          `(function(){try{if(window.__veResizeMap)window.__veResizeMap();}catch(e){}true;})();`,
+        );
+      }
     },
     [prefetchConfig.aggressiveMode],
   );
@@ -176,17 +186,59 @@ export function WebViewMap({
   // Route Updates
   // ========================================================================
 
-  useEffect(() => {
-    if (!isMapReady || !start || !end) return;
-
-    webViewRef.current?.postMessage(
-      JSON.stringify({
-        type: "updateRoute",
-        start: [start.lng, start.lat],
-        end: [end.lng, end.lat],
-      }),
+  const postToMap = useCallback((payload: Record<string, unknown>) => {
+    const json = JSON.stringify(payload);
+    // Single delivery path — dual postMessage+inject caused double abort / flicker
+    webViewRef.current?.injectJavaScript(
+      `(function(){try{if(window.__veHandleNativeMessage){window.__veHandleNativeMessage({data:${JSON.stringify(json)}});}else if(window.ReactNativeWebView){/* noop */} }catch(e){console.error(e);}true;})();`,
     );
-  }, [isMapReady, start, end]);
+  }, []);
+
+  const lastRouteKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!isMapReady) return;
+
+    if (!showRoute || !start || !end) {
+      lastRouteKey.current = "";
+      postToMap({ type: "clearRoute" });
+      return;
+    }
+
+    const key = [
+      start.lat.toFixed(5),
+      start.lng.toFixed(5),
+      end.lat.toFixed(5),
+      end.lng.toFixed(5),
+      approachFrom?.lat?.toFixed(4) ?? "",
+      approachFrom?.lng?.toFixed(4) ?? "",
+      routeFitPaddingBottom,
+    ].join("|");
+
+    if (key === lastRouteKey.current) return;
+    lastRouteKey.current = key;
+
+    postToMap({
+      type: "updateRoute",
+      start: [start.lng, start.lat],
+      end: [end.lng, end.lat],
+      approachFrom: approachFrom
+        ? [approachFrom.lng, approachFrom.lat]
+        : null,
+      fitPaddingBottom: routeFitPaddingBottom,
+    });
+  }, [
+    isMapReady,
+    start?.lat,
+    start?.lng,
+    end?.lat,
+    end?.lng,
+    approachFrom?.lat,
+    approachFrom?.lng,
+    showRoute,
+    routeFitPaddingBottom,
+    postToMap,
+  ]);
 
   // ========================================================================
   // Driver Updates
@@ -265,6 +317,7 @@ export function WebViewMap({
         scrollEnabled={false}
         javaScriptEnabled
         domStorageEnabled
+        cacheEnabled={false}
         onMessage={handleMessage}
         originWhitelist={["*"]}
         setSupportMultipleWindows={false}
@@ -272,8 +325,9 @@ export function WebViewMap({
         allowsBackForwardNavigationGestures={false}
         scalesPageToFit={false}
         keyboardDisplayRequiresUserAction
-        startInLoadingState
+        startInLoadingState={false}
         mediaPlaybackRequiresUserAction={false}
+        androidLayerType="hardware"
         // @ts-expect-error: hardwareAccelerationEnabled not officially typed
         hardwareAccelerationEnabled={Platform.OS === "ios"}
       />

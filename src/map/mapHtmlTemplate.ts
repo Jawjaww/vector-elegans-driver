@@ -39,6 +39,14 @@ export function buildMapHtmlTemplate(
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
     #map canvas { background-color: #171717; }
 
+    /* Hide noisy OpenMapTiles / OSM chrome under address overlays */
+    .maplibregl-ctrl-attrib,
+    .maplibregl-ctrl-logo,
+    .maplibregl-ctrl-bottom-right,
+    .maplibregl-ctrl-bottom-left {
+      display: none !important;
+    }
+
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -78,6 +86,24 @@ export function buildMapHtmlTemplate(
       will-change: transform;
     }
     .driver-marker::after { content: '🚗'; }
+
+    .route-marker {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
+    }
+    .route-marker svg { display: block; }
+    .route-marker-driver {
+      width: 18px;
+      height: 18px;
+      border-radius: 9px;
+      background: #f97316;
+      border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    }
   </style>
 </head>
 <body>
@@ -147,16 +173,32 @@ export function buildMapHtmlTemplate(
       zoom: 14,
       pitch: 0,
       bearing: 0,
-      fadeDuration: 200,
+      fadeDuration: 0,
       minZoom: 3,
-      maxZoom: 20,
+      maxZoom: 18,
       renderWorldCopies: false,
-      attributionControl: true,
-      // 2026 opts: WebGL parallélisation
-      preserveDrawingBuffer: false, // ↓ mémoire GPU
-      antialias: true, // smooth edges
-      optimizeForTerrain: false, // optimiser terrain si besoin plus tard
+      attributionControl: false,
+      preserveDrawingBuffer: false,
+      antialias: false,
+      optimizeForTerrain: false,
     });
+
+    try {
+      const canvas = map.getCanvas();
+      canvas.addEventListener("webglcontextlost", (e) => {
+        try { e.preventDefault(); } catch (_) {}
+      });
+      canvas.addEventListener("webglcontextrestored", () => {
+        try {
+          map.resize();
+          map.triggerRepaint();
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    // Keep canvas sized if the RN WebView layout settles late
+    setTimeout(() => { try { map.resize(); } catch (_) {} }, 250);
+    setTimeout(() => { try { map.resize(); } catch (_) {} }, 1000);
 
     perfMeasure('init');
 
@@ -208,126 +250,22 @@ export function buildMapHtmlTemplate(
       }
     }
 
-    async function prefetchTilesAround(centerLngLat, zoom, radiusOverride = null) {
-      try {
-        if (!PREFETCH_ENABLED || !shouldPrefetch()) return;
-
-        perfMark('prefetch');
-
-        const style = map.getStyle && map.getStyle();
-        if (!style || !style.sources) return;
-
-        const vectorSources = Object.values(style.sources).filter(
-          (s) => s && s.type === "vector" && Array.isArray(s.tiles) && s.tiles.length
-        );
-        if (!vectorSources.length) return;
-
-        const cache = await caches.open("vtc-map-cache-v2");
-        const baseZ = Math.round(zoom);
-
-        // Radius adaptatif selon le mode agressif
-        let radius = radiusOverride ?? 2;
-        if (AGGRESSIVE_MODE) {
-          radius = Math.min(3, Math.ceil(map.getZoom() / 12)); // +1 tuile radius at zoom 12+
-        }
-
-        // Zooms à préfetch [z-1, z, z+1]
-        let zoomsToFetch = [baseZ - 1, baseZ, baseZ + 1].filter((z) => z >= 0 && z <= 20);
-        
-        // Mode ultra-agressif: +1 zoom de plus
-        if (AGGRESSIVE_MODE && baseZ < 19) {
-          zoomsToFetch.push(baseZ + 2);
-        }
-
-        const urls = [];
-        for (const z of zoomsToFetch) {
-          const cx = long2tile(centerLngLat[0], z);
-          const cy = lat2tile(centerLngLat[1], z);
-          const maxIndex = Math.pow(2, z);
-
-          for (let dx = -radius; dx <= radius; dx++) {
-            for (let dy = -radius; dy <= radius; dy++) {
-              const x = cx + dx;
-              const y = cy + dy;
-
-              const wrappedX = ((x % maxIndex) + maxIndex) % maxIndex;
-              const clampedY = Math.min(Math.max(y, 0), maxIndex - 1);
-
-              for (const src of vectorSources) {
-                const template = src.tiles[0];
-                const url = template
-                  .replace("{z}", z)
-                  .replace("{x}", wrappedX)
-                  .replace("{y}", clampedY);
-                urls.push(url);
-              }
-            }
-          }
-        }
-
-        const uniqueUrls = Array.from(new Set(urls));
-        _tileLoadStats.queued = uniqueUrls.length;
-        updateDebugOverlay('tiles', 'queued', uniqueUrls.length);
-
-        // Concurrence adaptatif (mode agressif = +2)
-        let CONC = AGGRESSIVE_MODE ? 6 : 4;
-        
-        for (let i = 0; i < uniqueUrls.length; i += CONC) {
-          await Promise.all(
-            uniqueUrls.slice(i, i + CONC).map(async (u) => {
-              try {
-                const match = await cache.match(u);
-                if (match) {
-                  _tileLoadStats.loaded++;
-                  return;
-                }
-                const res = await fetch(u, { mode: "cors", priority: "low" });
-                if (res && res.ok) {
-                  await cache.put(u, res.clone());
-                  _tileLoadStats.loaded++;
-                } else {
-                  _tileLoadStats.failed++;
-                }
-              } catch {
-                _tileLoadStats.failed++;
-              }
-            })
-          );
-        }
-
-        updateDebugOverlay('tiles', 'loaded', _tileLoadStats.loaded);
-        updateDebugOverlay('tiles', 'failed', _tileLoadStats.failed);
-        perfMeasure('prefetch');
-      } catch (e) {
-        console.warn("prefetch failed", e);
-      }
-    }
-
-    let _pfTimer = null;
-    let _lastPrefetch = 0;
-
-    function schedulePrefetch() {
-      try {
-        const now = Date.now();
-        const minInterval = AGGRESSIVE_MODE ? 300 : 700;
-        if (now - _lastPrefetch < minInterval) return;
-
-        clearTimeout(_pfTimer);
-        const debounceDelay = AGGRESSIVE_MODE ? 150 : 250;
-        _pfTimer = setTimeout(() => {
-          _lastPrefetch = Date.now();
-          const center = map.getCenter().toArray();
-          const z = map.getZoom();
-          prefetchTilesAround(center, z);
-        }, debounceDelay);
-      } catch {}
-    }
+    // Prefetch Cache API disabled — competed with MapLibre tile loads in Expo Go.
+    async function prefetchTilesAround() { return; }
+    function schedulePrefetch() {}
 
     // --- Map load ---
     map.on("load", () => {
       perfMark('mapLoad');
 
       try {
+        map.resize();
+        window.__veResizeMap = function () {
+          try {
+            map.resize();
+            map.triggerRepaint();
+          } catch (_) {}
+        };
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: "mapReady" }));
         }
@@ -368,46 +306,25 @@ export function buildMapHtmlTemplate(
         },
       });
 
-      // Zoom snapping
-      map.on("zoomend", () => {
-        try {
-          const z = map.getZoom();
-          const snapped = Math.round(z * 4) / 4;
-          if (Math.abs(snapped - z) > 0.001) {
-            map.easeTo({ zoom: snapped, duration: 80 });
-          }
-        } catch (e) {
-          console.warn("zoomend snap failed", e);
-        }
-      });
-
-      // Préwarm initial
-      try {
-        prefetchTilesAround(INITIAL_CENTER, map.getZoom() || 14, AGGRESSIVE_MODE ? 3 : 2);
-      } catch (e) {
-        console.warn("initial prefetch failed", e);
-      }
-
-      map.on("moveend", schedulePrefetch);
-      map.on("zoomend", schedulePrefetch);
-
       perfMeasure('mapLoad');
     });
 
-    // --- RN → Web bridge ---
-    window.addEventListener("message", (event) => {
+    // --- RN → Web bridge (iOS: window, Android: document) ---
+    function handleNativeMessage(event) {
       try {
-        const msg = JSON.parse(event.data);
+        const raw = event && event.data !== undefined ? event.data : event;
+        const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
         if (!msg || !msg.type) return;
 
         if (msg.type === "gpsUpdate") {
           updateGps(msg.coords, msg.zoom);
         } else if (msg.type === "updateRoute" && msg.start && msg.end) {
-          updateRoute(msg.start, msg.end);
+          updateRoute(msg.start, msg.end, msg.approachFrom || null, msg.fitPaddingBottom || 32);
+        } else if (msg.type === "clearRoute") {
+          clearAllRoutes();
         } else if (msg.type === "updateDrivers" && Array.isArray(msg.drivers)) {
           updateDrivers(msg.drivers);
         } else if (msg.type === "setPrefetchMode") {
-          // Toggle prefetch mode from RN
           if (msg.mode === 'aggressive') {
             console.log('[Prefetch] Mode → AGGRESSIVE');
           } else if (msg.mode === 'normal') {
@@ -419,7 +336,10 @@ export function buildMapHtmlTemplate(
       } catch (e) {
         console.error("Message parse error:", e);
       }
-    });
+    }
+    window.addEventListener("message", handleNativeMessage);
+    document.addEventListener("message", handleNativeMessage);
+    window.__veHandleNativeMessage = handleNativeMessage;
 
     // --- GPS marker avec will-change ---
     function updateGps(coords, zoom) {
@@ -452,87 +372,310 @@ export function buildMapHtmlTemplate(
       });
     }
 
-    // --- Route OSRM avec abort signal ---
+    // --- Routes OSRM: trip (pickup→dropoff) + dashed approach (driver→pickup) ---
     let routeAbortController = null;
 
-    function updateRoute(start, end) {
-      if (routeAbortController) routeAbortController.abort();
-      routeAbortController = new AbortController();
+    function removeLayerSafe(id) {
+      try {
+        if (map.getLayer(id)) map.removeLayer(id);
+      } catch (e) {}
+    }
+    function removeSourceSafe(id) {
+      try {
+        if (map.getSource(id)) map.removeSource(id);
+      } catch (e) {}
+    }
 
-      if (map.getLayer("route-line")) map.removeLayer("route-line");
-      if (map.getLayer("route-casing")) map.removeLayer("route-casing");
-      if (map.getSource("route")) map.removeSource("route");
+    function clearAllRoutes() {
+      [
+        "route-line", "route-casing",
+        "approach-line", "approach-casing",
+        "endpoint-pickup", "endpoint-dropoff", "endpoint-driver",
+      ].forEach(removeLayerSafe);
+      ["route", "approach", "endpoints"].forEach(removeSourceSafe);
+      if (window.__vePickupMarker) {
+        window.__vePickupMarker.remove();
+        window.__vePickupMarker = null;
+      }
+      if (window.__veDropoffMarker) {
+        window.__veDropoffMarker.remove();
+        window.__veDropoffMarker = null;
+      }
+      if (window.__veDriverMarker) {
+        window.__veDriverMarker.remove();
+        window.__veDriverMarker = null;
+      }
+    }
 
+    function lineFeature(coords) {
+      return {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: coords },
+      };
+    }
+
+    function setOrAddLine(sourceId, casingId, lineId, feature, style) {
+      removeLayerSafe(lineId);
+      removeLayerSafe(casingId);
+      removeSourceSafe(sourceId);
+      map.addSource(sourceId, { type: "geojson", data: feature });
+      if (style.casing) {
+        map.addLayer({
+          id: casingId,
+          type: "line",
+          source: sourceId,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: style.casing,
+        });
+      }
+      map.addLayer({
+        id: lineId,
+        type: "line",
+        source: sourceId,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: style.line,
+      });
+    }
+
+    function upsertEndpoints(start, end, approachFrom) {
+      removeLayerSafe("endpoint-pickup");
+      removeLayerSafe("endpoint-dropoff");
+      removeLayerSafe("endpoint-driver");
+      removeSourceSafe("endpoints");
+
+      if (window.__vePickupMarker) {
+        window.__vePickupMarker.remove();
+        window.__vePickupMarker = null;
+      }
+      if (window.__veDropoffMarker) {
+        window.__veDropoffMarker.remove();
+        window.__veDropoffMarker = null;
+      }
+      if (window.__veDriverMarker) {
+        window.__veDriverMarker.remove();
+        window.__veDriverMarker = null;
+      }
+
+      function makePinEl(color) {
+        const el = document.createElement("div");
+        el.className = "route-marker";
+        el.innerHTML =
+          '<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">' +
+          '<path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.3 21.7 0 14 0z" fill="' + color + '"/>' +
+          '<circle cx="14" cy="14" r="5.5" fill="#fff"/>' +
+          "</svg>";
+        return el;
+      }
+
+      function makeFlagEl(color) {
+        const el = document.createElement("div");
+        el.className = "route-marker";
+        el.innerHTML =
+          '<svg width="28" height="34" viewBox="0 0 28 34" xmlns="http://www.w3.org/2000/svg">' +
+          '<path d="M6 2v30" stroke="' + color + '" stroke-width="2.5" stroke-linecap="round"/>' +
+          '<path d="M7 3h14l-3 5 3 5H7z" fill="' + color + '"/>' +
+          "</svg>";
+        return el;
+      }
+
+      window.__vePickupMarker = new maplibregl.Marker({
+        element: makePinEl("#f59e0b"),
+        anchor: "bottom",
+      })
+        .setLngLat(start)
+        .addTo(map);
+
+      window.__veDropoffMarker = new maplibregl.Marker({
+        element: makeFlagEl("#10b981"),
+        anchor: "bottom-left",
+      })
+        .setLngLat(end)
+        .addTo(map);
+
+      if (approachFrom) {
+        const dEl = document.createElement("div");
+        dEl.className = "route-marker-driver";
+        window.__veDriverMarker = new maplibregl.Marker({
+          element: dEl,
+          anchor: "center",
+        })
+          .setLngLat(approachFrom)
+          .addTo(map);
+      }
+    }
+
+    function fitRouteBounds(coordLists, padBottom) {
+      const all = [];
+      coordLists.forEach((list) => {
+        if (list && list.length) list.forEach((c) => all.push(c));
+      });
+      if (all.length < 1) return;
+      const bounds = all.reduce(
+        (b, c) => b.extend(c),
+        new maplibregl.LngLatBounds(all[0], all[0])
+      );
+      map.fitBounds(bounds, {
+        padding: {
+          top: 28,
+          left: 28,
+          right: 28,
+          bottom: Math.max(48, Number(padBottom) || 48),
+        },
+        duration: 500,
+        maxZoom: 15,
+      });
+      try { map.resize(); } catch (e) {}
+    }
+
+    async function fetchOsrmGeometry(from, to, signal) {
       const url =
         "https://router.project-osrm.org/route/v1/driving/" +
-        start[0] + "," + start[1] + ";" + end[0] + "," + end[1] +
-        "?geometries=geojson&steps=true&overview=full&annotations=true";
+        from[0] + "," + from[1] + ";" + to[0] + "," + to[1] +
+        "?geometries=geojson&overview=full";
+      const res = await fetch(url, { signal });
+      const data = await res.json();
+      if (!data.routes || !data.routes.length) return null;
+      return data.routes[0];
+    }
 
-      fetch(url, { signal: routeAbortController.signal })
-        .then((r) => r.json())
-        .then((data) => {
-          if (!data.routes || !data.routes.length) return;
-          const route = data.routes[0];
+    function updateRoute(start, end, approachFrom, fitPaddingBottom) {
+      if (routeAbortController) routeAbortController.abort();
+      routeAbortController = new AbortController();
+      const signal = routeAbortController.signal;
 
-          map.addSource("route", {
-            type: "geojson",
-            data: route.geometry,
-          });
+      upsertEndpoints(start, end, approachFrom);
 
-          map.addLayer({
-            id: "route-casing",
-            type: "line",
-            source: "route",
-            paint: {
-              "line-color": "#000000",
-              "line-width": 10,
-              "line-opacity": 0.25,
+      // Immediate straight-line fallbacks so the user always sees a path
+      setOrAddLine(
+        "route",
+        "route-casing",
+        "route-line",
+        lineFeature([start, end]),
+        {
+          casing: {
+            "line-color": "#064e3b",
+            "line-width": 8,
+            "line-opacity": 0.35,
+          },
+          line: {
+            "line-color": "#10b981",
+            "line-width": 5,
+            "line-opacity": 0.95,
+          },
+        }
+      );
+
+      if (approachFrom) {
+        setOrAddLine(
+          "approach",
+          "approach-casing",
+          "approach-line",
+          lineFeature([approachFrom, start]),
+          {
+            casing: null,
+            line: {
+              "line-color": "#f97316",
+              "line-width": 3.5,
+              "line-opacity": 0.85,
+              "line-dasharray": [1.5, 1.5],
             },
-          });
+          }
+        );
+      } else {
+        removeLayerSafe("approach-line");
+        removeLayerSafe("approach-casing");
+        removeSourceSafe("approach");
+      }
 
-          map.addLayer({
-            id: "route-line",
-            type: "line",
-            source: "route",
-            paint: {
-              "line-color": "#007cbf",
-              "line-width": 6,
-              "line-opacity": 0.9,
-            },
-          });
+      fitRouteBounds(
+        [approachFrom ? [approachFrom, start, end] : [start, end]],
+        fitPaddingBottom
+      );
 
-          const coords = route.geometry.coordinates;
-          const bounds = coords.reduce(
-            (b, c) => b.extend(c),
-            new maplibregl.LngLatBounds(coords[0], coords[0])
-          );
-          map.fitBounds(bounds, {
-            padding: 32,
-            duration: 700,
-            maxZoom: 16,
-          });
-
-          const duration = Math.round(route.duration / 60);
-          const distance = (route.distance / 1000).toFixed(1);
-          try {
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(
-                JSON.stringify({ type: "routeInfo", duration, distance })
-              );
-            }
-          } catch {}
-        })
-        .catch((err) => {
-          if (err.name !== 'AbortError') {
-            console.error("Route error:", err);
+      Promise.all([
+        fetchOsrmGeometry(start, end, signal),
+        approachFrom
+          ? fetchOsrmGeometry(approachFrom, start, signal)
+          : Promise.resolve(null),
+      ])
+        .then(([trip, approach]) => {
+          let tripCoords = [start, end];
+          if (trip && trip.geometry && trip.geometry.coordinates) {
+            tripCoords = trip.geometry.coordinates;
+            setOrAddLine(
+              "route",
+              "route-casing",
+              "route-line",
+              {
+                type: "Feature",
+                properties: {},
+                geometry: trip.geometry,
+              },
+              {
+                casing: {
+                  "line-color": "#064e3b",
+                  "line-width": 9,
+                  "line-opacity": 0.4,
+                },
+                line: {
+                  "line-color": "#10b981",
+                  "line-width": 5.5,
+                  "line-opacity": 0.95,
+                },
+              }
+            );
             try {
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(
-                  JSON.stringify({ type: "routeError", error: String(err) })
+                  JSON.stringify({
+                    type: "routeInfo",
+                    duration: Math.round(trip.duration / 60),
+                    distance: (trip.distance / 1000).toFixed(1),
+                  })
                 );
               }
             } catch {}
           }
+
+          let approachCoords = approachFrom ? [approachFrom, start] : [];
+          if (approach && approach.geometry && approach.geometry.coordinates) {
+            approachCoords = approach.geometry.coordinates;
+            setOrAddLine(
+              "approach",
+              "approach-casing",
+              "approach-line",
+              {
+                type: "Feature",
+                properties: {},
+                geometry: approach.geometry,
+              },
+              {
+                casing: null,
+                line: {
+                  "line-color": "#f97316",
+                  "line-width": 3.5,
+                  "line-opacity": 0.85,
+                  "line-dasharray": [1.8, 1.4],
+                },
+              }
+            );
+          }
+
+          fitRouteBounds([approachCoords, tripCoords], fitPaddingBottom);
+          // Re-add endpoints above lines
+          upsertEndpoints(start, end, approachFrom);
+        })
+        .catch((err) => {
+          if (err && err.name === "AbortError") return;
+          console.error("Route error:", err);
+          try {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(
+                JSON.stringify({ type: "routeError", error: String(err) })
+              );
+            }
+          } catch {}
         });
     }
 
@@ -556,60 +699,7 @@ export function buildMapHtmlTemplate(
       }
     }
 
-    // --- Service Worker cache optimisé ---
-    if ("serviceWorker" in navigator) {
-      try {
-        navigator.serviceWorker.register(
-          "data:text/javascript," +
-            encodeURIComponent(\`
-              const CACHE_NAME = "vtc-map-cache-v2";
-              const MAX_CACHE_AGE = 7 * 24 * 60 * 60 * 1000; // 7 jours
-              
-              async function getCacheAge(url) {
-                try {
-                  const cache = await caches.open(CACHE_NAME);
-                  const res = await cache.match(url);
-                  if (!res) return null;
-                  const dateStr = res.headers.get('date');
-                  return dateStr ? Date.now() - new Date(dateStr).getTime() : null;
-                } catch {
-                  return null;
-                }
-              }
-
-              self.addEventListener("fetch", (e) => {
-                if (e.request.url.includes("tiles.openfreemap.org")) {
-                  e.respondWith(
-                    (async () => {
-                      const cache = await caches.open(CACHE_NAME);
-                      const cached = await cache.match(e.request);
-                      
-                      if (cached) {
-                        const age = await getCacheAge(e.request.url);
-                        if (age && age < MAX_CACHE_AGE) {
-                          return cached;
-                        }
-                      }
-
-                      try {
-                        const res = await fetch(e.request);
-                        if (res && res.ok && res.status === 200) {
-                          cache.put(e.request, res.clone());
-                        }
-                        return res;
-                      } catch {
-                        return cached || new Response("Offline", { status: 503 });
-                      }
-                    })()
-                  );
-                }
-              });
-            \`)
-        );
-      } catch (e) {
-        console.warn("SW register failed", e);
-      }
-    }
+    // Service Worker intentionally not registered — stale tile cache blanked the map.
   </script>
 </body>
 </html>
