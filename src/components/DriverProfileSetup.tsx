@@ -22,29 +22,23 @@ import Animated, {
   withSequence,
   withDelay,
   withRepeat,
-  runOnJS,
   interpolate,
   FadeInRight,
   FadeOutLeft,
   FadeInUp,
   FadeInDown,
   FadeIn,
-  Layout,
-  SlideInRight,
-  SlideOutLeft,
   BounceIn,
   ZoomIn,
-  ZoomOut,
-  RotateInDownLeft,
   FlipInEasyX,
-  LightSpeedInRight,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
+import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useDriverSubmissionLogger } from "../lib/services/driverSubmissionLogger";
-import { DriverStatus } from "../lib/types/database.types";
 import {
   useDriverFolderStore,
   useDriverFolderStatus,
@@ -53,9 +47,28 @@ import { DriverFolderStatusBanner } from "./DynamicNotification";
 import {
   syncDossierState,
   submitDossier,
+  cancelDossierReview,
 } from "../lib/services/dossierService";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+function avatarButtonLabel(
+  uploading: boolean,
+  hasAvatar: boolean,
+  labels: { uploading: string; ready: string; upload: string },
+): string {
+  if (uploading) return labels.uploading;
+  if (hasAvatar) return labels.ready;
+  return labels.upload;
+}
+
+function isApprovedLikeStatus(status: string): boolean {
+  return status === "approved" || status === "validated";
+}
+
+function isPendingLikeStatus(status: string): boolean {
+  return status === "pending_review" || status === "submitted";
+}
 
 // Structure des données du profil
 interface DriverProfileData {
@@ -85,15 +98,23 @@ interface DocumentStatus {
   proof_of_address: string | null;
 }
 
+const emptyToNull = (value: string): string | null => {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+};
+
 // Champs requis par section
 const REQUIRED_FIELDS = {
   profil: [
     "first_name",
     "last_name",
     "phone",
+    "date_of_birth",
     "address",
     "city",
     "postal_code",
+    "emergency_contact_name",
+    "emergency_contact_phone",
   ] as const,
   professionnel: [
     "license_number",
@@ -155,11 +176,10 @@ interface DriverProfileSetupProps {
 
 export default function DriverProfileSetup({
   onComplete,
-}: DriverProfileSetupProps) {
+}: Readonly<DriverProfileSetupProps>) {
   const { t } = useTranslation();
   const router = useRouter();
   const [currentSection, setCurrentSection] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -345,7 +365,9 @@ export default function DriverProfileSetup({
     try {
       const { data: docs, error } = await supabase
         .from("driver_documents")
-        .select("document_type, validation_status, file_url, rejection_reason")
+        .select(
+          "document_type, validation_status, file_url, rejection_reason, expiry_date",
+        )
         .eq("driver_id", driverId)
         .in("validation_status", ["approved", "pending", "rejected"])
         .order("upload_date", { ascending: false });
@@ -500,7 +522,7 @@ export default function DriverProfileSetup({
 
   // Synchroniser l'état du dossier avec le backend
   const syncDossierStateWithBackend = async () => {
-    if (!driverId || !userId) return;
+    if (!driverId || !userId) return null;
 
     try {
       const syncedState = await syncDossierState(driverId, userId);
@@ -517,73 +539,126 @@ export default function DriverProfileSetup({
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
         await loadDriverDocuments();
       }
+      return syncedState;
     } catch (error) {
       console.error("Erreur lors de la synchronisation du dossier:", error);
+      return null;
     }
   };
 
-  const handleSave = async () => {
-    setLoading(true);
+  const handleSave = async (options?: { silent?: boolean }) => {
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
         Alert.alert(t("common.error"), t("auth.userNotFound"));
-        return;
+        return false;
       }
 
+      // Empty strings break Postgres date columns and leave completeness false.
       const driverData = {
         user_id: user.id,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        phone: formData.phone,
-        date_of_birth: formData.date_of_birth,
-        emergency_contact_name: formData.emergency_contact_name,
-        emergency_contact_phone: formData.emergency_contact_phone,
-        driving_license_number: formData.license_number,
-        driving_license_expiry_date: formData.driving_license_expiry_date,
-        vtc_card_number: formData.vtc_card_number,
-        vtc_card_expiry_date: formData.vtc_card_expiry_date,
-        insurance_number: formData.insurance_number,
-        company_siret: formData.company_siret,
-        address_line1: formData.address,
-        city: formData.city,
-        postal_code: formData.postal_code,
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        phone: formData.phone.trim(),
+        date_of_birth: emptyToNull(formData.date_of_birth),
+        emergency_contact_name: emptyToNull(formData.emergency_contact_name),
+        emergency_contact_phone: emptyToNull(formData.emergency_contact_phone),
+        driving_license_number: emptyToNull(formData.license_number),
+        driving_license_expiry_date: emptyToNull(
+          formData.driving_license_expiry_date,
+        ),
+        vtc_card_number: emptyToNull(formData.vtc_card_number),
+        vtc_card_expiry_date: emptyToNull(formData.vtc_card_expiry_date),
+        insurance_number: emptyToNull(formData.insurance_number),
+        company_siret: emptyToNull(formData.company_siret),
+        address_line1: emptyToNull(formData.address),
+        city: emptyToNull(formData.city),
+        postal_code: emptyToNull(formData.postal_code),
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
         updated_at: new Date().toISOString(),
       };
 
       if (driverId) {
-        const { user_id, ...updateData } = driverData;
-        await supabase.from("drivers").update(updateData).eq("id", driverId);
+        const { user_id: _userId, ...updateData } = driverData;
+        const { error } = await supabase
+          .from("drivers")
+          .update(updateData)
+          .eq("id", driverId);
+        if (error) {
+          Alert.alert(t("common.error"), error.message);
+          return false;
+        }
       } else {
-        const { data: newDriver } = await supabase
+        const { data: newDriver, error } = await supabase
           .from("drivers")
           .insert([driverData])
           .select()
           .single();
+
+        if (error) {
+          Alert.alert(t("common.error"), error.message);
+          return false;
+        }
 
         if (newDriver) {
           setDriverId(newDriver.id);
         }
       }
 
-      Alert.alert(t("common.success"), t("profile.profileSaved"));
-    } catch (error: any) {
-      Alert.alert(t("common.error"), error.message);
-    } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        Alert.alert(t("common.success"), t("profile.profileSaved"));
+      }
+      return true;
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : t("common.error");
+      Alert.alert(t("common.error"), message);
+      return false;
     }
   };
 
-  const handleSubmit = async () => {
-    if (!isProfileComplete) {
-      Alert.alert(t("profile.incomplete"), t("profile.completeAllFields"));
+  const finishSuccessfulSubmit = async (normalizedStatus: string) => {
+    if (isApprovedLikeStatus(normalizedStatus)) {
+      completeSubmission(true);
+      Alert.alert(t("profile.success"), t("profile.profileSubmitted"));
+      if (logger) {
+        await logSubmissionComplete("submitting", "validated", {
+          validation_result: "approved",
+          completion_percentage: completionPercentage,
+        });
+      }
       return;
     }
 
-    // Vérifier si le dossier peut être soumis
-    if (!canSubmit || !isEditable) {
+    if (isPendingLikeStatus(normalizedStatus)) {
+      completeSubmission(true);
+      Alert.alert(
+        t("profile.pendingReview"),
+        t("profile.waitingForValidation"),
+      );
+      if (logger) {
+        await logSubmissionComplete("submitting", "submitted", {
+          validation_result: "pending",
+          completion_percentage: completionPercentage,
+        });
+      }
+    }
+  };
+
+  const alertMissingForSubmit = (missingForSubmit?: string[] | null) => {
+    const missing = missingForSubmit?.length
+      ? `\n\n• ${missingForSubmit.slice(0, 8).join("\n• ")}`
+      : "";
+    Alert.alert(
+      t("profile.incomplete"),
+      `${t("profile.completeAllFields")}${missing}`,
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (!isEditable) {
       Alert.alert(
         t("profile.alreadySubmitted"),
         t("profile.cannotModifySubmitted"),
@@ -594,111 +669,70 @@ export default function DriverProfileSetup({
     setSubmitting(true);
 
     try {
-      // Log du début de la soumission
+      const saved = await handleSave({ silent: true });
+      if (!saved) return;
+
+      const syncedState = await syncDossierStateWithBackend();
+      if (!syncedState?.canSubmit) {
+        alertMissingForSubmit(syncedState?.missingForSubmit);
+        return;
+      }
+
       if (logger) {
         await logSubmissionStart();
       }
 
-      // Mettre à jour le statut du dossier
       setStatus("submitting");
 
-      await handleSave();
+      if (!userId || !driverId) return;
 
-      if (userId && driverId) {
-        // Soumettre le dossier via l'API
-        const result = await submitDossier(driverId, userId);
-
-        if (result.success) {
-          // Normaliser et accepter plusieurs variantes de statuts renvoyés par la DB
-          const normalized = (result.new_status || "").toLowerCase();
-          if (normalized === "approved" || normalized === "validated") {
-            // Le dossier est validé
-            completeSubmission(true);
-            Alert.alert(t("profile.success"), t("profile.profileSubmitted"));
-
-            // Log de la validation
-            if (logger) {
-              await logSubmissionComplete("submitting", "validated", {
-                validation_result: "approved",
-                completion_percentage: completionPercentage,
-              });
-            }
-          } else if (
-            normalized === "pending_review" ||
-            normalized === "submitted"
-          ) {
-            // Le dossier est soumis et en attente de validation
-            completeSubmission(true);
-            Alert.alert(
-              t("profile.pendingReview"),
-              t("profile.waitingForValidation"),
-            );
-
-            // Log de la soumission en attente
-            if (logger) {
-              await logSubmissionComplete("submitting", "submitted", {
-                validation_result: "pending",
-                completion_percentage: completionPercentage,
-              });
-            }
-          }
-
-          if (onComplete) {
-            onComplete();
-          } else {
-            router.replace("/(tabs)");
-          }
-        } else {
-          // Erreur lors de la soumission
-          throw new Error(result.message);
-        }
+      const result = await submitDossier(driverId, userId);
+      if (!result.success) {
+        throw new Error(result.message);
       }
-    } catch (error: any) {
-      // Log de l'erreur
+
+      await finishSuccessfulSubmit((result.new_status || "").toLowerCase());
+
+      if (onComplete) {
+        onComplete();
+      } else {
+        router.replace("/(tabs)");
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : t("common.error");
       if (logger && driverId) {
-        await logger.logError("submission", error.message, {
+        await logger.logError("submission", message, {
           completion_percentage: completionPercentage,
         });
       }
 
-      // Rétablir le statut en cas d'erreur
       setStatus("draft");
-      completeSubmission(false, error.message);
-
-      Alert.alert(t("common.error"), error.message);
+      completeSubmission(false, message);
+      Alert.alert(t("common.error"), message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Annuler la soumission: remettre le statut en draft pour permettre modifications
+  // Withdraw pending_review → draft via RPC (direct UPDATE is blocked / unreliable).
   const handleCancelSubmission = async () => {
-    if (!driverId) return;
+    if (!driverId || !userId) return;
     try {
-      // Update DB
-      const { error } = await supabase
-        .from("drivers")
-        .update({
-          status: "draft",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", driverId);
-
-      if (error) {
-        console.error("Error cancelling submission:", error);
-        Alert.alert(t("common.error"), t("profile.cannotCancelSubmission"));
+      const result = await cancelDossierReview(driverId, userId);
+      if (!result.success) {
+        Alert.alert(
+          t("common.error"),
+          result.message || t("profile.cannotCancelSubmission"),
+        );
         return;
       }
 
-      // Update local state
-      setStatus("draft");
-      // reload documents to allow edits
-      await loadDriverDocuments();
-
+      await syncDossierStateWithBackend();
       Alert.alert(t("common.success"), t("profile.submissionCancelled"));
     } catch (e) {
       console.error("handleCancelSubmission exception", e);
-      Alert.alert(t("common.error"), t("common.error"));
+      Alert.alert(t("common.error"), t("profile.cannotCancelSubmission"));
     }
   };
 
@@ -738,29 +772,27 @@ export default function DriverProfileSetup({
     setCurrentSection(newSection);
   };
 
-  const nextSection = () => {
-    console.log("nextSection called, currentSection:", currentSection);
-    console.log("SECTIONS.length - 1:", SECTIONS.length - 1);
-
-    if (currentSection < SECTIONS.length - 1) {
-      console.log("Proceeding to next section");
-      // Effet de scale sur le bouton
-      buttonScale.value = withSequence(
-        withTiming(0.95, { duration: 100 }),
-        withTiming(1, { duration: 100 }),
-      );
-
-      contentTranslateX.value = withTiming(-100, { duration: 200 }, () => {
-        console.log(
-          "Animation complete, setting new section:",
-          currentSection + 1,
-        );
-        runOnJS(changeSection)(currentSection + 1);
-        contentTranslateX.value = withTiming(0, { duration: 200 });
-      });
-    } else {
-      console.log("Cannot proceed - already at last section");
+  const nextSection = async () => {
+    if (currentSection >= SECTIONS.length - 1) {
+      return;
     }
+
+    // Persist profile / professional fields before leaving the section.
+    if (currentSection <= 1 && isFieldEditable()) {
+      const saved = await handleSave({ silent: true });
+      if (!saved) return;
+      await syncDossierStateWithBackend();
+    }
+
+    buttonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withTiming(1, { duration: 100 }),
+    );
+
+    contentTranslateX.value = withTiming(-100, { duration: 200 }, () => {
+      scheduleOnRN(changeSection, currentSection + 1);
+      contentTranslateX.value = withTiming(0, { duration: 200 });
+    });
   };
 
   const prevSection = () => {
@@ -772,7 +804,7 @@ export default function DriverProfileSetup({
       );
 
       contentTranslateX.value = withTiming(100, { duration: 200 }, () => {
-        runOnJS(changeSection)(currentSection - 1);
+        scheduleOnRN(changeSection, currentSection - 1);
         contentTranslateX.value = withTiming(0, { duration: 200 });
       });
     }
@@ -797,7 +829,7 @@ export default function DriverProfileSetup({
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+        bytes[i] = binaryString.codePointAt(i) ?? 0;
       }
       const path = `${driverId}/avatar_${Date.now()}.jpg`;
       const { error: upErr } = await supabase.storage
@@ -831,13 +863,18 @@ export default function DriverProfileSetup({
   };
 
   const renderSectionContent = () => {
-    switch (currentSection) {
-      case 0: // Profil
+    if (currentSection === 0) return renderProfilSection();
+    if (currentSection === 1) return renderProfessionnelSection();
+    if (currentSection === 2) return renderDocumentsSection();
+    if (currentSection === 3) return renderValidationSection();
+    return null;
+  };
+
+  const renderProfilSection = () => {
         return (
           <Animated.View
             entering={FadeInRight.duration(400).springify()}
             exiting={FadeOutLeft.duration(300)}
-            layout={Layout.springify()}
             style={animatedContentStyle}
             className="space-y-6"
           >
@@ -866,11 +903,11 @@ export default function DriverProfileSetup({
                 </View>
                 <View className="flex-1">
                   <Text className="text-white font-medium">
-                    {uploadingAvatar
-                      ? t("documents.uploading")
-                      : avatarUrl
-                        ? t("profile.avatarReady")
-                        : t("profile.avatarUpload")}
+                    {avatarButtonLabel(uploadingAvatar, Boolean(avatarUrl), {
+                      uploading: t("documents.uploading"),
+                      ready: t("profile.avatarReady"),
+                      upload: t("profile.avatarUpload"),
+                    })}
                   </Text>
                   <Text className="text-slate-400 text-xs mt-0.5">
                     {t("profile.avatarHint")}
@@ -904,9 +941,7 @@ export default function DriverProfileSetup({
               </Animated.View>
             </Animated.View>
 
-            <Animated.View
-              style={[animatedFieldStyle, { opacity: fieldOpacity.value }]}
-            >
+            <Animated.View style={animatedFieldStyle}>
               <Animated.Text
                 entering={FadeInDown.duration(400).delay(400)}
                 className="text-sm text-white font-medium mb-2"
@@ -961,17 +996,14 @@ export default function DriverProfileSetup({
               </Animated.Text>
               <Animated.View
                 entering={FadeInRight.duration(400).delay(900)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
+                className="mt-0"
               >
-                <Feather name="calendar" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
+                <NativeDateField
+                  value={(formData.date_of_birth || "").slice(0, 10)}
+                  onChange={(ymd) => handleInputChange("date_of_birth", ymd)}
                   placeholder={t("profile.dateOfBirthPlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.date_of_birth}
-                  onChangeText={(text) =>
-                    handleInputChange("date_of_birth", text)
-                  }
+                  editable={isFieldEditable()}
+                  maximumDate={new Date()}
                 />
               </Animated.View>
             </Animated.View>
@@ -1051,19 +1083,70 @@ export default function DriverProfileSetup({
                     onChangeText={(text) =>
                       handleInputChange("postal_code", text)
                     }
+                    editable={isFieldEditable()}
                   />
                 </Animated.View>
               </Animated.View>
             </View>
+
+            <View className="pt-4 border-t border-white/10">
+              <Text className="text-lg font-bold text-white mb-4">
+                {t("profile.emergencyContact")}
+              </Text>
+
+              <Animated.View
+                className="mb-4"
+                entering={FadeInDown.duration(400).delay(1600)}
+              >
+                <Text className="text-sm text-white font-medium mb-2">
+                  {t("profile.emergencyContactName")} *
+                </Text>
+                <View className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20">
+                  <Feather name="users" size={20} color="#10b981" />
+                  <TextInput
+                    className="flex-1 text-white ml-3 text-base"
+                    placeholder={t("profile.emergencyContactNamePlaceholder")}
+                    placeholderTextColor="#6b7280"
+                    value={formData.emergency_contact_name}
+                    onChangeText={(text) =>
+                      handleInputChange("emergency_contact_name", text)
+                    }
+                    autoCapitalize="words"
+                    editable={isFieldEditable()}
+                  />
+                </View>
+              </Animated.View>
+
+              <Animated.View entering={FadeInDown.duration(400).delay(1700)}>
+                <Text className="text-sm text-white font-medium mb-2">
+                  {t("profile.emergencyContactPhone")} *
+                </Text>
+                <View className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20">
+                  <Feather name="phone-call" size={20} color="#10b981" />
+                  <TextInput
+                    className="flex-1 text-white ml-3 text-base"
+                    placeholder={t(
+                      "profile.emergencyContactPhonePlaceholder",
+                    )}
+                    placeholderTextColor="#6b7280"
+                    value={formData.emergency_contact_phone}
+                    onChangeText={(text) =>
+                      handleInputChange("emergency_contact_phone", text)
+                    }
+                    keyboardType="phone-pad"
+                    editable={isFieldEditable()}
+                  />
+                </View>
+              </Animated.View>
+            </View>
           </Animated.View>
         );
-
-      case 1: // Professionnel
+  };
+  const renderProfessionnelSection = () => {
         return (
           <Animated.View
             entering={FadeInRight.duration(300)}
             exiting={FadeOutLeft.duration(300)}
-            layout={Layout.springify()}
             style={animatedContentStyle}
             className="space-y-6"
           >
@@ -1102,19 +1185,18 @@ export default function DriverProfileSetup({
               >
                 {t("profile.licenseExpiry")} *
               </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(400)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="calendar" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder="MM/YYYY"
-                  placeholderTextColor="#6b7280"
-                  value={formData.driving_license_expiry_date}
-                  onChangeText={(text) =>
-                    handleInputChange("driving_license_expiry_date", text)
+              <Animated.View entering={FadeInRight.duration(400).delay(400)}>
+                <NativeDateField
+                  value={(formData.driving_license_expiry_date || "").slice(
+                    0,
+                    10,
+                  )}
+                  onChange={(ymd) =>
+                    handleInputChange("driving_license_expiry_date", ymd)
                   }
+                  placeholder="YYYY-MM-DD"
+                  editable={isFieldEditable()}
+                  minimumDate={new Date()}
                 />
               </Animated.View>
             </Animated.View>
@@ -1150,19 +1232,15 @@ export default function DriverProfileSetup({
               >
                 {t("profile.vtcCardExpiry")} *
               </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(800)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="calendar" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder="MM/YYYY"
-                  placeholderTextColor="#6b7280"
-                  value={formData.vtc_card_expiry_date}
-                  onChangeText={(text) =>
-                    handleInputChange("vtc_card_expiry_date", text)
+              <Animated.View entering={FadeInRight.duration(400).delay(800)}>
+                <NativeDateField
+                  value={(formData.vtc_card_expiry_date || "").slice(0, 10)}
+                  onChange={(ymd) =>
+                    handleInputChange("vtc_card_expiry_date", ymd)
                   }
+                  placeholder="YYYY-MM-DD"
+                  editable={isFieldEditable()}
+                  minimumDate={new Date()}
                 />
               </Animated.View>
             </Animated.View>
@@ -1217,13 +1295,12 @@ export default function DriverProfileSetup({
             </Animated.View>
           </Animated.View>
         );
-
-      case 2: // Documents
+  };
+  const renderDocumentsSection = () => {
         return (
           <Animated.View
             entering={FadeInRight.duration(300)}
             exiting={FadeOutLeft.duration(300)}
-            layout={Layout.springify()}
             style={animatedContentStyle}
             className="space-y-6"
           >
@@ -1261,7 +1338,8 @@ export default function DriverProfileSetup({
                     <Text className="text-xs text-rose-400 font-medium">
                       {t("documents.status.rejected")}
                     </Text>
-                  ) : documents[docType] ? (
+                  ) : null}
+                  {!isRejected && documents[docType] ? (
                     <Animated.View
                       entering={BounceIn.duration(500).delay(index * 150 + 100)}
                     >
@@ -1297,13 +1375,12 @@ export default function DriverProfileSetup({
             })}
           </Animated.View>
         );
-
-      case 3: // Validation
+  };
+  const renderValidationSection = () => {
         return (
           <Animated.View
             entering={FadeInRight.duration(300)}
             exiting={FadeOutLeft.duration(300)}
-            layout={Layout.springify()}
             style={animatedContentStyle}
             className="space-y-6"
           >
@@ -1420,6 +1497,17 @@ export default function DriverProfileSetup({
                 </Text>
               </Animated.View>
               <Animated.View
+                entering={ZoomIn.duration(300).delay(650)}
+                className="flex-row items-center"
+              >
+                <Feather
+                  name="check-circle"
+                  size={16}
+                  color={avatarUrl ? "#10b981" : "#6b7280"}
+                />
+                <Text className="text-white ml-3">Photo de profil</Text>
+              </Animated.View>
+              <Animated.View
                 entering={ZoomIn.duration(300).delay(700)}
                 className="flex-row items-center"
               >
@@ -1521,11 +1609,13 @@ export default function DriverProfileSetup({
                     entering={FlipInEasyX.duration(600).delay(1000)}
                   >
                     <Pressable
-                      onPress={() => {
-                        // Sauvegarde en mémoire seulement - pas d'appel à la base de données
+                      onPress={async () => {
+                        const saved = await handleSave({ silent: true });
+                        if (!saved) return;
+                        await syncDossierStateWithBackend();
                         Alert.alert(
                           t("common.success"),
-                          t("profile.progressSavedLocally"),
+                          t("profile.profileSaved"),
                         );
                       }}
                       className="overflow-hidden rounded-lg py-3 px-4 items-center shadow"
@@ -1551,8 +1641,8 @@ export default function DriverProfileSetup({
                   >
                     <Pressable
                       onPress={handleSubmit}
-                      disabled={submitting || !isProfileComplete || !canSubmit}
-                      className={`overflow-hidden rounded-lg py-3 px-4 items-center shadow ${submitting || !isProfileComplete || !canSubmit ? "opacity-50" : "opacity-100"}`}
+                      disabled={submitting || !isEditable}
+                      className={`overflow-hidden rounded-lg py-3 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
                     >
                       <LinearGradient
                         colors={["#10b981", "#059669"]}
@@ -1575,11 +1665,8 @@ export default function DriverProfileSetup({
             </Animated.View>
           </Animated.View>
         );
-
-      default:
-        return null;
-    }
   };
+
 
   return (
     <View className="flex-1 bg-black">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet } from "../../src/components/BottomSheet";
 import { RideStackModal } from "../../src/components/RideStackModal";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
+import { DynamicNotification } from "../../src/components/DynamicNotification";
 import { VTCMap } from "../../src/map";
 import { rideService } from "../../src/services/rideService";
 import {
@@ -39,11 +40,21 @@ import {
   getPendingRideDisplayLabel,
 } from "../../src/lib/utils/ridePickup";
 
+const REVIEW_STATUSES = new Set([
+  "pending_review",
+  "pending_validation",
+  "submitted",
+]);
+
+function bannerAccentBackground(accent: string): string {
+  if (accent === "#fb7185") return "rgba(251, 113, 133, 0.2)";
+  if (accent === "#34d399") return "rgba(52, 211, 153, 0.2)";
+  return "rgba(251, 191, 36, 0.2)";
+}
+
 function usePendingRideChannel({
   canReceiveOffers,
   isOnline,
-  availableRide,
-  activeRide,
   presentOffer,
   removeAvailableRide,
   setAvailableRide,
@@ -51,8 +62,6 @@ function usePendingRideChannel({
 }: {
   canReceiveOffers: boolean;
   isOnline: boolean;
-  availableRide: Ride | null;
-  activeRide: Ride | null;
   presentOffer: (ride: Ride) => Promise<void>;
   removeAvailableRide: (rideId: string) => void;
   setAvailableRide: (ride: Ride | null) => void;
@@ -71,7 +80,13 @@ function usePendingRideChannel({
     }
 
     const fetchExistingRide = async () => {
-      if (availableRide || activeRide) return;
+      const {
+        availableRide: currentOffer,
+        activeRide: currentActive,
+        availableRides: queued,
+      } = useDriverStore.getState();
+      if (currentOffer || currentActive || queued.length > 0) return;
+
       const { data, error } = await supabase
         .from("rides")
         .select("*")
@@ -133,8 +148,6 @@ function usePendingRideChannel({
   }, [
     canReceiveOffers,
     isOnline,
-    availableRide,
-    activeRide,
     presentOffer,
     removeAvailableRide,
     setAvailableRide,
@@ -147,6 +160,9 @@ export default function DashboardScreen() {
   useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [justValidated, setJustValidated] = useState(false);
+  const driverStatusRef = useRef<string | null>(null);
 
   const {
     isOnline,
@@ -192,8 +208,6 @@ export default function DashboardScreen() {
   usePendingRideChannel({
     canReceiveOffers,
     isOnline,
-    availableRide,
-    activeRide,
     presentOffer,
     removeAvailableRide,
     setAvailableRide,
@@ -240,11 +254,101 @@ export default function DashboardScreen() {
   };
 
   const setFolderStatus = useDriverFolderStore((s) => s.setStatus);
+  const addNotification = useDriverFolderStore((s) => s.addNotification);
   const [rejectedDocs, setRejectedDocs] = useState<
     Array<{ document_type: string; rejection_reason: string | null }>
   >([]);
   const [expiredTypes, setExpiredTypes] = useState<string[]>([]);
   const [expiringDocs, setExpiringDocs] = useState<ExpiringDocument[]>([]);
+  const [dossierIsComplete, setDossierIsComplete] = useState<boolean | null>(
+    null,
+  );
+
+  const refreshDossierMeta = useCallback(async (id: string) => {
+    const { data: rejected } = await supabase
+      .from("driver_documents")
+      .select("document_type, rejection_reason")
+      .eq("driver_id", id)
+      .eq("validation_status", "rejected");
+
+    setRejectedDocs(rejected ?? []);
+
+    const dossier = await getDossierStatus(id);
+    if (dossier) {
+      setExpiredTypes(dossier.expired_document_types);
+      setExpiringDocs(dossier.expiring_documents);
+      setDossierIsComplete(dossier.is_complete);
+      useDriverFolderStore.setState({
+        canSubmit: dossier.can_submit,
+        canEditDocuments: dossier.can_edit_documents,
+        isEditable: dossier.is_editable,
+      });
+      return dossier;
+    }
+
+    setExpiredTypes([]);
+    setExpiringDocs([]);
+    setDossierIsComplete(null);
+    return null;
+  }, []);
+
+  const applyDriverStatus = useCallback(
+    async (nextStatus: string, id: string, options?: { fromRealtime?: boolean }) => {
+      const previous = driverStatusRef.current;
+      driverStatusRef.current = nextStatus;
+      setDriverStatus(nextStatus);
+      setFolderStatus(nextStatus);
+
+      const dossier = await refreshDossierMeta(id);
+
+      const becameActive =
+        nextStatus === "active" &&
+        previous != null &&
+        previous !== "active" &&
+        (REVIEW_STATUSES.has(previous) ||
+          previous === "draft" ||
+          previous === "rejected");
+
+      if (becameActive && dossier?.is_complete !== false) {
+        setJustValidated(true);
+        addNotification({
+          type: "success",
+          title: "Dossier validé",
+          message:
+            "Votre dossier a été validé. Passez en ligne pour recevoir et accepter des courses.",
+        });
+        useDriverFolderStore.setState({
+          validatedAt: new Date().toISOString(),
+        });
+        if (options?.fromRealtime) {
+          Alert.alert(
+            "Dossier validé",
+            "Félicitations ! Passez en ligne (On) pour voir les courses disponibles.",
+          );
+        }
+      }
+
+      if (nextStatus === "rejected" && previous && REVIEW_STATUSES.has(previous)) {
+        setJustValidated(false);
+        addNotification({
+          type: "warning",
+          title: "Dossier rejeté",
+          message: "Votre dossier a été rejeté. Ouvrez votre profil pour corriger.",
+        });
+      }
+
+      if (nextStatus === "draft" && previous && REVIEW_STATUSES.has(previous)) {
+        setJustValidated(false);
+        addNotification({
+          type: "info",
+          title: "Demande annulée",
+          message:
+            "La demande de validation a été annulée. Vous pouvez modifier votre dossier.",
+        });
+      }
+    },
+    [addNotification, refreshDossierMeta, setFolderStatus],
+  );
 
   const fetchDriverStatus = useCallback(async () => {
     try {
@@ -263,30 +367,8 @@ export default function DashboardScreen() {
         .single();
 
       if (driver) {
-        setDriverStatus(driver.status);
-        setFolderStatus(driver.status);
-
-        const { data: rejected } = await supabase
-          .from("driver_documents")
-          .select("document_type, rejection_reason")
-          .eq("driver_id", driver.id)
-          .eq("validation_status", "rejected");
-
-        setRejectedDocs(rejected ?? []);
-
-        const dossier = await getDossierStatus(driver.id);
-        if (dossier) {
-          setExpiredTypes(dossier.expired_document_types);
-          setExpiringDocs(dossier.expiring_documents);
-          useDriverFolderStore.setState({
-            canSubmit: dossier.can_submit,
-            canEditDocuments: dossier.can_edit_documents,
-            isEditable: dossier.is_editable,
-          });
-        } else {
-          setExpiredTypes([]);
-          setExpiringDocs([]);
-        }
+        setDriverId(driver.id);
+        await applyDriverStatus(driver.status, driver.id);
       } else {
         router.replace("/(auth)/profile-setup");
       }
@@ -295,13 +377,40 @@ export default function DashboardScreen() {
     } finally {
       setLoading(false);
     }
-  }, [router, setFolderStatus]);
+  }, [applyDriverStatus, router]);
 
   useFocusEffect(
     useCallback(() => {
       void fetchDriverStatus();
     }, [fetchDriverStatus]),
   );
+
+  // Live updates when admin validates / rejects / cancels the dossier.
+  useEffect(() => {
+    if (!driverId) return;
+
+    const channel = supabase
+      .channel(`driver-dossier:${driverId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "drivers",
+          filter: `id=eq.${driverId}`,
+        },
+        (payload) => {
+          const row = payload.new as { status?: string; id?: string };
+          if (!row?.status || !row.id) return;
+          void applyDriverStatus(row.status, row.id, { fromRealtime: true });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [driverId, applyDriverStatus]);
 
   const handleToggleOnline = () => {
     if (driverStatus !== "active" && !isOnline) {
@@ -311,7 +420,11 @@ export default function DashboardScreen() {
       );
       return;
     }
-    setIsOnline(!isOnline);
+    const next = !isOnline;
+    setIsOnline(next);
+    if (next) {
+      setJustValidated(false);
+    }
   };
 
   const bottomSheetSnapLevel = useMemo(() => {
@@ -319,13 +432,15 @@ export default function DashboardScreen() {
       isRidePickupStillOfferable(r.pickup_time),
     );
     const hasDossierAlert =
+      justValidated ||
       expiredTypes.length > 0 ||
       expiringDocs.length > 0 ||
       rejectedDocs.length > 0 ||
       driverStatus === "draft" ||
       driverStatus === "incomplete" ||
       driverStatus === "pending_review" ||
-      driverStatus === "rejected";
+      driverStatus === "rejected" ||
+      (driverStatus === "active" && dossierIsComplete === false);
 
     // Palier 4 — banners / future promos need the notices height
     if (hasDossierAlert) {
@@ -341,6 +456,8 @@ export default function DashboardScreen() {
     return "peek" as const;
   }, [
     driverStatus,
+    dossierIsComplete,
+    justValidated,
     availableRide,
     deferredRides.length,
     activeRide,
@@ -398,10 +515,13 @@ export default function DashboardScreen() {
         <BottomSheet snapLevel={bottomSheetSnapLevel}>
           <DriverStatusBanner
             driverStatus={driverStatus}
+            isComplete={dossierIsComplete}
+            justValidated={justValidated}
             rejectedDocs={rejectedDocs}
             expiredTypes={expiredTypes}
             expiringDocs={expiringDocs}
             onOpenProfile={() => router.push("/(auth)/profile-setup")}
+            onDismissValidated={() => setJustValidated(false)}
           />
           <View className="flex-row justify-between mb-4 mt-1">
             <View
@@ -489,16 +609,22 @@ export default function DashboardScreen() {
             >
               NOTIFICATIONS
             </Text>
-            <Text
-              className="text-sm"
-              style={{ color: "rgba(255,255,255,0.55)" }}
-            >
-              Astuces, offres partenaires et alertes apparaîtront ici.
-            </Text>
+            <DynamicNotification />
+            <NotificationsEmptyHint />
           </View>
         </BottomSheet>
       </View>
     </AnimatedPage>
+  );
+}
+
+function NotificationsEmptyHint() {
+  const unreadCount = useDriverFolderStore((s) => s.unreadCount);
+  if (unreadCount > 0) return null;
+  return (
+    <Text className="text-sm" style={{ color: "rgba(255,255,255,0.55)" }}>
+      Les alertes dossier et courses apparaîtront ici.
+    </Text>
   );
 }
 
@@ -582,14 +708,92 @@ function OnlineStatusPill({
   );
 }
 
+type BannerIcon = "alert-triangle" | "file-text" | "clock" | "check-circle";
+
+function buildBannerCopy(input: {
+  kind: NonNullable<ReturnType<typeof resolveDossierBanner>["kind"]>;
+  expiring?: ExpiringDocument;
+  expiredTypes: string[];
+  rejectedDocs: Array<{ rejection_reason: string | null }>;
+}): { title: string; subtitle: string; accent: string; icon: BannerIcon } {
+  switch (input.kind) {
+    case "expired":
+      return {
+        title:
+          input.expiredTypes.length > 1
+            ? "Documents expirés"
+            : "Document expiré",
+        subtitle: `Remplacez : ${input.expiredTypes.join(", ")}`,
+        accent: "#fb7185",
+        icon: "file-text",
+      };
+    case "expiring": {
+      const days = input.expiring?.days_remaining ?? 0;
+      let title = "Rappel de validité";
+      let accent = "#fbbf24";
+      if (days <= 7) {
+        title = "Expiration imminente";
+        accent = "#fb7185";
+      } else if (days <= 30) {
+        title = "À renouveler bientôt";
+      }
+      return {
+        title,
+        subtitle: `${input.expiring?.document_type ?? "Document"} expire dans ${days} jour(s) (${input.expiring?.expiry_date ?? ""})`,
+        accent,
+        icon: "clock",
+      };
+    }
+    case "rejected":
+      return {
+        title:
+          input.rejectedDocs.length > 1
+            ? "Documents refusés"
+            : "Document refusé",
+        subtitle:
+          input.rejectedDocs[0]?.rejection_reason ||
+          "Remplacez le(s) document(s) refusé(s) pour continuer.",
+        accent: "#fb7185",
+        icon: "file-text",
+      };
+    case "pending_review":
+      return {
+        title: "Validation en cours",
+        subtitle: "Votre profil est en cours de validation.",
+        accent: "#fbbf24",
+        icon: "alert-triangle",
+      };
+    case "validated":
+      return {
+        title: "Dossier validé",
+        subtitle:
+          "Vous pouvez désormais passer en ligne et accepter des courses.",
+        accent: "#34d399",
+        icon: "check-circle",
+      };
+    default:
+      return {
+        title: "Profil incomplet",
+        subtitle: "Complétez votre profil pour commencer.",
+        accent: "#fbbf24",
+        icon: "alert-triangle",
+      };
+  }
+}
+
 function DriverStatusBanner({
   driverStatus,
+  isComplete,
+  justValidated,
   rejectedDocs,
   expiredTypes,
   expiringDocs,
   onOpenProfile,
+  onDismissValidated,
 }: Readonly<{
   driverStatus: string | null;
+  isComplete: boolean | null;
+  justValidated: boolean;
   rejectedDocs: Array<{
     document_type: string;
     rejection_reason: string | null;
@@ -597,57 +801,31 @@ function DriverStatusBanner({
   expiredTypes: string[];
   expiringDocs: ExpiringDocument[];
   onOpenProfile: () => void;
+  onDismissValidated: () => void;
 }>) {
   const banner = resolveDossierBanner({
     expiredTypes,
     expiring: expiringDocs,
     rejectedTypes: rejectedDocs.map((d) => d.document_type),
     driverStatus,
+    isComplete,
+    justValidated,
   });
 
   if (!banner.kind) return null;
 
-  let title = "Profil incomplet";
-  let subtitle = "Complétez votre profil pour commencer.";
-  let accent = "#fbbf24";
-  let icon: "alert-triangle" | "file-text" | "clock" = "alert-triangle";
-
-  if (banner.kind === "expired") {
-    title =
-      expiredTypes.length > 1
-        ? "Documents expirés"
-        : "Document expiré";
-    subtitle = `Remplacez : ${expiredTypes.join(", ")}`;
-    accent = "#fb7185";
-    icon = "file-text";
-  } else if (banner.kind === "expiring" && banner.expiring) {
-    const days = banner.expiring.days_remaining;
-    if (days <= 7) {
-      title = "Expiration imminente";
-      accent = "#fb7185";
-    } else if (days <= 30) {
-      title = "À renouveler bientôt";
-    } else {
-      title = "Rappel de validité";
-    }
-    subtitle = `${banner.expiring.document_type} expire dans ${days} jour(s) (${banner.expiring.expiry_date})`;
-    icon = "clock";
-  } else if (banner.kind === "rejected") {
-    title =
-      rejectedDocs.length > 1 ? "Documents refusés" : "Document refusé";
-    subtitle =
-      rejectedDocs[0]?.rejection_reason ||
-      "Remplacez le(s) document(s) refusé(s) pour continuer.";
-    accent = "#fb7185";
-    icon = "file-text";
-  } else if (banner.kind === "pending_review") {
-    title = "Validation en cours";
-    subtitle = "Votre profil est en cours de validation.";
-  }
+  const { title, subtitle, accent, icon } = buildBannerCopy({
+    kind: banner.kind,
+    expiring: banner.expiring,
+    expiredTypes,
+    rejectedDocs,
+  });
+  const onPress =
+    banner.kind === "validated" ? onDismissValidated : onOpenProfile;
 
   return (
     <View className="px-6 mb-2">
-      <Pressable onPress={onOpenProfile}>
+      <Pressable onPress={onPress}>
         <View style={{ padding: 16 }}>
           <View className="flex-row items-center gap-3">
             <View
@@ -655,10 +833,7 @@ function DriverStatusBanner({
                 width: 32,
                 height: 32,
                 borderRadius: 16,
-                backgroundColor:
-                  accent === "#fb7185"
-                    ? "rgba(251, 113, 133, 0.2)"
-                    : "rgba(251, 191, 36, 0.2)",
+                backgroundColor: bannerAccentBackground(accent),
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -680,7 +855,7 @@ function DriverStatusBanner({
               </Text>
             </View>
             <Feather
-              name="chevron-right"
+              name={banner.kind === "validated" ? "x" : "chevron-right"}
               size={20}
               color={accent}
               style={{ opacity: 0.8 }}

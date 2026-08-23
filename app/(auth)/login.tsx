@@ -77,11 +77,11 @@ export default function LoginScreen() {
           .from("drivers")
           .select("status")
           .eq("user_id", data.user.id)
-          .single();
+          .maybeSingle();
 
+        // PGRST116 / null = no driver row yet (new account) → profile setup
         if (driverError) {
           console.error("Driver fetch error:", driverError);
-          // Allow login even if driver profile fetch fails, but redirect to setup
           router.replace("/(auth)/profile-setup");
           return;
         }
@@ -89,12 +89,17 @@ export default function LoginScreen() {
         if (!driver) {
           router.replace("/(auth)/profile-setup");
         } else if (
-          ["active", "draft", "incomplete", "pending_validation", "pending_review", "rejected"].includes(driver.status)
+          [
+            "active",
+            "draft",
+            "incomplete",
+            "pending_validation",
+            "pending_review",
+            "rejected",
+          ].includes(driver.status)
         ) {
           router.replace("/(tabs)");
         } else {
-          // For other statuses (suspended, rejected, etc.), maybe show an alert or redirect to a status page
-          // For now, let's redirect to tabs but they will see the status there if we handle it
           console.log("Driver status:", driver.status);
           router.replace("/(tabs)");
         }
@@ -198,12 +203,22 @@ export default function LoginScreen() {
                       className="flex-1 text-emerald-400 text-lg px-3 h-full font-bold"
                       placeholder="driver@email.com"
                       placeholderTextColor="#065f46"
-                      style={{ opacity: 1 }}
+                      style={{
+                        opacity: 1,
+                        backgroundColor: "transparent",
+                        // Avoid Android autofill yellow overlay on dark fields
+                        ...(Platform.OS === "android"
+                          ? { includeFontPadding: false }
+                          : null),
+                      }}
                       value={email}
                       onChangeText={setEmail}
                       autoCapitalize="none"
                       keyboardType="email-address"
-                      autoComplete="email"
+                      autoComplete="off"
+                      textContentType="none"
+                      importantForAutofill="no"
+                      underlineColorAndroid="transparent"
                     />
                   </View>
                 </View>
@@ -247,11 +262,20 @@ export default function LoginScreen() {
                       className="flex-1 text-emerald-400 text-lg px-3 h-full font-bold"
                       placeholder="••••••••"
                       placeholderTextColor="#065f46"
-                      style={{ opacity: 1 }}
+                      style={{
+                        opacity: 1,
+                        backgroundColor: "transparent",
+                        ...(Platform.OS === "android"
+                          ? { includeFontPadding: false }
+                          : null),
+                      }}
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry
-                      autoComplete="password"
+                      autoComplete="off"
+                      textContentType="none"
+                      importantForAutofill="no"
+                      underlineColorAndroid="transparent"
                     />
                   </View>
                 </View>

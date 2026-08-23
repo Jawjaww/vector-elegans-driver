@@ -5,22 +5,21 @@ import {
   Alert,
   ActivityIndicator,
   Pressable,
-  TextInput,
-  Platform,
 } from "react-native";
 import { useTranslation } from "react-i18next";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../lib/supabase";
-import Animated, { FadeIn, FadeOut, Layout } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { NativeDateField } from "./NativeDateField";
 
 const decodeBase64 = (base64: string) => {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+    bytes[i] = binaryString.codePointAt(i) ?? 0;
   }
   return bytes.buffer;
 };
@@ -43,7 +42,25 @@ function isValidFutureDate(isoDate: string): boolean {
   return d >= today;
 }
 
-export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
+function subtitleForDoc(opts: {
+  currentUrl?: string;
+  currentExpiry?: string | null;
+  expiresOn: string;
+  replaceFile: string;
+  formats: string;
+}): string {
+  if (opts.currentExpiry) {
+    return `${opts.expiresOn} ${opts.currentExpiry.slice(0, 10)}`;
+  }
+  if (opts.currentUrl) {
+    return opts.replaceFile;
+  }
+  return opts.formats;
+}
+
+export const DriverDocumentUploader: React.FC<
+  Readonly<DriverDocumentUploaderProps>
+> = ({
   documentType,
   onUploadComplete,
   driverId,
@@ -53,13 +70,72 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
 }) => {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
-  const [expiryDate, setExpiryDate] = useState(currentExpiry?.slice(0, 10) ?? "");
+  const [expiryDate, setExpiryDate] = useState(
+    currentExpiry?.slice(0, 10) ?? "",
+  );
 
   const sanitizeFileName = (fileName: string): string => {
     return fileName
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9.-]/g, "_");
+  };
+
+  const resolveDriverId = async (userId: string): Promise<string | null> => {
+    if (driverId) return driverId;
+    const { data: driverData, error: driverError } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+    if (driverError || !driverData) return null;
+    return driverData.id;
+  };
+
+  const persistDocumentRow = async (
+    actualDriverId: string,
+    filePath: string,
+    sanitizedName: string,
+    byteLength: number,
+    expiry: string,
+  ): Promise<boolean> => {
+    const { data: replaceResult, error: replaceError } = await supabase.rpc(
+      "replace_driver_document",
+      {
+        p_driver_id: actualDriverId,
+        p_document_type: documentType,
+        p_file_url: filePath,
+        p_file_name: sanitizedName,
+        p_file_size: byteLength,
+        p_expiry_date: expiry,
+      },
+    );
+
+    if (replaceError) {
+      Alert.alert(
+        t("documents.error"),
+        replaceError.message || t("documents.failedToUpload"),
+      );
+      return false;
+    }
+
+    const replaceOk =
+      replaceResult &&
+      typeof replaceResult === "object" &&
+      "success" in replaceResult &&
+      (replaceResult as { success?: boolean }).success;
+
+    if (!replaceOk) {
+      const errMsg =
+        replaceResult &&
+        typeof replaceResult === "object" &&
+        "error" in replaceResult
+          ? String((replaceResult as { error?: string }).error)
+          : t("documents.failedToUpload");
+      Alert.alert(t("documents.error"), errMsg);
+      return false;
+    }
+    return true;
   };
 
   const pickImage = async () => {
@@ -69,10 +145,7 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
     }
 
     if (!isValidFutureDate(expiryDate.trim())) {
-      Alert.alert(
-        t("documents.error"),
-        t("documents.expiryRequired"),
-      );
+      Alert.alert(t("documents.error"), t("documents.expiryRequired"));
       return;
     }
 
@@ -114,19 +187,10 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
         return;
       }
 
-      let actualDriverId = driverId;
+      const actualDriverId = await resolveDriverId(user.id);
       if (!actualDriverId) {
-        const { data: driverData, error: driverError } = await supabase
-          .from("drivers")
-          .select("id")
-          .eq("user_id", user.id)
-          .single();
-
-        if (driverError || !driverData) {
-          Alert.alert(t("documents.error"), t("documents.driverNotFound"));
-          return;
-        }
-        actualDriverId = driverData.id;
+        Alert.alert(t("documents.error"), t("documents.driverNotFound"));
+        return;
       }
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -147,9 +211,14 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
         });
 
       if (uploadError) {
+        const rlsHint = /row-level security|rls|policy/i.test(
+          uploadError.message,
+        )
+          ? " (storage RLS — run infra-supabase/scripts/apply-storage-policies.sh)"
+          : "";
         Alert.alert(
           t("documents.error"),
-          `${t("documents.failedToUpload")}: ${uploadError.message}`,
+          `${t("documents.failedToUpload")}: ${uploadError.message}${rlsHint}`,
         );
         return;
       }
@@ -162,42 +231,14 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
         previewUrl = signedData.signedUrl;
       }
 
-      const { data: replaceResult, error: replaceError } = await supabase.rpc(
-        "replace_driver_document",
-        {
-          p_driver_id: actualDriverId,
-          p_document_type: documentType,
-          p_file_url: filePath,
-          p_file_name: sanitizedName,
-          p_file_size: arrayBuffer.byteLength,
-          p_expiry_date: expiry,
-        },
+      const ok = await persistDocumentRow(
+        actualDriverId,
+        filePath,
+        sanitizedName,
+        arrayBuffer.byteLength,
+        expiry,
       );
-
-      if (replaceError) {
-        Alert.alert(
-          t("documents.error"),
-          replaceError.message || t("documents.failedToUpload"),
-        );
-        return;
-      }
-
-      const replaceOk =
-        replaceResult &&
-        typeof replaceResult === "object" &&
-        "success" in replaceResult &&
-        (replaceResult as { success?: boolean }).success;
-
-      if (!replaceOk) {
-        const errMsg =
-          replaceResult &&
-          typeof replaceResult === "object" &&
-          "error" in replaceResult
-            ? String((replaceResult as { error?: string }).error)
-            : t("documents.failedToUpload");
-        Alert.alert(t("documents.error"), errMsg);
-        return;
-      }
+      if (!ok) return;
 
       onUploadComplete?.(previewUrl, expiry);
     } catch (error: unknown) {
@@ -209,21 +250,26 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
     }
   };
 
+  const subtitle = subtitleForDoc({
+    currentUrl,
+    currentExpiry,
+    expiresOn: t("documents.expiresOn"),
+    replaceFile: t("documents.replaceFile"),
+    formats: t("documents.formats"),
+  });
+
   return (
-    <Animated.View layout={Layout.springify()} className="w-full gap-2">
+    <View className="w-full gap-2">
       <View className="mb-1">
         <Text className="text-xs text-slate-400 mb-1">
           {t("documents.expiryDate")}
         </Text>
-        <TextInput
+        <NativeDateField
           value={expiryDate}
-          onChangeText={setExpiryDate}
+          onChange={setExpiryDate}
           editable={isEditable && !uploading}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor="#64748b"
-          autoCapitalize="none"
-          keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "default"}
-          className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
+          minimumDate={new Date()}
         />
       </View>
 
@@ -274,19 +320,13 @@ export const DriverDocumentUploader: React.FC<DriverDocumentUploaderProps> = ({
                     ? t("documents.uploadSuccess")
                     : t("documents.tapToUpload")}
                 </Text>
-                <Text className="text-slate-400 text-xs mt-1">
-                  {currentExpiry
-                    ? `${t("documents.expiresOn")} ${currentExpiry.slice(0, 10)}`
-                    : currentUrl
-                      ? t("documents.replaceFile")
-                      : t("documents.formats")}
-                </Text>
+                <Text className="text-slate-400 text-xs mt-1">{subtitle}</Text>
               </View>
             </View>
             <Feather name="chevron-right" size={20} color="#64748b" />
           </Animated.View>
         )}
       </Pressable>
-    </Animated.View>
+    </View>
   );
 };

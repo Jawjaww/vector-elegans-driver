@@ -10,6 +10,7 @@ export type BannerKind =
   | 'rejected'
   | 'pending_review'
   | 'incomplete'
+  | 'validated'
   | null;
 
 /** Priority helper for bottom-sheet banner (pure, testable). */
@@ -18,6 +19,10 @@ export function resolveDossierBanner(input: {
   expiring: ExpiringDocument[];
   rejectedTypes: string[];
   driverStatus: string | null;
+  /** When status is active but ops completeness is false, still show incomplete. */
+  isComplete?: boolean | null;
+  /** One-shot after admin validation (realtime / focus transition). */
+  justValidated?: boolean;
 }): { kind: BannerKind; expiring?: ExpiringDocument } {
   if (input.expiredTypes.length > 0) {
     return { kind: 'expired' };
@@ -35,6 +40,14 @@ export function resolveDossierBanner(input: {
   }
 
   if (
+    input.justValidated &&
+    input.driverStatus === 'active' &&
+    input.isComplete !== false
+  ) {
+    return { kind: 'validated' };
+  }
+
+  if (
     input.driverStatus &&
     ['pending_review', 'pending_validation', 'submitted'].includes(
       input.driverStatus,
@@ -47,6 +60,11 @@ export function resolveDossierBanner(input: {
     input.driverStatus &&
     ['draft', 'incomplete', 'rejected'].includes(input.driverStatus)
   ) {
+    return { kind: 'incomplete' };
+  }
+
+  // Defensive: active but not ops-complete (bad seed / premature admin approve)
+  if (input.driverStatus === 'active' && input.isComplete === false) {
     return { kind: 'incomplete' };
   }
 

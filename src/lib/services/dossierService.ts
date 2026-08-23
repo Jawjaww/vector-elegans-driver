@@ -41,9 +41,14 @@ function parseExpiringDocuments(raw: unknown): ExpiringDocument[] {
     .map((item) => {
       if (!item || typeof item !== 'object') return null;
       const row = item as Record<string, unknown>;
-      const document_type = String(row.document_type ?? '');
-      const expiry_date = String(row.expiry_date ?? '');
-      const days_remaining = Number(row.days_remaining ?? 0);
+      const document_type =
+        typeof row.document_type === 'string' ? row.document_type : '';
+      const expiry_date =
+        typeof row.expiry_date === 'string' ? row.expiry_date : '';
+      const days_remaining =
+        typeof row.days_remaining === 'number'
+          ? row.days_remaining
+          : Number(row.days_remaining ?? 0);
       if (!document_type || !expiry_date) return null;
       return { document_type, expiry_date, days_remaining };
     })
@@ -163,6 +168,42 @@ export async function validateDossier(
         success: false,
         new_status: 'error',
         message: error.message || 'Erreur validation',
+      };
+    }
+
+    const row = data && data.length > 0 ? data[0] : null;
+    return row || {
+      success: false,
+      new_status: 'error',
+      message: 'Réponse vide',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      new_status: 'error',
+      message: error instanceof Error ? error.message : 'Erreur inattendue',
+    };
+  }
+}
+
+/** Withdraw pending_review → draft (driver self or admin). */
+export async function cancelDossierReview(
+  driverId: string,
+  actorUserId: string,
+  reason?: string | null,
+): Promise<DossierSubmissionResult> {
+  try {
+    const { data, error } = await supabase.rpc('cancel_driver_dossier_review', {
+      p_driver_id: driverId,
+      p_actor_user_id: actorUserId,
+      p_reason: reason ?? null,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        new_status: 'error',
+        message: error.message || "Erreur lors de l'annulation",
       };
     }
 

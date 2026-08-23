@@ -1035,6 +1035,9 @@ export type Database = {
       rides: {
         Row: {
           accepted_at: string | null
+          canceled_at: string | null
+          canceled_by: string | null
+          cancellation_reason: string | null
           created_at: string
           distance: number | null
           driver_id: string | null
@@ -1060,6 +1063,9 @@ export type Database = {
         }
         Insert: {
           accepted_at?: string | null
+          canceled_at?: string | null
+          canceled_by?: string | null
+          cancellation_reason?: string | null
           created_at?: string
           distance?: number | null
           driver_id?: string | null
@@ -1085,6 +1091,9 @@ export type Database = {
         }
         Update: {
           accepted_at?: string | null
+          canceled_at?: string | null
+          canceled_by?: string | null
+          cancellation_reason?: string | null
           created_at?: string
           distance?: number | null
           driver_id?: string | null
@@ -1546,6 +1555,18 @@ export type Database = {
         Args: { p_driver_id: string; p_user_id: string }
         Returns: boolean
       }
+      cancel_driver_dossier_review: {
+        Args: {
+          p_actor_user_id: string
+          p_driver_id: string
+          p_reason?: string
+        }
+        Returns: {
+          message: string
+          new_status: string
+          success: boolean
+        }[]
+      }
       check_driver_profile_completeness: {
         Args: { driver_user_id: string }
         Returns: {
@@ -1633,6 +1654,7 @@ export type Database = {
         Args: { driver_user_id: string }
         Returns: string
       }
+      expire_overdue_rides: { Args: never; Returns: number }
       find_nearby_drivers: {
         Args: { p_lat: number; p_lng: number; p_radius_km?: number }
         Returns: {

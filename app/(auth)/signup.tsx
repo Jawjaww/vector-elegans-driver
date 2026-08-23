@@ -1,12 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert, Dimensions } from 'react-native';
+import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -115,11 +112,20 @@ export default function SignupScreen() {
                     className="flex-1 text-emerald-400 text-base px-3 h-full font-medium"
                     placeholder="driver@email.com"
                     placeholderTextColor="#065f46"
+                    style={{
+                      backgroundColor: "transparent",
+                      ...(Platform.OS === "android"
+                        ? { includeFontPadding: false }
+                        : null),
+                    }}
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    autoComplete="email"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
                   />
                 </View>
               </View>
@@ -147,10 +153,19 @@ export default function SignupScreen() {
                     className="flex-1 text-emerald-400 text-base px-3 h-full font-medium"
                     placeholder="••••••••"
                     placeholderTextColor="#065f46"
+                    style={{
+                      backgroundColor: "transparent",
+                      ...(Platform.OS === "android"
+                        ? { includeFontPadding: false }
+                        : null),
+                    }}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
-                    autoComplete="new-password"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
                   />
                 </View>
               </View>
@@ -178,10 +193,19 @@ export default function SignupScreen() {
                     className="flex-1 text-emerald-400 text-base px-3 h-full font-medium"
                     placeholder="••••••••"
                     placeholderTextColor="#065f46"
+                    style={{
+                      backgroundColor: "transparent",
+                      ...(Platform.OS === "android"
+                        ? { includeFontPadding: false }
+                        : null),
+                    }}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry
-                    autoComplete="new-password"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
                   />
                 </View>
               </View>

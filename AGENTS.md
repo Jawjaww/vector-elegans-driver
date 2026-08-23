@@ -68,7 +68,10 @@ Après un `supabase db reset` ou nouvelle installation:
 # 1. Reset la DB (applique migrations + seed)
 cd infra-supabase && supabase db reset
 
-# 2. Créer les utilisateurs Auth (car seed ne peut pas utiliser GoTrue)
+# 2. Policies storage (souvent skippées — requis pour upload docs / avatars)
+cd infra-supabase && ./scripts/apply-storage-policies.sh
+
+# 3. Créer les utilisateurs Auth (car seed ne peut pas utiliser GoTrue)
 cd infra-supabase && ./scripts/create-test-users.sh
 ```
 

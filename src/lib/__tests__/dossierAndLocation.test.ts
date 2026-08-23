@@ -10,7 +10,7 @@ jest.mock('../supabase', () => ({
   },
 }));
 
-import { submitDossier, getDossierStatus, canEditDossier } from '../services/dossierService';
+import { submitDossier, getDossierStatus, canEditDossier, cancelDossierReview } from '../services/dossierService';
 import { pushDriverLocation } from '../services/locationService';
 
 describe('dossierService', () => {
@@ -32,6 +32,23 @@ describe('dossierService', () => {
     });
     expect(result.success).toBe(true);
     expect(result.new_status).toBe('pending_review');
+  });
+
+  it('cancelDossierReview calls cancel_driver_dossier_review RPC', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ success: true, new_status: 'draft', message: 'cancelled' }],
+      error: null,
+    });
+
+    const result = await cancelDossierReview('driver-1', 'user-1', 'fix photo');
+
+    expect(mockRpc).toHaveBeenCalledWith('cancel_driver_dossier_review', {
+      p_driver_id: 'driver-1',
+      p_actor_user_id: 'user-1',
+      p_reason: 'fix photo',
+    });
+    expect(result.success).toBe(true);
+    expect(result.new_status).toBe('draft');
   });
 
   it('getDossierStatus normalizes pending_validation', async () => {

@@ -324,11 +324,6 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
                   showRoute
                   followUser={false}
                   routeFitPaddingBottom={120}
-                  prefetchConfig={{
-                    enabled: false,
-                    aggressiveMode: false,
-                    debugMode: false,
-                  }}
                   onMapReady={() => setMapReady(true)}
                 />
 

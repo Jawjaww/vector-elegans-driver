@@ -12,8 +12,13 @@
       "resizeMode": "contain",
       "backgroundColor": "#171717"
     },
-    "assetBundlePatterns": ["**/*"],
-    "platforms": ["ios", "android"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vectorelegans.driver",
@@ -47,7 +52,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow Vector Elegans to use your location for trip tracking."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
       "eas": {

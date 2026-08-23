@@ -61,4 +61,41 @@ describe('resolveDossierBanner', () => {
       }).kind,
     ).toBe('incomplete');
   });
+
+  it('shows incomplete when active but not ops-complete', () => {
+    expect(
+      resolveDossierBanner({
+        expiredTypes: [],
+        expiring: [],
+        rejectedTypes: [],
+        driverStatus: 'active',
+        isComplete: false,
+      }).kind,
+    ).toBe('incomplete');
+  });
+
+  it('shows validated one-shot when active after admin approval', () => {
+    expect(
+      resolveDossierBanner({
+        expiredTypes: [],
+        expiring: [],
+        rejectedTypes: [],
+        driverStatus: 'active',
+        isComplete: true,
+        justValidated: true,
+      }).kind,
+    ).toBe('validated');
+  });
+
+  it('hides banner when active and ops-complete', () => {
+    expect(
+      resolveDossierBanner({
+        expiredTypes: [],
+        expiring: [],
+        rejectedTypes: [],
+        driverStatus: 'active',
+        isComplete: true,
+      }).kind,
+    ).toBeNull();
+  });
 });

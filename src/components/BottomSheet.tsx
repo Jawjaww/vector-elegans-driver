@@ -11,8 +11,8 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  runOnJS,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const WINDOW_H = Dimensions.get('window').height;
@@ -151,7 +151,7 @@ export const BottomSheet = ({
         idx = Math.max(idx - 1, 0);
       }
       snapIdxShared.value = idx;
-      runOnJS(applySnapIndex)(idx);
+      scheduleOnRN(applySnapIndex, idx);
       translateY.value = withSpring(points[idx], {
         ...SPRING,
         velocity: event.velocityY,
