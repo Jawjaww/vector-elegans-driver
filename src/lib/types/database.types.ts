@@ -1584,6 +1584,10 @@ export type Database = {
       check_user_role_update: { Args: never; Returns: boolean }
       cleanup_old_driver_locations: { Args: never; Returns: undefined }
       cleanup_orphaned_documents: { Args: never; Returns: number }
+      client_cancel_ride: {
+        Args: { p_reason?: string; p_ride_id: string }
+        Returns: Json
+      }
       create_pending_driver: {
         Args: {
           p_company_name?: string
