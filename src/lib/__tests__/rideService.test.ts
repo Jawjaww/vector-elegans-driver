@@ -105,4 +105,23 @@ describe('rideService.offer + progress', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('markDriverArrived calls mark_driver_arrived', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        success: true,
+        driver_arrived_at: '2026-08-24T12:00:00Z',
+        already_marked: false,
+      },
+      error: null,
+    });
+    const result = await rideService.markDriverArrived('ride-1');
+    expect(mockRpc).toHaveBeenCalledWith('mark_driver_arrived', {
+      p_ride_id: 'ride-1',
+    });
+    expect(result).toMatchObject({
+      success: true,
+      driverArrivedAt: '2026-08-24T12:00:00Z',
+    });
+  });
 });

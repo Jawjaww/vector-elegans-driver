@@ -127,7 +127,39 @@ describe('driverStore defer / suppress / promote', () => {
 
     const state = useDriverStore.getState();
     expect(state.availableRide?.id).toBe('pro-1');
+    expect(state.availableRides[0]?.id).toBe('pro-1');
     expect(state.deferredRides).toHaveLength(0);
+  });
+
+  it('promoteDeferredRide puts clicked ride at front of offer queue', () => {
+    const current = baseRide('pro-current');
+    const clicked = baseRide('pro-clicked');
+    useDriverStore.getState().addAvailableRide(current);
+    useDriverStore.getState().seedDeferredRides([clicked]);
+    useDriverStore.getState().promoteDeferredRide(clicked.id);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('pro-clicked');
+    expect(state.availableRides.map((r) => r.id)).toEqual([
+      'pro-clicked',
+      'pro-current',
+    ]);
+    expect(state.deferredRides).toHaveLength(0);
+  });
+
+  it('seedDeferredRides fills bottomsheet without touching available offer', () => {
+    const active = baseRide('seed-active');
+    const a = baseRide('seed-a');
+    const b = baseRide('seed-b');
+    useDriverStore.getState().addAvailableRide(active);
+    useDriverStore.getState().seedDeferredRides([active, a, b]);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('seed-active');
+    expect(state.deferredRides.map((r) => r.id).sort()).toEqual([
+      'seed-a',
+      'seed-b',
+    ]);
   });
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Platform,
   ScrollView,
   Alert,
-  Dimensions,
+  type TextStyle,
 } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,13 +16,66 @@ import { Feather } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
 import { isUserDriver } from "../../src/lib/utils/auth-helpers";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+/** Match signup glass fields: soft emerald → frosted white film. */
+const INPUT_STYLE: TextStyle = {
+  flex: 1,
+  color: "#34d399",
+  fontSize: 16,
+  fontWeight: "500",
+  paddingHorizontal: 12,
+  height: "100%",
+  backgroundColor: "transparent",
+  ...(Platform.OS === "android"
+    ? { includeFontPadding: false, textAlignVertical: "center" as const }
+    : null),
+};
+
+function AuthFieldShell({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <View
+      className="rounded-xl h-14 justify-center overflow-hidden border shadow-sm relative"
+      style={{
+        borderColor: "rgba(255,255,255,0.1)",
+        backgroundColor: "transparent",
+      }}
+    >
+      <LinearGradient
+        colors={["rgba(16, 185, 129, 0.15)", "rgba(255, 255, 255, 0.2)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+        }}
+      />
+      <View className="flex-row items-center px-4 relative z-10 h-full">
+        {children}
+      </View>
+    </View>
+  );
+}
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  /** Remount inputs once after OS autofill to drop the yellow highlight (Expo Go / Android). */
+  const [inputEpoch, setInputEpoch] = useState(0);
+  const clearedAutofillHighlight = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" || clearedAutofillHighlight.current) return;
+    if (!email && !password) return;
+    clearedAutofillHighlight.current = true;
+    const t = setTimeout(() => setInputEpoch((n) => n + 1), 80);
+    return () => clearTimeout(t);
+  }, [email, password]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -159,126 +212,61 @@ export default function LoginScreen() {
                 Vector Elegans
               </Text>
               <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
-                Driver Portal
+                Pour les chauffeur
               </Text>
             </View>
 
             {/* Form Container */}
             <View className="mx-6 pb-10">
-              {/* Email Input - Styled like "Prix" badge */}
+              {/* Email Input */}
               <View className="mb-5">
                 <Text className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 ml-1">
                   Email
                 </Text>
-                <View
-                  className="rounded-lg h-14 justify-center overflow-hidden border shadow-sm relative"
-                  style={{
-                    borderColor: "rgba(255,255,255,0.1)",
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                  }}
-                >
-                  <LinearGradient
-                    colors={[
-                      "rgba(16, 185, 129, 0.15)",
-                      "rgba(255, 255, 255, 0.2)",
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: "100%",
-                      height: "100%",
-                    }}
+                <AuthFieldShell>
+                  <Feather name="mail" size={18} color="#10b981" />
+                  <TextInput
+                    key={`email-${inputEpoch}`}
+                    style={INPUT_STYLE}
+                    placeholder="driver@email.com"
+                    placeholderTextColor="#065f46"
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
                   />
-                  <View className="flex-row items-center px-4 relative z-10">
-                    <Feather name="mail" size={20} color="#10b981" />
-                    <TextInput
-                      className="flex-1 text-emerald-400 text-lg px-3 h-full font-bold"
-                      placeholder="driver@email.com"
-                      placeholderTextColor="#065f46"
-                      style={{
-                        opacity: 1,
-                        backgroundColor: "transparent",
-                        // Avoid Android autofill yellow overlay on dark fields
-                        ...(Platform.OS === "android"
-                          ? { includeFontPadding: false }
-                          : null),
-                      }}
-                      value={email}
-                      onChangeText={setEmail}
-                      autoCapitalize="none"
-                      keyboardType="email-address"
-                      autoComplete="off"
-                      textContentType="none"
-                      importantForAutofill="no"
-                      underlineColorAndroid="transparent"
-                    />
-                  </View>
-                </View>
+                </AuthFieldShell>
               </View>
 
-              {/* Password Input - Styled like "Prix" badge */}
+              {/* Password Input */}
               <View className="mb-8">
                 <Text className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 ml-1">
                   Password
                 </Text>
-                <View
-                  className="rounded-lg h-14 justify-center overflow-hidden border shadow-sm relative"
-                  style={{
-                    borderColor: "rgba(255,255,255,0.1)",
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                  }}
-                >
-                  <LinearGradient
-                    colors={[
-                      "rgba(16, 185, 129, 0.15)",
-                      "rgba(255, 255, 255, 0.2)",
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: "100%",
-                      height: "100%",
-                    }}
+                <AuthFieldShell>
+                  <Feather name="lock" size={18} color="#10b981" />
+                  <TextInput
+                    key={`password-${inputEpoch}`}
+                    style={INPUT_STYLE}
+                    placeholder="••••••••"
+                    placeholderTextColor="#065f46"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoCorrect={false}
+                    spellCheck={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    underlineColorAndroid="transparent"
                   />
-                  <View className="flex-row items-center px-4 relative z-10">
-                    <Feather name="lock" size={20} color="#10b981" />
-                    <TextInput
-                      className="flex-1 text-emerald-400 text-lg px-3 h-full font-bold"
-                      placeholder="••••••••"
-                      placeholderTextColor="#065f46"
-                      style={{
-                        opacity: 1,
-                        backgroundColor: "transparent",
-                        ...(Platform.OS === "android"
-                          ? { includeFontPadding: false }
-                          : null),
-                      }}
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry
-                      autoComplete="off"
-                      textContentType="none"
-                      importantForAutofill="no"
-                      underlineColorAndroid="transparent"
-                    />
-                  </View>
-                </View>
+                </AuthFieldShell>
               </View>
 
               {/* Neon Sign In Button - Matches NeonSwipeButton style */}

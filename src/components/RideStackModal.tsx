@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { FullscreenRideModal } from './FullscreenRideModal';
+import {
+  FullscreenRideModal,
+  type MapViewportHole,
+} from './FullscreenRideModal';
 import { Ride } from '../lib/stores/driverStore';
 
 interface RideStackModalProps {
   rides: Ride[];
+  chromeVisible?: boolean;
+  onMapViewportLayout?: (hole: MapViewportHole) => void;
   onAcceptRide: (rideId: string) => void;
   onDeclineRide: (rideId: string, reason?: 'declined' | 'timeout') => void;
 }
 
-export const RideStackModal = ({ rides, onAcceptRide, onDeclineRide }: RideStackModalProps) => {
+export const RideStackModal = ({
+  rides,
+  chromeVisible = false,
+  onMapViewportLayout,
+  onAcceptRide,
+  onDeclineRide,
+}: RideStackModalProps) => {
   const [currentRideIndex] = useState(0);
 
   if (rides.length === 0) return null;
@@ -31,38 +42,22 @@ export const RideStackModal = ({ rides, onAcceptRide, onDeclineRide }: RideStack
   };
 
   return (
-    <View style={styles.container}>
-      {/* Effet d'empilement visuel avec les rides en arrière-plan */}
+    <View style={styles.container} pointerEvents="box-none">
       {visibleRides.map((ride, index) => {
-        if (index <= currentRideIndex) {
-          const isActive = index === currentRideIndex;
-          const offset = (visibleRides.length - 1 - index) * 8; // Décalage progressif
-          const scale = 1 - (visibleRides.length - 1 - index) * 0.02; // Réduction progressive
-          const opacity = isActive ? 1 : 0.8;
-
-          return (
-            <View
-              key={ride.id}
-              style={[
-                styles.stackedCard,
-                {
-                  transform: [{ translateY: offset }, { scale }],
-                  opacity,
-                  zIndex: visibleRides.length - index,
-                },
-              ]}
-            >
-              <FullscreenRideModal
-                ride={ride}
-                isActive={isActive}
-                onAccept={handleAccept}
-                onDecline={handleDecline}
-                onTimeout={handleTimeout}
-              />
-            </View>
-          );
-        }
-        return null;
+        if (index > currentRideIndex) return null;
+        const isActive = index === currentRideIndex;
+        return (
+          <FullscreenRideModal
+            key={ride.id}
+            ride={ride}
+            isActive={isActive}
+            chromeVisible={chromeVisible}
+            onMapViewportLayout={onMapViewportLayout}
+            onAccept={handleAccept}
+            onDecline={handleDecline}
+            onTimeout={handleTimeout}
+          />
+        );
       })}
     </View>
   );
@@ -70,20 +65,7 @@ export const RideStackModal = ({ rides, onAcceptRide, onDeclineRide }: RideStack
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stackedCard: {
-    position: 'absolute',
-    width: '90%',
-    maxWidth: 400,
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
   },
 });

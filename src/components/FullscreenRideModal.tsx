@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, Modal, Dimensions, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import Animated, {
   FadeIn,
+  FadeInDown,
   FadeOut,
   useAnimatedStyle,
   useSharedValue,
@@ -21,26 +22,71 @@ import { useDriverStore, Ride } from '../lib/stores/driverStore';
 import { NeonSwipeButton } from './NeonSwipeButton';
 import { NeonProgress } from './NeonProgress';
 import { RideOfferExtras } from './RideOfferExtras';
-import { VTCMap } from '../map';
 import {
   resolveRideTripMetrics,
   formatPickupDateTime,
+  formatMinutesCompact,
+  haversineKm,
 } from '../lib/utils/rideMetrics';
 
+import Svg, { Path } from 'react-native-svg';
+
 const COUNTDOWN_SECONDS = 20;
+const SCRIM = 'rgba(0,0,0,0.8)';
+const MAP_HOLE_RADIUS = 12;
 const { width, height } = Dimensions.get('window');
 
-// Rentability Badge Component (icône seulement)
+export type MapViewportHole = { x: number; y: number; w: number; h: number };
+
+/** Map hole: square top (flush under price header), rounded bottom only. */
+function mapHolePath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bottomRadius: number,
+): string {
+  const rr = Math.min(bottomRadius, w / 2, h / 2);
+  return [
+    `M${x},${y}`,
+    `H${x + w}`,
+    `V${y + h - rr}`,
+    `A${rr},${rr} 0 0 1 ${x + w - rr},${y + h}`,
+    `H${x + rr}`,
+    `A${rr},${rr} 0 0 1 ${x},${y + h - rr}`,
+    'Z',
+  ].join(' ');
+}
+
+/** Scrim with map viewport hole — home map shows through (bottom corners only). */
+function MapHoleScrim({ hole }: Readonly<{ hole: MapViewportHole | null }>) {
+  if (!hole) {
+    return <View style={[StyleSheet.absoluteFill, { backgroundColor: SCRIM }]} />;
+  }
+  const outer = `M0,0 H${width} V${height} H0 Z`;
+  const inner = mapHolePath(hole.x, hole.y, hole.w, hole.h, MAP_HOLE_RADIUS);
+  return (
+    <Svg
+      width={width}
+      height={height}
+      style={StyleSheet.absoluteFillObject}
+      pointerEvents="none"
+    >
+      <Path d={`${outer} ${inner}`} fill={SCRIM} fillRule="evenodd" />
+    </Svg>
+  );
+}
+
 const RentabilityBadge = ({ distance, price }: { distance: number; price: number }) => {
   const perKm = distance > 0 ? price / distance : 0;
-  
   if (perKm >= 2.5) {
     return (
       <View style={[styles.badgeContainer, { backgroundColor: 'rgba(52, 211, 153, 0.1)', borderColor: 'rgba(52, 211, 153, 0.3)' }]}>
         <Feather name="trending-up" size={16} color="#34d399" />
       </View>
     );
-  } else if (perKm >= 1.5) {
+  }
+  if (perKm >= 1.5) {
     return (
       <View style={[styles.badgeContainer, { backgroundColor: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.3)' }]}>
         <Feather name="zap" size={16} color="#fbbf24" />
@@ -57,72 +103,63 @@ const RentabilityBadge = ({ distance, price }: { distance: number; price: number
 interface FullscreenRideModalProps {
   ride?: Ride;
   isActive?: boolean;
+  chromeVisible?: boolean;
+  onMapViewportLayout?: (hole: MapViewportHole) => void;
   onAccept: () => void;
   onDecline: () => void;
   onTimeout?: () => void;
 }
 
-// Helper for formatting
 const formatPrice = (price: number | null) => {
-  return price ? `${price.toFixed(2)} €` : 'N/A';
+  if (price == null || !Number.isFinite(price)) return 'N/A';
+  if (price >= 1000) return `${price.toFixed(0)} €`;
+  return `${price.toFixed(2)} €`;
 };
 
-const formatDuration = (minutes: number | null) => {
-  return minutes ? `${Math.round(minutes)} min` : 'N/A';
-};
+function formatTripDistanceLabel(km: number): string {
+  if (!Number.isFinite(km) || km <= 0) return '—';
+  if (km >= 100) return `${Math.round(km)} km`;
+  return `${km.toFixed(1)} km`;
+}
 
-// Helper to calculate distance between two points (Haversine formula)
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371; // Radius of the earth in km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const d = R * c; // Distance in km
-  return d;
-};
-
-export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline, onTimeout }: FullscreenRideModalProps) => {
+/**
+ * Offer modal card — warm home WebView visible through the map viewport hole.
+ */
+export const FullscreenRideModal = ({
+  ride,
+  isActive = true,
+  chromeVisible = false,
+  onMapViewportLayout,
+  onAccept,
+  onDecline,
+  onTimeout,
+}: FullscreenRideModalProps) => {
   const { t } = useTranslation();
   const { availableRide, currentLocation } = useDriverStore();
   const currentRide = ride || availableRide;
-  
-  // Memoize map route endpoints (avoid re-renders from unrelated location ticks)
-  const mapStart = useMemo(
-    () =>
-      currentRide
-        ? { lat: currentRide.pickup_lat, lng: currentRide.pickup_lon }
-        : undefined,
-    [currentRide?.pickup_lat, currentRide?.pickup_lon],
-  );
-  const mapEnd = useMemo(
-    () =>
-      currentRide
-        ? { lat: currentRide.dropoff_lat, lng: currentRide.dropoff_lon }
-        : undefined,
-    [currentRide?.dropoff_lat, currentRide?.dropoff_lon],
-  );
-  const mapApproach = useMemo(() => {
-    if (!currentLocation) return undefined;
-    // Coarse quantize (~50 m) — avoid thrashing OSRM / WebGL in the offer modal
-    return {
-      lat: Math.round(currentLocation.lat * 2e3) / 2e3,
-      lng: Math.round(currentLocation.lng * 2e3) / 2e3,
-    };
-  }, [currentLocation?.lat, currentLocation?.lng]);
   const insets = useSafeAreaInsets();
-  
-  const [mapReady, setMapReady] = useState(false);
   const [startKey, setStartKey] = useState(Date.now());
-  
-  // Animation values for modern drag-to-dismiss
+  const [mapHole, setMapHole] = useState<MapViewportHole | null>(null);
+  const mapViewportRef = useRef<View>(null);
+
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
-  // Animated style for modern drag effect
+  const measureMapHole = useCallback(() => {
+    const publish = () => {
+      mapViewportRef.current?.measureInWindow((x, y, w, h) => {
+        if (w > 0 && h > 0) {
+          const hole = { x, y, w, h };
+          setMapHole(hole);
+          onMapViewportLayout?.(hole);
+        }
+      });
+    };
+    publish();
+    // Second pass after modal layout settles (padding / safe area).
+    requestAnimationFrame(publish);
+  }, [onMapViewportLayout]);
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: translateX.value },
@@ -181,7 +218,6 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
         });
 
         setTimeout(() => {
-          // Swipe-away = defer to bottomsheet (same as timeout), not hard refuse
           if (onTimeout) onTimeout();
           else onDecline();
         }, 200);
@@ -192,30 +228,45 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
     })
     .runOnJS(true);
 
-  // Reset when a new ride appears
   useEffect(() => {
     if (currentRide) {
       setStartKey(Date.now());
-      setMapReady(false);
       translateX.value = 0;
       translateY.value = 0;
+      setMapHole(null);
     }
   }, [currentRide?.id]);
 
-  if (!currentRide) return null;
+  useEffect(() => {
+    const t1 = setTimeout(measureMapHole, 50);
+    const t2 = setTimeout(measureMapHole, 220);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [currentRide?.id, chromeVisible, measureMapHole]);
 
-  // Calculate approach info locally since we don't have the API hook yet
-  const driverDistKm = currentLocation 
-    ? calculateDistance(currentLocation.lat, currentLocation.lng, currentRide.pickup_lat, currentRide.pickup_lon)
+  if (!currentRide || !isActive) return null;
+
+  const driverDistKm = currentLocation
+    ? haversineKm(
+        currentLocation.lat,
+        currentLocation.lng,
+        currentRide.pickup_lat,
+        currentRide.pickup_lon,
+      )
     : 0;
-  
-  // Assume 30km/h average speed in city for approach time
-  const driverTimeMin = driverDistKm > 0 ? (driverDistKm / 30) * 60 : 0;
+  const approachSpeedKmh = driverDistKm > 40 ? 70 : 30;
+  const driverTimeMin =
+    driverDistKm > 0 ? (driverDistKm / approachSpeedKmh) * 60 : 0;
 
   const tripMetrics = resolveRideTripMetrics(currentRide);
   const tripDistKm = tripMetrics.distanceKm;
   const tripTimeMin = tripMetrics.durationMin;
   const pickupWhen = formatPickupDateTime(currentRide.pickup_time);
+  const offerPrice =
+    (currentRide.estimated_price || 0) +
+    Number(currentRide.client_incentive ?? 0);
 
   return (
     <Modal
@@ -230,152 +281,174 @@ export const FullscreenRideModal = ({ ride, isActive = true, onAccept, onDecline
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={styles.container}>
+          <MapHoleScrim hole={mapHole} />
+
           <GestureDetector gesture={panGesture}>
-            <Animated.View 
-              entering={FadeIn.duration(300)} 
+            <Animated.View
+              entering={FadeIn.duration(300)}
               exiting={FadeOut.duration(300)}
               style={[
-                styles.modalContent, 
-                { 
-                  marginTop: insets.top + 10, 
+                styles.modalContent,
+                {
+                  marginTop: insets.top + 10,
                   marginBottom: insets.bottom + 10,
-                  maxHeight: height - (insets.top + insets.bottom + 20)
+                  maxHeight: height - (insets.top + insets.bottom + 20),
                 },
-                animatedStyle
+                animatedStyle,
               ]}
             >
-          <View style={styles.contentContainer}>
-            {/* Progress Bar */}
-            <View style={styles.progressContainer}>
-              <NeonProgress
-                durationMs={COUNTDOWN_SECONDS * 1000}
-                startKey={startKey}
-                onExpire={onTimeout || onDecline}
-              />
-            </View>
-
-            {/* Approach Info */}
-            <View style={styles.approachContainer}>
-              <LinearGradient
-                colors={['rgba(255, 237, 213, 1)', 'rgba(255, 255, 255, 1)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.approachContent}>
-                <Feather name="alert-circle" size={20} color="#FF8C00" />
-                <Text style={styles.approachText}>
-                  APPROCHE ({formatDuration(driverTimeMin)} · {driverDistKm.toFixed(1)} km)
-                </Text>
-              </View>
-            </View>
-
-            {/* Main Card (Price + Map) */}
-            <View style={styles.cardContainer}>
-              {/* Header: Price & Trip Info */}
-              <View style={styles.cardHeader}>
-                <LinearGradient
-                  colors={['rgba(216, 251, 233, 0.98)', 'rgba(242, 251, 247, 0.92)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={styles.headerContent}>
-                  <View style={styles.priceContainer}>
-                    <Text style={styles.priceText}>
-                      {formatPrice(currentRide.estimated_price)}
-                    </Text>
-                    {/* Badge de rentabilité à droite du prix quand excellent */}
-                    {(currentRide.estimated_price || 0) / (tripDistKm || 1) >= 2.5 && (
-                      <View style={styles.rentabilityBadgeInline}>
-                        <RentabilityBadge 
-                          distance={tripDistKm} 
-                          price={currentRide.estimated_price || 0} 
-                        />
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.separator}>|</Text>
-                  <Text style={styles.tripText}>
-                    {tripDistKm < 10
-                      ? tripDistKm.toFixed(1)
-                      : Math.round(tripDistKm)}{" "}
-                    km · {Math.max(1, Math.round(tripTimeMin))} min
-                  </Text>
-                  {/* Badge de rentabilité dans le coin droit pour les autres cas */}
-                  {(currentRide.estimated_price || 0) / (tripDistKm || 1) < 2.5 && (
-                    <View style={styles.rentabilityBadgeContainer}>
-                      <RentabilityBadge 
-                        distance={tripDistKm} 
-                        price={currentRide.estimated_price || 0} 
-                      />
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* Map Area — MapLibre WebView (works in Expo Go) */}
-              <View style={styles.mapContainer}>
-                <VTCMap
-                  style={StyleSheet.absoluteFill}
-                  start={mapStart}
-                  end={mapEnd}
-                  approachFrom={mapApproach}
-                  showRoute
-                  followUser={false}
-                  routeFitPaddingBottom={120}
-                  onMapReady={() => setMapReady(true)}
-                />
-
-                <View style={styles.addressOverlay} pointerEvents="box-none">
-                  <RideOfferExtras
-                    options={currentRide.options}
-                    vehicleType={currentRide.vehicle_type}
+              <View style={styles.contentContainer}>
+                <View style={styles.progressContainer}>
+                  <NeonProgress
+                    durationMs={COUNTDOWN_SECONDS * 1000}
+                    startKey={startKey}
+                    onExpire={onTimeout || onDecline}
                   />
-                  {pickupWhen ? (
-                    <View style={styles.pickupTimePill}>
-                      <Feather name="clock" size={13} color="#b45309" />
-                      <Text style={styles.pickupTimePillText} numberOfLines={1}>
-                        {pickupWhen}
+                </View>
+
+                {chromeVisible ? (
+                  <Animated.View
+                    entering={FadeInDown.duration(220).delay(0)}
+                    style={styles.approachContainer}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255, 237, 213, 1)', 'rgba(255, 255, 255, 1)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <View style={styles.approachContent}>
+                      <Text style={styles.approachLabel}>{t('ride.approach')}</Text>
+                      <Text style={styles.approachText} numberOfLines={1}>
+                        {driverDistKm > 0
+                          ? `${formatMinutesCompact(driverTimeMin)} · ${formatTripDistanceLabel(driverDistKm)}`
+                          : 'Position…'}
                       </Text>
                     </View>
-                  ) : null}
-                  <View style={styles.addressPill}>
-                    <Feather name="map-pin" size={14} color="#94a3b8" />
-                    <Text style={styles.addressText} numberOfLines={1}>
-                      {t('ride.pickupLabel')} : {currentRide.pickup_address}
-                    </Text>
-                  </View>
-                  <View style={styles.addressPill}>
-                    <Feather name="flag" size={14} color="#10b981" />
-                    <Text style={[styles.addressText, styles.dropoffText]} numberOfLines={1}>
-                      {t('ride.dropoffLabel')} : {currentRide.dropoff_address}
-                    </Text>
+                  </Animated.View>
+                ) : (
+                  <View style={styles.approachPlaceholder} />
+                )}
+
+                <View style={styles.cardContainer}>
+                  {chromeVisible ? (
+                    <Animated.View
+                      entering={FadeInDown.duration(220).delay(80)}
+                      style={styles.cardHeader}
+                    >
+                      <LinearGradient
+                        colors={[
+                          'rgba(216, 251, 233, 0.98)',
+                          'rgba(242, 251, 247, 0.92)',
+                        ]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={styles.headerContent}>
+                        <View style={styles.priceContainer}>
+                          <Text
+                            style={[
+                              styles.priceText,
+                              offerPrice >= 1000 && styles.priceTextCompact,
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.75}
+                          >
+                            {formatPrice(offerPrice)}
+                          </Text>
+                          {Number(currentRide.client_incentive ?? 0) > 0 ? (
+                            <Text style={styles.bonusText} numberOfLines={1}>
+                              +{Number(currentRide.client_incentive).toFixed(0)}€
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text style={styles.separator}>·</Text>
+                        <Text style={styles.tripText} numberOfLines={1}>
+                          {formatTripDistanceLabel(tripDistKm)} ·{' '}
+                          {formatMinutesCompact(tripTimeMin)}
+                        </Text>
+                        <View style={styles.rentabilityBadgeInline}>
+                          <RentabilityBadge
+                            distance={tripDistKm}
+                            price={offerPrice}
+                          />
+                        </View>
+                      </View>
+                    </Animated.View>
+                  ) : (
+                    <View style={styles.headerPlaceholder} />
+                  )}
+
+                  <View
+                    ref={mapViewportRef}
+                    style={styles.mapContainer}
+                    pointerEvents="box-none"
+                    onLayout={measureMapHole}
+                  >
+                    {chromeVisible ? (
+                      <Animated.View
+                        entering={FadeIn.duration(220).delay(140)}
+                        style={styles.addressOverlay}
+                        pointerEvents="box-none"
+                      >
+                        <RideOfferExtras
+                          options={currentRide.options}
+                          vehicleType={currentRide.vehicle_type}
+                        />
+                        {pickupWhen ? (
+                          <View style={styles.pickupTimePill}>
+                            <Feather name="clock" size={13} color="#b45309" />
+                            <Text
+                              style={styles.pickupTimePillText}
+                              numberOfLines={1}
+                            >
+                              {pickupWhen}
+                            </Text>
+                          </View>
+                        ) : null}
+                        <View style={styles.addressPill}>
+                          <Feather name="map-pin" size={14} color="#94a3b8" />
+                          <Text style={styles.addressText} numberOfLines={1}>
+                            {t('ride.pickupLabel')} : {currentRide.pickup_address}
+                          </Text>
+                        </View>
+                        <View style={styles.addressPill}>
+                          <Feather name="flag" size={14} color="#10b981" />
+                          <Text
+                            style={[styles.addressText, styles.dropoffText]}
+                            numberOfLines={1}
+                          >
+                            {t('ride.dropoffLabel')} :{' '}
+                            {currentRide.dropoff_address}
+                          </Text>
+                        </View>
+                      </Animated.View>
+                    ) : null}
                   </View>
                 </View>
 
-                {!mapReady && (
-                  <View style={styles.mapLoadingOverlay} pointerEvents="none">
-                    <View style={styles.spinner} />
-                    <Text style={styles.loadingText}>{t('ride.loadingRoutes')}</Text>
-                  </View>
+                {chromeVisible ? (
+                  <Animated.View
+                    entering={FadeInDown.duration(220).delay(200)}
+                    style={styles.actionsContainer}
+                  >
+                    <View style={styles.swipeButtonWrapper}>
+                      <NeonSwipeButton onConfirm={onAccept} />
+                    </View>
+                    <TouchableOpacity
+                      onPress={onDecline}
+                      style={styles.declineButton}
+                    >
+                      <Text style={styles.declineText}>{t('ride.decline')}</Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                ) : (
+                  <View style={styles.actionsPlaceholder} />
                 )}
               </View>
-            </View>
-
-            {/* Actions */}
-            <View style={styles.actionsContainer}>
-              <View style={styles.swipeButtonWrapper}>
-                <NeonSwipeButton onConfirm={onAccept} />
-              </View>
-              
-              <TouchableOpacity onPress={onDecline} style={styles.declineButton}>
-                <Text style={styles.declineText}>{t('ride.decline')}</Text>
-              </TouchableOpacity>
-            </View>
-
-          </View>
-        </Animated.View>
+            </Animated.View>
           </GestureDetector>
         </View>
       </GestureHandlerRootView>
@@ -388,21 +461,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.8)',
   },
   modalContent: {
     width: '90%',
     maxWidth: 400,
     borderRadius: 20,
     overflow: 'hidden',
-    // Background et bordures supprimés pour éviter l'effet "parasite"
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.25,
-    shadowRadius: 60,
-    elevation: 24,
+    zIndex: 2,
   },
-  // glassOverlay supprimé
   contentContainer: {
     padding: 24,
     gap: 16,
@@ -412,12 +478,20 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 12,
     justifyContent: 'center',
+    backgroundColor: SCRIM,
+    borderRadius: 6,
   },
   approachContainer: {
     borderRadius: 8,
     overflow: 'hidden',
-    height: 44,
-    marginBottom: 12,
+    height: 36,
+    marginBottom: 8,
+  },
+  approachPlaceholder: {
+    height: 36,
+    marginBottom: 8,
+    borderRadius: 8,
+    backgroundColor: SCRIM,
   },
   approachContent: {
     flex: 1,
@@ -426,73 +500,89 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 8,
   },
+  approachLabel: {
+    color: '#ea580c',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
   approachText: {
-    color: '#FF6B00',
-    fontWeight: '800',
-    fontSize: 14,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    flex: 1,
+    color: '#c2410c',
+    fontWeight: '700',
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
   cardContainer: {
     width: '100%',
-    borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'transparent',
+    borderBottomLeftRadius: MAP_HOLE_RADIUS,
+    borderBottomRightRadius: MAP_HOLE_RADIUS,
   },
   cardHeader: {
-    height: 50,
+    minHeight: 48,
     position: 'relative',
     paddingVertical: 8,
+  },
+  headerPlaceholder: {
+    minHeight: 48,
+    backgroundColor: SCRIM,
   },
   headerContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 12,
+    gap: 6,
   },
   priceContainer: {
+    flexShrink: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     gap: 4,
+    maxWidth: '48%',
   },
   priceText: {
     color: '#065f46',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
+  },
+  priceTextCompact: {
+    fontSize: 15,
+  },
+  bonusText: {
+    color: '#b45309',
+    fontSize: 10,
+    fontWeight: '700',
   },
   separator: {
     color: '#065f46',
-    fontSize: 18,
-    opacity: 0.5,
+    fontSize: 14,
+    opacity: 0.45,
   },
   tripText: {
+    flex: 1,
+    flexShrink: 1,
     color: '#065f46',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  rentabilityBadgeContainer: {
-    position: 'absolute',
-    right: 16,
-    top: '50%',
-    transform: [{ translateY: -12 }],
-    zIndex: 10,
+    fontSize: 13,
+    fontWeight: '600',
   },
   rentabilityBadgeInline: {
     marginLeft: 2,
+    flexShrink: 0,
   },
   mapContainer: {
     height: 410,
     position: 'relative',
     marginTop: 0,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+    borderBottomLeftRadius: MAP_HOLE_RADIUS,
+    borderBottomRightRadius: MAP_HOLE_RADIUS,
   },
   addressOverlay: {
     position: 'absolute',
@@ -548,31 +638,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0f172a',
   },
-  mapLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 20,
-  },
-  spinner: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 4,
-    borderColor: '#cbd5e1',
-    borderTopColor: '#10b981',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#475569',
-    fontWeight: '500',
-  },
   actionsContainer: {
     alignItems: 'center',
     marginTop: 8,
     gap: 12,
+  },
+  actionsPlaceholder: {
+    height: 72,
+    marginTop: 8,
+    borderRadius: 8,
+    backgroundColor: SCRIM,
   },
   swipeButtonWrapper: {
     width: '100%',

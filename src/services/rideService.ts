@@ -1,9 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Ride, RideStatus } from '../lib/types/database.types';
-import {
-  isRidePickupStillOfferable,
-  ridePickupExpiryCutoffIso,
-} from '../lib/utils/ridePickup';
+import { isRideStillOfferable } from '../lib/utils/ridePickup';
 
 export interface PendingRide {
   id: string;
@@ -15,11 +12,14 @@ export interface PendingRide {
   dropoffLng: number;
   estimatedPrice: number | null;
   finalPrice: number | null;
+  clientIncentive: number;
   estimatedDistance: number | null;
   estimatedDuration: number | null;
   status: string;
   clientId?: string;
   pickupTime: string | null;
+  matchingDeadlineAt: string | null;
+  matchingPausedAt: string | null;
   createdAt: string;
   vehicleType: string;
   options?: string[];
@@ -33,13 +33,22 @@ export interface AcceptRideResult {
   overrideVehicleId?: string | null;
 }
 
+function applyMatchingFilters<T extends { in: Function; is: Function; gt: Function }>(
+  query: T,
+): T {
+  return query
+    .in('status', ['pending', 'delayed'])
+    .is('matching_paused_at', null)
+    .gt('matching_deadline_at', new Date().toISOString()) as T;
+}
+
 class RideService {
   private subscription: ReturnType<typeof supabase.channel> | null = null;
 
   subscribeToPendingRides(
     onNewRide: (ride: PendingRide) => void,
     onRideUpdated: (ride: PendingRide) => void,
-    onRideRemoved: (rideId: string) => void
+    onRideRemoved: (rideId: string) => void,
   ) {
     this.unsubscribe();
 
@@ -51,13 +60,12 @@ class RideService {
           event: 'INSERT',
           schema: 'public',
           table: 'rides',
-          filter: 'status=eq.pending',
         },
         (payload) => {
           const ride = payload.new as Ride;
-          if (!isRidePickupStillOfferable(ride.pickup_time)) return;
+          if (!isRideStillOfferable(ride)) return;
           onNewRide(this.mapToPendingRide(ride));
-        }
+        },
       )
       .on(
         'postgres_changes',
@@ -65,28 +73,15 @@ class RideService {
           event: 'UPDATE',
           schema: 'public',
           table: 'rides',
-          filter: 'status=eq.pending',
         },
         (payload) => {
           const ride = payload.new as Ride;
-          if (!isRidePickupStillOfferable(ride.pickup_time)) {
+          if (!isRideStillOfferable(ride)) {
             onRideRemoved(ride.id);
             return;
           }
           onRideUpdated(this.mapToPendingRide(ride));
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'rides',
-          filter: 'status=neq.pending',
         },
-        (payload) => {
-          onRideRemoved((payload.new as Ride).id);
-        }
       )
       .subscribe();
 
@@ -101,11 +96,9 @@ class RideService {
   }
 
   async fetchPendingRides(): Promise<PendingRide[]> {
-    const { data, error } = await supabase
-      .from('rides')
-      .select('*')
-      .eq('status', 'pending')
-      .gt('pickup_time', ridePickupExpiryCutoffIso())
+    let query = supabase.from('rides').select('*');
+    query = applyMatchingFilters(query);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -114,7 +107,9 @@ class RideService {
       throw error;
     }
 
-    return (data || []).map(this.mapToPendingRide);
+    return (data || [])
+      .filter((ride) => isRideStillOfferable(ride as Ride))
+      .map((ride) => this.mapToPendingRide(ride as Ride));
   }
 
   async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {
@@ -131,7 +126,7 @@ class RideService {
 
   async respondOffer(
     rideId: string,
-    response: 'declined' | 'timeout'
+    response: 'declined' | 'timeout',
   ): Promise<{ success: boolean; error?: string }> {
     const { data, error } = await supabase.rpc('respond_ride_offer', {
       p_ride_id: rideId,
@@ -193,7 +188,10 @@ class RideService {
 
   async updateRideProgress(
     rideId: string,
-    status: Extract<RideStatus, 'in-progress' | 'completed' | 'driver-canceled' | 'no-show'>
+    status: Extract<
+      RideStatus,
+      'in-progress' | 'completed' | 'driver-canceled' | 'no-show'
+    >,
   ): Promise<{ success: boolean; error?: string; status?: string }> {
     const { data, error } = await supabase.rpc('update_ride_progress', {
       p_ride_id: rideId,
@@ -207,6 +205,29 @@ class RideService {
     return { success: true, status: row.status };
   }
 
+  async markDriverArrived(
+    rideId: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    driverArrivedAt?: string | null;
+    alreadyMarked?: boolean;
+  }> {
+    const { data, error } = await supabase.rpc('mark_driver_arrived', {
+      p_ride_id: rideId,
+    });
+    if (error) return { success: false, error: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.success !== true) {
+      return { success: false, error: row?.error || 'arrival failed' };
+    }
+    return {
+      success: true,
+      driverArrivedAt: row.driver_arrived_at ?? null,
+      alreadyMarked: row.already_marked === true,
+    };
+  }
+
   private mapToPendingRide(ride: Ride): PendingRide {
     return {
       id: ride.id,
@@ -218,11 +239,14 @@ class RideService {
       dropoffLat: ride.dropoff_lat ?? 0,
       dropoffLng: ride.dropoff_lon ?? 0,
       pickupTime: ride.pickup_time,
+      matchingDeadlineAt: ride.matching_deadline_at ?? null,
+      matchingPausedAt: ride.matching_paused_at ?? null,
       vehicleType: ride.vehicle_type,
       estimatedDistance: ride.distance,
       estimatedDuration: ride.duration,
       estimatedPrice: ride.estimated_price,
       finalPrice: ride.final_price,
+      clientIncentive: Number(ride.client_incentive ?? 0),
       status: ride.status,
       options: ride.options || [],
       createdAt: ride.created_at,

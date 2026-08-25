@@ -767,6 +767,36 @@ export type Database = {
           },
         ]
       }
+      push_tokens: {
+        Row: {
+          created_at: string
+          device_label: string | null
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_label?: string | null
+          id?: string
+          platform: string
+          token: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          device_label?: string | null
+          id?: string
+          platform?: string
+          token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       rates: {
         Row: {
           base_price: number
@@ -1038,8 +1068,10 @@ export type Database = {
           canceled_at: string | null
           canceled_by: string | null
           cancellation_reason: string | null
+          client_incentive: number
           created_at: string
           distance: number | null
+          driver_arrived_at: string | null
           driver_id: string | null
           dropoff_address: string
           dropoff_lat: number | null
@@ -1048,6 +1080,11 @@ export type Database = {
           estimated_price: number | null
           final_price: number | null
           id: string
+          live_eta_minutes: number | null
+          live_remaining_m: number | null
+          matching_deadline_at: string | null
+          matching_paused_at: string | null
+          nav_updated_at: string | null
           options: string[] | null
           override_vehicle_id: string | null
           pickup_address: string
@@ -1066,8 +1103,10 @@ export type Database = {
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
+          client_incentive?: number
           created_at?: string
           distance?: number | null
+          driver_arrived_at?: string | null
           driver_id?: string | null
           dropoff_address: string
           dropoff_lat?: number | null
@@ -1076,6 +1115,11 @@ export type Database = {
           estimated_price?: number | null
           final_price?: number | null
           id?: string
+          live_eta_minutes?: number | null
+          live_remaining_m?: number | null
+          matching_deadline_at?: string | null
+          matching_paused_at?: string | null
+          nav_updated_at?: string | null
           options?: string[] | null
           override_vehicle_id?: string | null
           pickup_address: string
@@ -1094,8 +1138,10 @@ export type Database = {
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
+          client_incentive?: number
           created_at?: string
           distance?: number | null
+          driver_arrived_at?: string | null
           driver_id?: string | null
           dropoff_address?: string
           dropoff_lat?: number | null
@@ -1104,6 +1150,11 @@ export type Database = {
           estimated_price?: number | null
           final_price?: number | null
           id?: string
+          live_eta_minutes?: number | null
+          live_remaining_m?: number | null
+          matching_deadline_at?: string | null
+          matching_paused_at?: string | null
+          nav_updated_at?: string | null
           options?: string[] | null
           override_vehicle_id?: string | null
           pickup_address?: string
@@ -1515,12 +1566,27 @@ export type Database = {
     }
     Functions: {
       _current_driver_id: { Args: never; Returns: string }
+      _insert_client_push_notification: {
+        Args: {
+          p_data?: Json
+          p_message: string
+          p_ride_id: string
+          p_title: string
+          p_type: string
+          p_user_id: string
+        }
+        Returns: string
+      }
       _ride_offer_snapshot: {
         Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
         Returns: Json
       }
       accept_ride: {
         Args: { p_driver_id?: string; p_ride_id: string }
+        Returns: Json
+      }
+      add_ride_incentive: {
+        Args: { p_amount: number; p_ride_id: string }
         Returns: Json
       }
       admin_cancel_ride: {
@@ -1776,6 +1842,7 @@ export type Database = {
         }
         Returns: string
       }
+      mark_driver_arrived: { Args: { p_ride_id: string }; Returns: Json }
       mark_notification_read: {
         Args: { notification_uuid: string }
         Returns: undefined
@@ -1853,11 +1920,23 @@ export type Database = {
         Args: { driver_id: string }
         Returns: string
       }
+      update_ride_nav_progress: {
+        Args: {
+          p_eta_minutes: number
+          p_remaining_m: number
+          p_ride_id: string
+        }
+        Returns: Json
+      }
       update_ride_progress: {
         Args: {
           p_ride_id: string
           p_status: Database["public"]["Enums"]["ride_status"]
         }
+        Returns: Json
+      }
+      upsert_push_token: {
+        Args: { p_device_label?: string; p_platform: string; p_token: string }
         Returns: Json
       }
       validate_driver: {

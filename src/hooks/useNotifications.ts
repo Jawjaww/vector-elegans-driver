@@ -14,8 +14,8 @@ Notifications.setNotificationHandler({
 });
 
 export function useNotifications() {
-  const notificationListener = useRef<Notifications.Subscription | null>(null);
-  const responseListener = useRef<Notifications.Subscription | null>(null);
+  const notificationListener = useRef<Notifications.EventSubscription | null>(null);
+  const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     const { status: existingStatus } =
@@ -65,10 +65,14 @@ export function useNotifications() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      await supabase.from('driver_locations').upsert({
-        driver_id: user.id,
-        battery_level: 100,
+      const { error } = await supabase.rpc('upsert_push_token', {
+        p_token: token,
+        p_platform: 'expo',
+        p_device_label: Platform.OS,
       });
+      if (error) {
+        console.error('[Notifications] upsert_push_token:', error.message);
+      }
     } catch (error) {
       console.error('[Notifications] Error sending token to server:', error);
     }

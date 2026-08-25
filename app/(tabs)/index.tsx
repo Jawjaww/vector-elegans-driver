@@ -8,22 +8,32 @@ import {
   Alert,
   Dimensions,
   StyleSheet,
+  Switch,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, pickNextPendingRide } from "../../src/lib/stores/driverStore";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
-import { BottomSheet } from "../../src/components/BottomSheet";
+import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from "../../src/components/BottomSheet";
 import { RideStackModal } from "../../src/components/RideStackModal";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
-import { DynamicNotification } from "../../src/components/DynamicNotification";
 import { VTCMap } from "../../src/map";
 import { rideService } from "../../src/services/rideService";
+import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
+import { TripManeuverHud } from "../../src/components/TripManeuverHud";
+import { TripArrivalHud } from "../../src/components/TripArrivalHud";
+import { VGpsLoader } from "../../src/components/VGpsLoader";
+import { MapRecenterButton } from "../../src/components/MapRecenterButton";
+import {
+  optimisticEtaMinutes,
+  type NavProgress,
+} from "../../src/lib/utils/navProgress";
+import { useActiveTripActions } from "../../src/hooks/useActiveTripActions";
 import {
   getDossierStatus,
   resolveDossierBanner,
@@ -35,10 +45,11 @@ import {
   formatPickupDateTime,
 } from "../../src/lib/utils/rideMetrics";
 import {
-  isRidePickupStillOfferable,
-  ridePickupExpiryCutoffIso,
+  isRideStillOfferable,
   getPendingRideDisplayLabel,
 } from "../../src/lib/utils/ridePickup";
+import { computeOfferMapFitPadding } from "../../src/lib/utils/offerMapFit";
+import { resolveTripMapPoints } from "../../src/lib/utils/tripMapPoints";
 
 const REVIEW_STATUSES = new Set([
   "pending_review",
@@ -46,10 +57,224 @@ const REVIEW_STATUSES = new Set([
   "submitted",
 ]);
 
+function mapRouteFitPaddingBottom(
+  ride: { status: string; driver_arrived_at?: string | null } | null,
+): number {
+  if (!ride) return 32;
+  if (ride.status === "scheduled" && Boolean(ride.driver_arrived_at)) {
+    return 200;
+  }
+  return 72;
+}
+
+function mapLoaderHint(mapReady: boolean, hasGpsFix: boolean): string {
+  if (!mapReady) return "Préparation de la carte";
+  if (!hasGpsFix) return "Localisation en cours";
+  return "Centrage…";
+}
+
 function bannerAccentBackground(accent: string): string {
   if (accent === "#fb7185") return "rgba(251, 113, 133, 0.2)";
   if (accent === "#34d399") return "rgba(52, 211, 153, 0.2)";
   return "rgba(251, 191, 36, 0.2)";
+}
+
+function hasDriverDossierAlert(input: {
+  justValidated: boolean;
+  expiredTypes: unknown[];
+  expiringDocs: unknown[];
+  rejectedDocs: unknown[];
+  driverStatus: string | null;
+  dossierIsComplete: boolean | null;
+}): boolean {
+  const {
+    justValidated,
+    expiredTypes,
+    expiringDocs,
+    rejectedDocs,
+    driverStatus,
+    dossierIsComplete,
+  } = input;
+  if (justValidated) return true;
+  if (expiredTypes.length > 0 || expiringDocs.length > 0 || rejectedDocs.length > 0) {
+    return true;
+  }
+  if (
+    driverStatus === "draft" ||
+    driverStatus === "incomplete" ||
+    driverStatus === "pending_review" ||
+    driverStatus === "rejected"
+  ) {
+    return true;
+  }
+  return driverStatus === "active" && dossierIsComplete === false;
+}
+
+function resolveDriverHomeSnapLevel(input: {
+  activeRide: { status: string; driver_arrived_at?: string | null } | null;
+  availableRidesCount: number;
+  availableRide: unknown;
+  offerableDeferredCount: number;
+  hasDossierAlert: boolean;
+}): SheetSnapLevel {
+  const {
+    activeRide,
+    availableRidesCount,
+    availableRide,
+    offerableDeferredCount,
+    hasDossierAlert,
+  } = input;
+
+  if (!activeRide && availableRidesCount > 0) return "nav";
+  if (hasDossierAlert) return "notices";
+  if (activeRide) {
+    const waitingAtPickup =
+      activeRide.status === "scheduled" &&
+      Boolean(activeRide.driver_arrived_at);
+    return waitingAtPickup ? "trip" : "nav";
+  }
+  if (availableRide || offerableDeferredCount > 0) return "rides";
+  return "peek";
+}
+
+function isDriverBecameActive(
+  previous: string | null,
+  nextStatus: string,
+): boolean {
+  if (nextStatus !== "active" || previous == null || previous === "active") {
+    return false;
+  }
+  return (
+    REVIEW_STATUSES.has(previous) ||
+    previous === "draft" ||
+    previous === "rejected"
+  );
+}
+
+type FolderNotifier = (n: {
+  type: "success" | "warning" | "info";
+  title: string;
+  message: string;
+}) => void;
+
+/** Side-effects when driver.status changes (validation / reject / cancel review). */
+function notifyDriverStatusTransition(input: {
+  previous: string | null;
+  nextStatus: string;
+  dossierIsComplete: boolean | null | undefined;
+  fromRealtime?: boolean;
+  setJustValidated: (v: boolean) => void;
+  addNotification: FolderNotifier;
+}): void {
+  const {
+    previous,
+    nextStatus,
+    dossierIsComplete,
+    fromRealtime,
+    setJustValidated,
+    addNotification,
+  } = input;
+
+  if (
+    isDriverBecameActive(previous, nextStatus) &&
+    dossierIsComplete !== false
+  ) {
+    setJustValidated(true);
+    addNotification({
+      type: "success",
+      title: "Dossier validé",
+      message:
+        "Votre dossier a été validé. Passez en ligne pour recevoir et accepter des courses.",
+    });
+    useDriverFolderStore.setState({
+      validatedAt: new Date().toISOString(),
+    });
+    if (fromRealtime) {
+      Alert.alert(
+        "Dossier validé",
+        "Félicitations ! Passez en ligne (On) pour voir les courses disponibles.",
+      );
+    }
+    return;
+  }
+
+  if (nextStatus === "rejected" && previous && REVIEW_STATUSES.has(previous)) {
+    setJustValidated(false);
+    addNotification({
+      type: "warning",
+      title: "Dossier rejeté",
+      message: "Votre dossier a été rejeté. Ouvrez votre profil pour corriger.",
+    });
+    return;
+  }
+
+  if (nextStatus === "draft" && previous && REVIEW_STATUSES.has(previous)) {
+    setJustValidated(false);
+    addNotification({
+      type: "info",
+      title: "Demande annulée",
+      message:
+        "La demande de validation a été annulée. Vous pouvez modifier votre dossier.",
+    });
+  }
+}
+
+function useMapBootSeed(currentLocation: { lat: number; lng: number } | null) {
+  const [hasGpsFix, setHasGpsFix] = useState(() =>
+    Boolean(useDriverStore.getState().currentLocation),
+  );
+  const [mapBoot, setMapBoot] = useState<{
+    center: { lat: number; lng: number };
+    zoom: number;
+  } | null>(() => {
+    const loc = useDriverStore.getState().currentLocation;
+    return loc ? { center: { lat: loc.lat, lng: loc.lng }, zoom: 15 } : null;
+  });
+
+  useEffect(() => {
+    if (mapBoot) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted" || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+        setHasGpsFix(true);
+        setMapBoot({
+          center: {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          },
+          zoom: 15,
+        });
+        useDriverStore.getState().setCurrentLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      } catch {
+        // Watch / later GPS fix will seed via currentLocation effect below
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapBoot]);
+
+  useEffect(() => {
+    if (mapBoot || !currentLocation) return;
+    setHasGpsFix(true);
+    setMapBoot({
+      center: { lat: currentLocation.lat, lng: currentLocation.lng },
+      zoom: 15,
+    });
+  }, [mapBoot, currentLocation]);
+
+  return { mapBoot, hasGpsFix, setHasGpsFix };
 }
 
 function usePendingRideChannel({
@@ -90,14 +315,28 @@ function usePendingRideChannel({
       const { data, error } = await supabase
         .from("rides")
         .select("*")
-        .eq("status", "pending")
-        .gt("pickup_time", ridePickupExpiryCutoffIso())
+        .in("status", ["pending", "delayed"])
+        .is("matching_paused_at", null)
+        .gt("matching_deadline_at", new Date().toISOString())
         .order("created_at", { ascending: true })
         .limit(20);
 
       if (error || !data?.length) return;
-      const next = pickNextPendingRide(data as Ride[], getOfferGateState());
+      const pending = data as Ride[];
+      const gate = getOfferGateState();
+      const next = pickNextPendingRide(pending, gate);
       if (next) await presentOffer(next);
+
+      const gateAfter = getOfferGateState();
+      const rest = pending.filter(
+        (ride) =>
+          ride.id !== next?.id &&
+          isRideStillOfferable(ride) &&
+          canPresentRideOffer(ride.id, gateAfter),
+      );
+      if (rest.length > 0) {
+        useDriverStore.getState().seedDeferredRides(rest);
+      }
     };
 
     void fetchExistingRide();
@@ -110,11 +349,10 @@ function usePendingRideChannel({
           event: "INSERT",
           schema: "public",
           table: "rides",
-          filter: "status=eq.pending",
         },
         (payload) => {
           const ride = payload.new as Ride;
-          if (!isRidePickupStillOfferable(ride.pickup_time)) return;
+          if (!isRideStillOfferable(ride)) return;
           void presentOffer(ride);
         },
       )
@@ -127,7 +365,7 @@ function usePendingRideChannel({
         },
         (payload) => {
           const updated = payload.new as Ride;
-          if (updated.status === "pending") return;
+          if (isRideStillOfferable(updated)) return;
           const { availableRide: current, deferredRides: deferred } =
             useDriverStore.getState();
           if (current?.id === updated.id) {
@@ -157,7 +395,6 @@ function usePendingRideChannel({
 
 export default function DashboardScreen() {
   const router = useRouter();
-  useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
@@ -180,7 +417,52 @@ export default function DashboardScreen() {
     activeRide,
     setActiveRide,
   } = useDriverStore();
-  useDriverLocation(isOnline);
+  const currentLocation = useDriverStore((s) => s.currentLocation);
+  useDriverLocation(isOnline || Boolean(activeRide));
+
+  const tripActions = useActiveTripActions();
+  const [navProgress, setNavProgress] = useState<NavProgress | null>(null);
+  const lastNavRpcAt = useRef(0);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
+  const [mapFollowPaused, setMapFollowPaused] = useState(false);
+  const resumeMapFollowRef = useRef<(() => void) | null>(null);
+  const { mapBoot, hasGpsFix, setHasGpsFix } = useMapBootSeed(currentLocation);
+
+  const pushNavProgress = useCallback(
+    (progress: NavProgress) => {
+      setNavProgress(progress);
+      const rideId = useDriverStore.getState().activeRide?.id;
+      if (!rideId) return;
+      const now = Date.now();
+      if (now - lastNavRpcAt.current < 12_000) return;
+      lastNavRpcAt.current = now;
+      const eta = optimisticEtaMinutes(
+        progress.durationSeconds,
+        progress.distanceMeters,
+      );
+      void supabase.rpc("update_ride_nav_progress", {
+        p_ride_id: rideId,
+        p_eta_minutes: eta,
+        p_remaining_m: Math.round(progress.distanceMeters),
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!activeRide) {
+      setNavProgress(null);
+      lastNavRpcAt.current = 0;
+    }
+  }, [activeRide?.id]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setMapLoaderTimedOut(true), 12_000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const showMapLoader = !mapLoaderTimedOut && (!mapBoot || !mapReady);
 
   const canReceiveOffers = isOnline && driverStatus === "active" && !activeRide;
 
@@ -196,7 +478,7 @@ export default function DashboardScreen() {
   const presentOffer = useCallback(
     async (ride: Ride) => {
       if (!canReceiveOffers) return;
-      if (!isRidePickupStillOfferable(ride.pickup_time)) return;
+      if (!isRideStillOfferable(ride)) return;
       const gate = getOfferGateState();
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
@@ -232,24 +514,20 @@ export default function DashboardScreen() {
       return;
     }
 
-    setActiveRide({ ...ride, status: "scheduled" });
+    setActiveRide({ ...ride, status: "scheduled", driver_arrived_at: null });
     removeAvailableRide(rideId);
     // Drop from deferred if promoted then accepted
     useDriverStore.setState((s) => ({
       deferredRides: s.deferredRides.filter((r) => r.id !== rideId),
     }));
-    Alert.alert("Success", "Ride accepted!");
   };
 
   const handleDeclineRide = async (
     rideId: string,
     reason: "declined" | "timeout" = "declined",
   ) => {
-    if (reason === "timeout") {
-      deferAvailableRide(rideId);
-    } else {
-      suppressRide(rideId);
-    }
+    // Soft refuse / timeout: back to bottomsheet queue; next available becomes offer
+    deferAvailableRide(rideId);
     await rideService.respondOffer(rideId, reason);
   };
 
@@ -300,52 +578,14 @@ export default function DashboardScreen() {
       setFolderStatus(nextStatus);
 
       const dossier = await refreshDossierMeta(id);
-
-      const becameActive =
-        nextStatus === "active" &&
-        previous != null &&
-        previous !== "active" &&
-        (REVIEW_STATUSES.has(previous) ||
-          previous === "draft" ||
-          previous === "rejected");
-
-      if (becameActive && dossier?.is_complete !== false) {
-        setJustValidated(true);
-        addNotification({
-          type: "success",
-          title: "Dossier validé",
-          message:
-            "Votre dossier a été validé. Passez en ligne pour recevoir et accepter des courses.",
-        });
-        useDriverFolderStore.setState({
-          validatedAt: new Date().toISOString(),
-        });
-        if (options?.fromRealtime) {
-          Alert.alert(
-            "Dossier validé",
-            "Félicitations ! Passez en ligne (On) pour voir les courses disponibles.",
-          );
-        }
-      }
-
-      if (nextStatus === "rejected" && previous && REVIEW_STATUSES.has(previous)) {
-        setJustValidated(false);
-        addNotification({
-          type: "warning",
-          title: "Dossier rejeté",
-          message: "Votre dossier a été rejeté. Ouvrez votre profil pour corriger.",
-        });
-      }
-
-      if (nextStatus === "draft" && previous && REVIEW_STATUSES.has(previous)) {
-        setJustValidated(false);
-        addNotification({
-          type: "info",
-          title: "Demande annulée",
-          message:
-            "La demande de validation a été annulée. Vous pouvez modifier votre dossier.",
-        });
-      }
+      notifyDriverStatusTransition({
+        previous,
+        nextStatus,
+        dossierIsComplete: dossier?.is_complete,
+        fromRealtime: options?.fromRealtime,
+        setJustValidated,
+        addNotification,
+      });
     },
     [addNotification, refreshDossierMeta, setFolderStatus],
   );
@@ -429,42 +669,124 @@ export default function DashboardScreen() {
 
   const bottomSheetSnapLevel = useMemo(() => {
     const offerableDeferred = deferredRides.filter((r) =>
-      isRidePickupStillOfferable(r.pickup_time),
+      isRideStillOfferable(r),
     );
-    const hasDossierAlert =
-      justValidated ||
-      expiredTypes.length > 0 ||
-      expiringDocs.length > 0 ||
-      rejectedDocs.length > 0 ||
-      driverStatus === "draft" ||
-      driverStatus === "incomplete" ||
-      driverStatus === "pending_review" ||
-      driverStatus === "rejected" ||
-      (driverStatus === "active" && dossierIsComplete === false);
-
-    // Palier 4 — banners / future promos need the notices height
-    if (hasDossierAlert) {
-      return "notices" as const;
-    }
-
-    // Palier 3 — ride cards fully visible (incl. bottom border above tab bar)
-    if (availableRide || offerableDeferred.length > 0 || activeRide) {
-      return "rides" as const;
-    }
-
-    // Palier 1 — only the sheet edge (pull to reveal stats)
-    return "peek" as const;
+    return resolveDriverHomeSnapLevel({
+      activeRide,
+      availableRidesCount: availableRides.length,
+      availableRide,
+      offerableDeferredCount: offerableDeferred.length,
+      hasDossierAlert: hasDriverDossierAlert({
+        justValidated,
+        expiredTypes,
+        expiringDocs,
+        rejectedDocs,
+        driverStatus,
+        dossierIsComplete,
+      }),
+    });
   }, [
     driverStatus,
     dossierIsComplete,
     justValidated,
     availableRide,
-    deferredRides.length,
+    availableRides.length,
+    deferredRides,
     activeRide,
-    rejectedDocs.length,
-    expiredTypes.length,
-    expiringDocs.length,
+    rejectedDocs,
+    expiredTypes,
+    expiringDocs,
   ]);
+
+  const bottomSheetAllowedSnaps = useMemo((): readonly SheetSnapLevel[] => {
+    if (!activeRide && availableRides.length > 0) {
+      return ["nav"];
+    }
+    if (activeRide) {
+      // Avoid landing on stats/rides mid-heights that crop the swipe / title
+      return ["nav", "trip", "notices"];
+    }
+    return ["peek", "stats", "rides", "notices"];
+  }, [activeRide, availableRides.length]);
+
+  const mapRecenterBottomOffset = useMemo(() => {
+    if (!activeRide) return 56;
+    const waitingAtPickup =
+      activeRide.status === "scheduled" &&
+      Boolean(activeRide.driver_arrived_at);
+    return waitingAtPickup ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
+  }, [activeRide, activeRide?.status, activeRide?.driver_arrived_at]);
+
+  // Fullscreen offer uses the home map (no second WebView)
+  const offerRide = !activeRide && availableRides.length > 0
+    ? availableRides[0]
+    : null;
+
+  const [offerApproach, setOfferApproach] = useState<
+    { lat: number; lng: number } | undefined
+  >();
+  const [offerChromeVisible, setOfferChromeVisible] = useState(false);
+  const offerChromeRevealedRef = useRef(false);
+  const [offerFitPadding, setOfferFitPadding] = useState<{
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  } | null>(null);
+
+  const onOfferMapViewportLayout = useCallback(
+    (hole: { x: number; y: number; w: number; h: number }) => {
+      const { width: sw, height: sh } = Dimensions.get("window");
+      setOfferFitPadding(computeOfferMapFitPadding(hole, { width: sw, height: sh }));
+    },
+    [],
+  );
+
+  const revealOfferChrome = useCallback(() => {
+    if (offerChromeRevealedRef.current) return;
+    offerChromeRevealedRef.current = true;
+    setOfferChromeVisible(true);
+  }, []);
+
+  useEffect(() => {
+    if (!offerRide?.id) {
+      setOfferApproach(undefined);
+      setOfferChromeVisible(false);
+      offerChromeRevealedRef.current = false;
+      setOfferFitPadding(null);
+      return;
+    }
+    offerChromeRevealedRef.current = false;
+    setOfferChromeVisible(false);
+    setOfferFitPadding(null);
+    const loc = useDriverStore.getState().currentLocation;
+    setOfferApproach(
+      loc
+        ? {
+            lat: Math.round(loc.lat * 2e3) / 2e3,
+            lng: Math.round(loc.lng * 2e3) / 2e3,
+          }
+        : undefined,
+    );
+    const fallback = setTimeout(revealOfferChrome, 2800);
+    return () => clearTimeout(fallback);
+  }, [offerRide?.id, revealOfferChrome]);
+
+  const tripMapPoints = useMemo(
+    () =>
+      resolveTripMapPoints({
+        activeRide,
+        offerRide,
+        currentLocation,
+        offerApproach,
+      }),
+    [activeRide, currentLocation, offerRide, offerApproach],
+  );
+
+  const mapInOfferMode = Boolean(offerRide);
+  const mapShowRoute =
+    Boolean(tripMapPoints.start && tripMapPoints.end) &&
+    (Boolean(activeRide) || (mapInOfferMode && offerFitPadding != null));
 
   if (loading) {
     return (
@@ -481,6 +803,8 @@ export default function DashboardScreen() {
     <AnimatedPage>
       <RideStackModal
         rides={availableRides}
+        chromeVisible={offerChromeVisible}
+        onMapViewportLayout={onOfferMapViewportLayout}
         onAcceptRide={(rideId) => {
           void handleAcceptRide(rideId);
         }}
@@ -489,30 +813,87 @@ export default function DashboardScreen() {
         }}
       />
 
-      <View style={{ flex: 1, backgroundColor: "#171717", zIndex: -1 }}>
-        {/* VTC Map - Works in Expo Go */}
-        <VTCMap
-          style={{ zIndex: -2 }}
-          start={
-            activeRide
-              ? { lat: activeRide.pickup_lat, lng: activeRide.pickup_lon }
-              : undefined
-          }
-          end={
-            activeRide
-              ? { lat: activeRide.dropoff_lat, lng: activeRide.dropoff_lon }
-              : undefined
-          }
-          drivers={[]}
-          showRoute={!!activeRide}
-          onLocationUpdate={(coords) => console.log("GPS:", coords)}
-          onMapReady={() => console.log("VTC Map ready")}
+      <View style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}>
+        {/* Single warm VTCMap — also used for offer overview + route */}
+        {mapBoot ? (
+          <VTCMap
+            style={{ zIndex: 0 }}
+            initialCenter={mapBoot.center}
+            initialZoom={mapBoot.zoom}
+            start={tripMapPoints.start}
+            end={tripMapPoints.end}
+            approachFrom={tripMapPoints.approachFrom}
+            drivers={[]}
+            showRoute={mapShowRoute}
+            presentation={mapInOfferMode ? "offer" : "default"}
+            offerOverview={mapInOfferMode}
+            followUser={!mapInOfferMode}
+            navigationFollow={!!activeRide}
+            idleRecenterMs={8000}
+            onFollowPausedChange={setMapFollowPaused}
+            resumeFollowRef={resumeMapFollowRef}
+            routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
+            routeFitPadding={
+              mapInOfferMode ? offerFitPadding ?? undefined : undefined
+            }
+            onLocationUpdate={(coords) => {
+              setHasGpsFix(true);
+              useDriverStore.getState().setCurrentLocation({
+                lat: coords.lat,
+                lng: coords.lng,
+              });
+            }}
+            onRouteReady={(distanceMeters, durationSeconds, nextManeuver) => {
+              if (mapInOfferMode) return;
+              pushNavProgress({
+                distanceMeters,
+                durationSeconds,
+                nextManeuver: nextManeuver
+                  ? {
+                      type: nextManeuver.type,
+                      modifier: nextManeuver.modifier ?? undefined,
+                      distanceMeters: nextManeuver.distanceMeters,
+                      name: nextManeuver.name,
+                    }
+                  : null,
+              });
+            }}
+            onRoutePresented={revealOfferChrome}
+            onMapReady={() => {
+              setMapReady(true);
+            }}
+          />
+        ) : null}
+
+        <MapRecenterButton
+          visible={mapFollowPaused && !mapInOfferMode}
+          bottom={Math.max(24, mapRecenterBottomOffset + 12)}
+          navigationMode={!!activeRide}
+          onPress={() => resumeMapFollowRef.current?.()}
         />
 
-        <OnlineStatusPill isOnline={isOnline} onToggle={handleToggleOnline} />
+        <VGpsLoader
+          visible={showMapLoader && !mapInOfferMode}
+          hint={mapLoaderHint(mapReady, hasGpsFix)}
+        />
+
+        {activeRide &&
+        navProgress &&
+        !(
+          activeRide.status === "scheduled" &&
+          Boolean(activeRide.driver_arrived_at)
+        ) ? (
+          <>
+            <TripManeuverHud progress={navProgress} />
+            <TripArrivalHud progress={navProgress} />
+          </>
+        ) : null}
 
         {/* Content Overlay */}
-        <BottomSheet snapLevel={bottomSheetSnapLevel}>
+        <BottomSheet
+          snapLevel={bottomSheetSnapLevel}
+          allowedSnaps={bottomSheetAllowedSnaps}
+        >
           <DriverStatusBanner
             driverStatus={driverStatus}
             isComplete={dossierIsComplete}
@@ -523,6 +904,7 @@ export default function DashboardScreen() {
             onOpenProfile={() => router.push("/(auth)/profile-setup")}
             onDismissValidated={() => setJustValidated(false)}
           />
+          {!activeRide ? (
           <View className="flex-row justify-between mb-4 mt-1">
             <View
               style={{
@@ -573,137 +955,112 @@ export default function DashboardScreen() {
               </Text>
             </View>
           </View>
+          ) : null}
           <View className="mb-5">
-            <Text
-              className="text-sm font-semibold mb-3"
-              style={{ color: "rgba(255,255,255,0.8)" }}
-            >
-              {activeRide ? "COURSE EN COURS" : "COURSES DISPONIBLES"}
-            </Text>
-                <DashboardRidePreview
-                  activeRide={activeRide}
-                  availableRide={availableRide}
-                  deferredRides={deferredRides.filter((r) =>
-                    isRidePickupStillOfferable(r.pickup_time),
-                  )}
-              contentInset={24}
-              onOpenActiveRide={() => router.push("/(tabs)/rides")}
-              onPromoteDeferred={(rideId) => {
-                promoteDeferredRide(rideId);
-              }}
-            />
+            {!activeRide ? (
+              <Text
+                className="text-sm font-semibold mb-3"
+                style={{ color: "rgba(255,255,255,0.8)" }}
+              >
+                COURSES DISPONIBLES
+              </Text>
+            ) : null}
+            {activeRide &&
+            tripActions.pickupDest() &&
+            tripActions.dropoffDest() ? (
+              <ActiveTripSheet
+                ride={activeRide}
+                pickupDest={tripActions.pickupDest()!}
+                dropoffDest={tripActions.dropoffDest()!}
+                onMarkArrived={() => {
+                  void tripActions.markArrived();
+                }}
+                onStartTrip={() => {
+                  void tripActions.startTrip();
+                }}
+                onCompleteTrip={() => {
+                  void tripActions.completeTrip();
+                }}
+                onCancel={tripActions.cancelTrip}
+              />
+            ) : (
+              <DashboardRidePreview
+                activeRide={null}
+                availableRide={availableRide}
+                deferredRides={deferredRides.filter((r) =>
+                  isRideStillOfferable(r),
+                )}
+                contentInset={24}
+                onOpenActiveRide={() => router.push("/(tabs)/rides")}
+                onPromoteDeferred={(rideId) => {
+                  promoteDeferredRide(rideId);
+                }}
+              />
+            )}
           </View>
-          <View
-            style={{
-              padding: 14,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.08)",
-              backgroundColor: "rgba(255,255,255,0.03)",
-              marginBottom: 8,
-            }}
-          >
-            <Text
-              className="text-xs font-bold tracking-wider mb-1"
-              style={{ color: "rgba(255,255,255,0.35)" }}
-            >
-              NOTIFICATIONS
-            </Text>
-            <DynamicNotification />
-            <NotificationsEmptyHint />
-          </View>
+          <OnlineStatusRow isOnline={isOnline} onToggle={handleToggleOnline} />
         </BottomSheet>
       </View>
     </AnimatedPage>
   );
 }
 
-function NotificationsEmptyHint() {
-  const unreadCount = useDriverFolderStore((s) => s.unreadCount);
-  if (unreadCount > 0) return null;
-  return (
-    <Text className="text-sm" style={{ color: "rgba(255,255,255,0.55)" }}>
-      Les alertes dossier et courses apparaîtront ici.
-    </Text>
-  );
-}
-
-function OnlineStatusPill({
+function OnlineStatusRow({
   isOnline,
   onToggle,
 }: Readonly<{
   isOnline: boolean;
   onToggle: () => void;
 }>) {
-  const insets = useSafeAreaInsets();
-
   return (
     <View
-      pointerEvents="box-none"
       style={{
-        position: "absolute",
-        top: insets.top + 10,
-        left: 16,
-        right: 16,
-        zIndex: 20,
+        marginTop: 20,
+        paddingTop: 16,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: "rgba(255,255,255,0.1)",
         flexDirection: "row",
-        justifyContent: "flex-end",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
       }}
     >
-      <Pressable
-        onPress={onToggle}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: isOnline }}
-        accessibilityLabel={isOnline ? "Passer hors ligne" : "Passer en ligne"}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          height: 36,
-          paddingLeft: 4,
-          paddingRight: 4,
-          borderRadius: 10,
-          backgroundColor: "rgba(12, 12, 12, 0.72)",
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: "rgba(255,255,255,0.14)",
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontSize: 15,
+            fontWeight: "700",
+          }}
+        >
+          Disponible
+        </Text>
+        <Text
+          style={{
+            color: "rgba(255,255,255,0.45)",
+            fontSize: 12,
+            marginTop: 3,
+            fontWeight: "500",
+          }}
+        >
+          {isOnline
+            ? "Vous recevez des courses"
+            : "Hors ligne — pas de nouvelles offres"}
+        </Text>
+      </View>
+      <Switch
+        value={isOnline}
+        onValueChange={onToggle}
+        trackColor={{
+          false: "rgba(255,255,255,0.18)",
+          true: "rgba(16,185,129,0.55)",
         }}
-      >
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 8,
-            backgroundColor: isOnline ? "transparent" : "rgba(255,255,255,0.1)",
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: "600",
-              color: isOnline ? "rgba(255,255,255,0.35)" : "#e5e5e5",
-            }}
-          >
-            Off
-          </Text>
-        </View>
-        <View
-          style={{
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 8,
-            backgroundColor: isOnline ? "rgba(16,185,129,0.9)" : "transparent",
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: "700",
-              color: isOnline ? "#042f2e" : "rgba(255,255,255,0.35)",
-            }}
-          >
-            On
-          </Text>
-        </View>
-      </Pressable>
+        thumbColor={isOnline ? "#10b981" : "#f4f4f5"}
+        ios_backgroundColor="rgba(255,255,255,0.18)"
+        accessibilityLabel={
+          isOnline ? "Passer hors ligne" : "Passer en ligne"
+        }
+      />
     </View>
   );
 }
@@ -880,14 +1237,23 @@ function DeferredRideCard({
   gap: number;
   onPromote: (rideId: string) => void;
 }>) {
-  const priceLabel = ride.estimated_price
-    ? `€${ride.estimated_price.toFixed(2)}`
-    : "Prix estimé";
+  const incentive = Number(ride.client_incentive ?? 0);
+  const basePrice = ride.estimated_price ?? 0;
+  let priceLabel = "Prix estimé";
+  if (ride.estimated_price != null) {
+    const incentiveSuffix =
+      incentive > 0 ? ` (+€${incentive.toFixed(0)})` : "";
+    priceLabel = `€${(basePrice + incentive).toFixed(2)}${incentiveSuffix}`;
+  }
   const distanceLabel = formatRideDistanceKm(ride.distance);
   const durationLabel = formatRideDurationMin(ride.duration, ride.distance);
   const pickupWhen = formatPickupDateTime(ride.pickup_time);
-  const statusLabel = getPendingRideDisplayLabel(ride.pickup_time).toUpperCase();
-  const isOverdue = !isRidePickupStillOfferable(ride.pickup_time);
+  const statusLabel = getPendingRideDisplayLabel(
+    ride.pickup_time,
+    ride.matching_deadline_at,
+    ride.matching_paused_at,
+  ).toUpperCase();
+  const isOverdue = !isRideStillOfferable(ride);
 
   return (
     <Pressable

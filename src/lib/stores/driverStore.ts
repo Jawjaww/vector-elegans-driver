@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isRidePickupStillOfferable } from '../utils/ridePickup';
+import { isRideStillOfferable } from '../utils/ridePickup';
 
 export interface Ride {
   id: string;
@@ -25,6 +25,11 @@ export interface Ride {
   updated_at: string;
   price?: number;
   pickup_notes?: string;
+  driver_arrived_at?: string | null;
+  accepted_at?: string | null;
+  client_incentive?: number | null;
+  matching_deadline_at?: string | null;
+  matching_paused_at?: string | null;
 }
 
 export interface DriverStats {
@@ -68,7 +73,7 @@ export function pickNextPendingRide(
   return (
     pending.find(
       (ride) =>
-        isRidePickupStillOfferable(ride.pickup_time) &&
+        isRideStillOfferable(ride) &&
         canPresentRideOffer(ride.id, state),
     ) ?? null
   );
@@ -94,6 +99,8 @@ interface DriverState {
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
   deferAvailableRide: (rideId: string) => void;
+  /** Seed bottomsheet carousel with pending rides not currently offered */
+  seedDeferredRides: (rides: Ride[]) => void;
   suppressRide: (rideId: string) => void;
   promoteDeferredRide: (rideId: string) => void;
   updateStats: (stats: Partial<DriverStats>) => void;
@@ -181,6 +188,19 @@ export const useDriverStore = create<DriverState>()(
             deferredRides,
           };
         }),
+      seedDeferredRides: (rides) =>
+        set((state) => {
+          const toAdd = rides.filter(
+            (ride) =>
+              isRideStillOfferable(ride) &&
+              canPresentRideOffer(ride.id, state) &&
+              !state.deferredRides.some((r) => r.id === ride.id),
+          );
+          if (toAdd.length === 0) return state;
+          return {
+            deferredRides: [...state.deferredRides, ...toAdd],
+          };
+        }),
       suppressRide: (rideId) =>
         set((state) => {
           const availableRides = state.availableRides.filter(
@@ -206,13 +226,23 @@ export const useDriverStore = create<DriverState>()(
             (r) => r.id !== rideId,
           );
           if (state.availableRides.some((r) => r.id === rideId)) {
-            return { deferredRides };
+            // Already queued — move to front as the active fullscreen offer
+            const availableRides = [
+              ride,
+              ...state.availableRides.filter((r) => r.id !== rideId),
+            ];
+            return {
+              deferredRides,
+              availableRides,
+              availableRide: ride,
+            };
           }
-          const availableRides = [...state.availableRides, ride];
+          // Clicked ride becomes the current offer (front of queue)
+          const availableRides = [ride, ...state.availableRides];
           return {
             deferredRides,
             availableRides,
-            availableRide: state.availableRide ?? ride,
+            availableRide: ride,
           };
         }),
       stats: {

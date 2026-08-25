@@ -58,6 +58,7 @@
     "rideCompleted": "Ride Completed",
     "rideCancelled": "Ride Cancelled",
     "loadingRoutes": "Loading routes...",
+    "approach": "Approach",
     "pickupLabel": "Pickup",
     "dropoffLabel": "Dropoff",
     "swipeToAccept": "SWIPE TO ACCEPT >>>"

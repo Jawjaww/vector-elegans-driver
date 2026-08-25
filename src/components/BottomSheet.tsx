@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -43,49 +43,96 @@ const SPRING = {
  * Target visible heights (px from bottom of the home scene).
  *
  * peek    — handle / top edge only
+ * nav     — navigation mode: handle only (max map)
  * stats   — JOURNÉE + COURSES cards
+ * trip    — active trip controls (swipe + addresses fully visible)
  * rides   — ride cards fully visible
  * notices — almost full (notifications / promos), small map strip on top
  */
 function buildSnapY(sceneH: number) {
   const peek = HANDLE_H + 8;
+  const nav = HANDLE_H + 12;
   const stats = HANDLE_H + 130;
+  // Fits ActiveTripSheet (status + addresses + swipe + cancel) without crop
+  const trip = HANDLE_H + 236;
   const rides = HANDLE_H + 130 + 36 + 220;
   return {
     peek: sceneH - peek,
+    nav: sceneH - nav,
     stats: sceneH - stats,
+    trip: sceneH - trip,
     rides: sceneH - rides,
     notices: TOP_MAP_REVEAL,
   };
 }
 
-export type SheetSnapLevel = 'peek' | 'stats' | 'rides' | 'notices';
+export type SheetSnapLevel =
+  | 'peek'
+  | 'nav'
+  | 'stats'
+  | 'trip'
+  | 'rides'
+  | 'notices';
 
-const SNAP_ORDER: SheetSnapLevel[] = ['peek', 'stats', 'rides', 'notices'];
-const NOTICES_IDX = SNAP_ORDER.length - 1;
+const SNAP_ORDER: SheetSnapLevel[] = [
+  'peek',
+  'nav',
+  'stats',
+  'trip',
+  'rides',
+  'notices',
+];
+
+/** Visible height of the nav snap (for HUD placement above the sheet). */
+export const NAV_SHEET_VISIBLE_H = HANDLE_H + 12;
+
+/** Visible height of the trip snap (for HUD placement above the sheet). */
+export const TRIP_SHEET_VISIBLE_H = HANDLE_H + 236;
+
+function resolveAllowedOrder(
+  allowedSnaps?: readonly SheetSnapLevel[],
+): SheetSnapLevel[] {
+  if (!allowedSnaps || allowedSnaps.length === 0) return [...SNAP_ORDER];
+  const allowed = new Set(allowedSnaps);
+  const filtered = SNAP_ORDER.filter((l) => allowed.has(l));
+  return filtered.length > 0 ? filtered : [...SNAP_ORDER];
+}
 
 interface BottomSheetProps {
   children: React.ReactNode;
   snapLevel?: SheetSnapLevel;
+  /** When set, drag only settles on these levels (in SNAP_ORDER sequence). */
+  allowedSnaps?: readonly SheetSnapLevel[];
 }
 
 export const BottomSheet = ({
   children,
   snapLevel = 'peek',
+  allowedSnaps,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
   const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'notices');
   const scrollRef = useRef<ScrollView>(null);
   const snapY = buildSnapY(sceneH);
 
-  const translateY = useSharedValue(snapY[snapLevel]);
+  const allowedOrder = useMemo(
+    () => resolveAllowedOrder(allowedSnaps),
+    [allowedSnaps],
+  );
+
+  const effectiveSnap = allowedOrder.includes(snapLevel)
+    ? snapLevel
+    : allowedOrder[0];
+
+  const translateY = useSharedValue(snapY[effectiveSnap]);
   const context = useSharedValue({ y: 0 });
   const snapYShared = useSharedValue(snapY);
-  const snapIdxShared = useSharedValue(SNAP_ORDER.indexOf(snapLevel));
-  const prevSnap = useRef<SheetSnapLevel>(snapLevel);
+  const allowedOrderShared = useSharedValue(allowedOrder);
+  const prevSnap = useRef<SheetSnapLevel>(effectiveSnap);
+  const prevAllowedKey = useRef(allowedOrder.join(','));
 
-  const applySnapIndex = (idx: number) => {
-    const atNotices = idx === NOTICES_IDX;
+  const applySnapLevel = (level: SheetSnapLevel) => {
+    const atNotices = level === 'notices';
     setScrollEnabled(atNotices);
     if (!atNotices) {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -105,14 +152,29 @@ export const BottomSheet = ({
   }, [sceneH, snapYShared, translateY]);
 
   useEffect(() => {
-    const idx = SNAP_ORDER.indexOf(snapLevel);
-    snapIdxShared.value = idx;
-    applySnapIndex(idx);
-    if (prevSnap.current === snapLevel) return;
-    prevSnap.current = snapLevel;
-    translateY.value = withSpring(snapYShared.value[snapLevel], SPRING);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapIndex is stable enough for snapLevel sync
-  }, [snapLevel, snapIdxShared, translateY, snapYShared]);
+    allowedOrderShared.value = allowedOrder;
+  }, [allowedOrder, allowedOrderShared]);
+
+  // Parent-driven snap (e.g. ride started → nav). Manual drag does not update prevSnap,
+  // so we only re-spring when the prop target actually changes.
+  useEffect(() => {
+    applySnapLevel(effectiveSnap);
+    if (prevSnap.current === effectiveSnap) return;
+    prevSnap.current = effectiveSnap;
+    translateY.value = withSpring(snapYShared.value[effectiveSnap], SPRING);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapLevel is local
+  }, [effectiveSnap, snapYShared, translateY]);
+
+  // Allowed set changed (idle ↔ trip): force the default snap for the new mode
+  useEffect(() => {
+    const key = allowedOrder.join(',');
+    if (prevAllowedKey.current === key) return;
+    prevAllowedKey.current = key;
+    prevSnap.current = effectiveSnap;
+    applySnapLevel(effectiveSnap);
+    translateY.value = withSpring(snapYShared.value[effectiveSnap], SPRING);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapLevel is local
+  }, [allowedOrder, effectiveSnap, snapYShared, translateY]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -128,14 +190,17 @@ export const BottomSheet = ({
       context.value = { y: translateY.value };
     })
     .onUpdate((event) => {
-      const minY = snapYShared.value.notices;
-      const maxY = snapYShared.value.peek;
+      const order = allowedOrderShared.value;
+      const collapsed = snapYShared.value[order[0]];
+      const expandedKey = order.at(-1) ?? order[0];
+      const expanded = snapYShared.value[expandedKey];
       const next = event.translationY + context.value.y;
-      const rubberMin = minY - 16;
-      translateY.value = Math.min(maxY, Math.max(rubberMin, next));
+      const rubberMin = expanded - 16;
+      translateY.value = Math.min(collapsed, Math.max(rubberMin, next));
     })
     .onEnd((event) => {
-      const points = SNAP_ORDER.map((k) => snapYShared.value[k]);
+      const order = allowedOrderShared.value;
+      const points = order.map((k) => snapYShared.value[k]);
       let idx = 0;
       let best = Math.abs(translateY.value - points[0]);
       for (let i = 1; i < points.length; i++) {
@@ -150,8 +215,8 @@ export const BottomSheet = ({
       } else if (event.velocityY > 900) {
         idx = Math.max(idx - 1, 0);
       }
-      snapIdxShared.value = idx;
-      scheduleOnRN(applySnapIndex, idx);
+      const level = order[idx];
+      scheduleOnRN(applySnapLevel, level);
       translateY.value = withSpring(points[idx], {
         ...SPRING,
         velocity: event.velocityY,
@@ -196,6 +261,9 @@ export const BottomSheet = ({
 const styles = StyleSheet.create({
   sceneFill: {
     ...StyleSheet.absoluteFillObject,
+    // Above map GPS HUDs so a raised sheet covers maneuver / arrival chips
+    zIndex: 40,
+    elevation: 40,
   },
   sheet: {
     position: 'absolute',
@@ -215,7 +283,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
-    elevation: 16,
+    elevation: 24,
   },
   handleContainer: {
     height: HANDLE_H,
