@@ -74,6 +74,13 @@ npm run update:preview -- "fix login map"
 
 Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-driver/updates
 
+## CI / OTA (GitHub Actions)
+
+- **CI** : [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — Jest + `tsc` on push/PR to `main`.
+- **OTA preview** : [`.github/workflows/eas-update-preview.yml`](.github/workflows/eas-update-preview.yml) — runs `eas update --channel preview` after CI succeeds on `main` push (no APK rebuild).
+- **Secret** : `EXPO_TOKEN` in GitHub repo secrets (`vector-elegans-driver`).
+- Manual OTA remains: `npm run update:preview -- "message"`.
+
 ## Commandes Docker
 
 - Toujours utiliser `docker compose up -d --build expo` après modifications

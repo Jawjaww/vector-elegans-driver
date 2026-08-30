@@ -1,0 +1,46 @@
+name: EAS Update (preview OTA)
+
+# Runs after CI (Expo) succeeds on main — no duplicate test job, no rebuild APK.
+on:
+  workflow_run:
+    workflows: ["CI (Expo)"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: eas-update-preview
+  cancel-in-progress: false
+
+jobs:
+  ota:
+    name: Publish preview OTA
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: EAS Update (preview channel)
+        run: |
+          eas update \
+            --channel preview \
+            --environment preview \
+            --non-interactive \
+            --message "OTA from ${{ github.event.workflow_run.head_sha }}"
