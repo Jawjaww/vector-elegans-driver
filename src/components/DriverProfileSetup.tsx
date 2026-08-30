@@ -48,6 +48,7 @@ import {
   syncDossierState,
   submitDossier,
   cancelDossierReview,
+  ensureDriverProfile,
 } from "../lib/services/dossierService";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -831,11 +832,12 @@ export default function DriverProfileSetup({
       return;
     }
 
-    // Persist profile / professional fields before leaving the section.
+    // Best-effort save; never block section navigation in editable draft flow.
     if (currentSection <= 1 && isFieldEditable()) {
       const savedDriverId = await handleSave({ silent: true });
-      if (!savedDriverId) return;
-      await syncDossierStateWithBackend();
+      if (savedDriverId) {
+        await syncDossierStateWithBackend();
+      }
     }
 
     buttonScale.value = withSequence(
@@ -874,13 +876,22 @@ export default function DriverProfileSetup({
         return;
       }
 
-      const activeDriverId = driverId ?? (await handleSave({ silent: true }));
+      let activeDriverId = driverId;
       if (!activeDriverId) {
-        Alert.alert(
-          t("documents.error"),
-          t("profile.completeAllFields"),
-        );
-        return;
+        if (!userId) {
+          Alert.alert(t("common.error"), t("auth.userNotFound"));
+          return;
+        }
+        const ensured = await ensureDriverProfile(userId);
+        if (!ensured.id) {
+          Alert.alert(
+            t("documents.error"),
+            ensured.error ?? t("profile.draftSaveFailed"),
+          );
+          return;
+        }
+        setDriverId(ensured.id);
+        activeDriverId = ensured.id;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -1862,15 +1873,13 @@ export default function DriverProfileSetup({
               <Animated.View style={animatedButtonStyle}>
                 <Pressable
                   onPress={nextSection}
-                  disabled={
-                    !canProceedToNext() ||
-                    currentSection === SECTIONS.length - 1
-                  }
+                  disabled={currentSection === SECTIONS.length - 1}
                   className={`flex-row items-center py-3 px-6 rounded-full bg-emerald-500 ${
-                    !canProceedToNext() ||
                     currentSection === SECTIONS.length - 1
                       ? "opacity-30"
-                      : "opacity-100"
+                      : isEditable && !canProceedToNext()
+                        ? "opacity-80"
+                        : "opacity-100"
                   }`}
                 >
                   <Text className="text-white mr-2">{t("common.next")}</Text>

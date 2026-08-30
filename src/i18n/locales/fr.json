@@ -134,6 +134,7 @@
     "submissionCancelled": "Soumission annulée, vous pouvez modifier le profil",
     "incomplete": "Profil incomplet",
     "completeAllFields": "Veuillez compléter tous les champs requis",
+    "draftSaveFailed": "Impossible d'enregistrer le brouillon. Réessayez dans un instant.",
     "success": "Succès",
     "waitingForValidation": "En attente de validation",
     "documentTypes": {

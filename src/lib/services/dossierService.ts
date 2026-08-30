@@ -222,6 +222,28 @@ export async function cancelDossierReview(
   }
 }
 
+/** Create or return the draft drivers row for progressive dossier saves. */
+export async function ensureDriverProfile(
+  userId: string,
+): Promise<{ id: string | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('ensure_driver_profile', {
+      driver_user_id: userId,
+    });
+
+    if (error) {
+      console.error('[dossierService] ensureDriverProfile - error:', error);
+      return { id: null, error: error.message };
+    }
+
+    return { id: typeof data === 'string' ? data : null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected error';
+    console.error('[dossierService] ensureDriverProfile - exception:', error);
+    return { id: null, error: message };
+  }
+}
+
 export async function syncDossierState(driverId: string, userId: string) {
   try {
     const status = await getDossierStatus(driverId);
