@@ -1,15 +1,9 @@
 import React from 'react';
-import { Platform } from 'react-native';
 import type { MapProps } from './types';
 import { WebViewMap } from './WebViewMap';
 
-const USE_WEBVIEW = true;
-
-export function VTCMap(props: MapProps) {
-  if (USE_WEBVIEW) {
-    return <WebViewMap {...props} />;
-  }
-  
+/** Driver map: MapLibre inside WebView (no Google Maps). */
+export function VTCMap(props: Readonly<MapProps>) {
   return <WebViewMap {...props} />;
 }
 

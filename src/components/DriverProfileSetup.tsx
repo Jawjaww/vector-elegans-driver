@@ -546,7 +546,9 @@ export default function DriverProfileSetup({
     }
   };
 
-  const handleSave = async (options?: { silent?: boolean }) => {
+  const handleSave = async (
+    options?: { silent?: boolean },
+  ): Promise<string | false> => {
     try {
       const {
         data: { user },
@@ -590,27 +592,32 @@ export default function DriverProfileSetup({
           Alert.alert(t("common.error"), error.message);
           return false;
         }
-      } else {
-        const { data: newDriver, error } = await supabase
-          .from("drivers")
-          .insert([driverData])
-          .select()
-          .single();
-
-        if (error) {
-          Alert.alert(t("common.error"), error.message);
-          return false;
+        if (!options?.silent) {
+          Alert.alert(t("common.success"), t("profile.profileSaved"));
         }
-
-        if (newDriver) {
-          setDriverId(newDriver.id);
-        }
+        return driverId;
       }
 
-      if (!options?.silent) {
-        Alert.alert(t("common.success"), t("profile.profileSaved"));
+      const { data: newDriver, error } = await supabase
+        .from("drivers")
+        .insert([driverData])
+        .select()
+        .single();
+
+      if (error) {
+        Alert.alert(t("common.error"), error.message);
+        return false;
       }
-      return true;
+
+      if (newDriver) {
+        setDriverId(newDriver.id);
+        if (!options?.silent) {
+          Alert.alert(t("common.success"), t("profile.profileSaved"));
+        }
+        return newDriver.id;
+      }
+
+      return false;
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : t("common.error");
@@ -669,8 +676,8 @@ export default function DriverProfileSetup({
     setSubmitting(true);
 
     try {
-      const saved = await handleSave({ silent: true });
-      if (!saved) return;
+      const savedDriverId = await handleSave({ silent: true });
+      if (!savedDriverId) return;
 
       const syncedState = await syncDossierStateWithBackend();
       if (!syncedState?.canSubmit) {
@@ -779,8 +786,8 @@ export default function DriverProfileSetup({
 
     // Persist profile / professional fields before leaving the section.
     if (currentSection <= 1 && isFieldEditable()) {
-      const saved = await handleSave({ silent: true });
-      if (!saved) return;
+      const savedDriverId = await handleSave({ silent: true });
+      if (!savedDriverId) return;
       await syncDossierStateWithBackend();
     }
 
@@ -811,8 +818,24 @@ export default function DriverProfileSetup({
   };
 
   const uploadAvatar = async () => {
-    if (!isFieldEditable() || !driverId) return;
+    if (!isFieldEditable()) return;
     try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("documents.error"), t("documents.pickFailed"));
+        return;
+      }
+
+      const activeDriverId = driverId ?? (await handleSave({ silent: true }));
+      if (!activeDriverId) {
+        Alert.alert(
+          t("documents.error"),
+          t("profile.completeAllFields"),
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
@@ -831,7 +854,7 @@ export default function DriverProfileSetup({
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.codePointAt(i) ?? 0;
       }
-      const path = `${driverId}/avatar_${Date.now()}.jpg`;
+      const path = `${activeDriverId}/avatar_${Date.now()}.jpg`;
       const { error: upErr } = await supabase.storage
         .from("driver-avatars")
         .upload(path, bytes.buffer, {
@@ -845,7 +868,7 @@ export default function DriverProfileSetup({
       const { error: updErr } = await supabase
         .from("drivers")
         .update({ avatar_url: path })
-        .eq("id", driverId);
+        .eq("id", activeDriverId);
       if (updErr) {
         Alert.alert(t("documents.error"), updErr.message);
         return;
@@ -1610,8 +1633,8 @@ export default function DriverProfileSetup({
                   >
                     <Pressable
                       onPress={async () => {
-                        const saved = await handleSave({ silent: true });
-                        if (!saved) return;
+                        const savedDriverId = await handleSave({ silent: true });
+                        if (!savedDriverId) return;
                         await syncDossierStateWithBackend();
                         Alert.alert(
                           t("common.success"),

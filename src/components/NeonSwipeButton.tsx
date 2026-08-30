@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Text, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -18,28 +18,34 @@ import { Feather } from '@expo/vector-icons';
 const BUTTON_HEIGHT = 56;
 const FALLBACK_WIDTH = 280;
 
-type SwipeVariant = 'emerald' | 'amber' | 'indigo';
+export type SwipeVariant = 'emerald' | 'amber' | 'indigo';
 
-const VARIANT_COLORS: Record<
+/**
+ * Visual chrome clones the login Sign In pill:
+ * vibrant 3-stop gradient + left white glass sheen + soft glow.
+ * Only colors / label change per variant.
+ */
+const VARIANT: Record<
   SwipeVariant,
-  { track: [string, string, string]; border: string; bg: string; knobIcon: string }
+  {
+    track: [string, string, string];
+    glow: string;
+    knobIcon: string;
+  }
 > = {
   emerald: {
-    track: ['#10b981', '#059669', '#047857'],
-    border: '#34d399',
-    bg: '#064e3b',
+    track: ['#10b981', '#4ade80', '#2dd4bf'],
+    glow: '#22c55e',
     knobIcon: '#059669',
   },
   amber: {
-    track: ['#f59e0b', '#d97706', '#b45309'],
-    border: '#fbbf24',
-    bg: '#78350f',
+    track: ['#f59e0b', '#fbbf24', '#fb923c'],
+    glow: '#f59e0b',
     knobIcon: '#d97706',
   },
   indigo: {
-    track: ['#6366f1', '#4f46e5', '#4338ca'],
-    border: '#a5b4fc',
-    bg: '#312e81',
+    track: ['#6366f1', '#818cf8', '#22d3ee'],
+    glow: '#6366f1',
     knobIcon: '#4f46e5',
   },
 };
@@ -48,7 +54,6 @@ type NeonSwipeButtonProps = Readonly<{
   onConfirm: () => void;
   label?: string;
   variant?: SwipeVariant;
-  /** Reset knob after confirm so the same button can be reused across phases */
   resetKey?: string;
 }>;
 
@@ -58,7 +63,7 @@ export const NeonSwipeButton = ({
   variant = 'emerald',
   resetKey,
 }: NeonSwipeButtonProps) => {
-  const colors = VARIANT_COLORS[variant];
+  const colors = VARIANT[variant];
   const translateX = useSharedValue(0);
   const context = useSharedValue({ x: 0 });
   const [swiped, setSwiped] = useState(false);
@@ -112,23 +117,14 @@ export const NeonSwipeButton = ({
     transform: [{ translateX: translateX.value }],
   }));
 
-  const arrowStyle = useAnimatedStyle(() => ({
+  const contentStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       translateX.value,
       [0, swipeThreshold / 2],
-      [0.8, 0],
+      [1, 0],
       Extrapolation.CLAMP,
     ),
     transform: [{ translateX: arrowTranslateX.value }],
-  }));
-
-  const trackStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      translateX.value,
-      [0, swipeThreshold],
-      [1, 0.85],
-      Extrapolation.CLAMP,
-    ),
   }));
 
   const onLayout = (e: LayoutChangeEvent) => {
@@ -142,42 +138,56 @@ export const NeonSwipeButton = ({
     <View
       style={[
         styles.container,
-        { backgroundColor: colors.bg, borderColor: colors.border },
+        {
+          shadowColor: colors.glow,
+        },
       ]}
       onLayout={onLayout}
     >
-      <Animated.View style={[StyleSheet.absoluteFill, trackStyle]}>
-        <LinearGradient
-          colors={colors.track}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.trackGradient}
-        />
-      </Animated.View>
+      {/* Sign In base gradient */}
+      <LinearGradient
+        colors={colors.track}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Sign In white glass sheen (left band) */}
+      <LinearGradient
+        colors={[
+          'rgba(255,255,255,0.35)',
+          'rgba(255,255,255,0.15)',
+          'rgba(255,255,255,0)',
+        ]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.sheen}
+        pointerEvents="none"
+      />
 
       <View style={styles.labelContainer} pointerEvents="none">
         {label ? (
-          <Animated.Text style={[styles.label, arrowStyle]} numberOfLines={1}>
+          <Animated.Text style={[styles.label, contentStyle]} numberOfLines={1}>
             {label}
           </Animated.Text>
         ) : (
-          <Animated.View style={[styles.arrowsContainer, arrowStyle]}>
+          <Animated.View style={[styles.arrowsContainer, contentStyle]}>
             <Feather
               name="chevrons-right"
-              size={24}
-              color="rgba(255,255,255,0.9)"
+              size={22}
+              color="rgba(255,255,255,0.95)"
             />
             <Feather
               name="chevrons-right"
-              size={24}
-              color="rgba(255,255,255,0.6)"
-              style={{ marginLeft: -12 }}
+              size={22}
+              color="rgba(255,255,255,0.65)"
+              style={{ marginLeft: -10 }}
             />
             <Feather
               name="chevrons-right"
-              size={24}
-              color="rgba(255,255,255,0.3)"
-              style={{ marginLeft: -12 }}
+              size={22}
+              color="rgba(255,255,255,0.35)"
+              style={{ marginLeft: -10 }}
             />
           </Animated.View>
         )}
@@ -186,12 +196,12 @@ export const NeonSwipeButton = ({
       <GestureDetector gesture={panGesture}>
         <Animated.View style={[styles.knobContainer, knobStyle]}>
           <LinearGradient
-            colors={['rgba(255, 255, 255, 0.95)', 'rgba(241, 245, 249, 0.85)']}
+            colors={['rgba(255, 255, 255, 0.55)', 'rgba(241, 245, 249, 0.35)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.knob}
           >
-            <Feather name="chevron-right" size={28} color={colors.knobIcon} />
+            <Feather name="chevron-right" size={26} color={colors.knobIcon} />
           </LinearGradient>
         </Animated.View>
       </GestureDetector>
@@ -204,14 +214,20 @@ const styles = StyleSheet.create({
     width: '100%',
     height: BUTTON_HEIGHT,
     borderRadius: BUTTON_HEIGHT / 2,
-    borderWidth: 1,
     justifyContent: 'center',
-    padding: 4,
     overflow: 'hidden',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  trackGradient: {
-    flex: 1,
-    borderRadius: BUTTON_HEIGHT / 2,
+  sheen: {
+    position: 'absolute',
+    left: 4,
+    right: '30%',
+    top: 4,
+    bottom: 4,
+    borderRadius: 9999,
   },
   labelContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -221,11 +237,14 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   label: {
-    color: 'rgba(255,255,255,0.95)',
+    color: '#ffffff',
     fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+    fontWeight: '900',
+    letterSpacing: -0.3,
     textTransform: 'uppercase',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   arrowsContainer: {
     flexDirection: 'row',
@@ -245,5 +264,7 @@ const styles = StyleSheet.create({
     borderRadius: (BUTTON_HEIGHT - 8) / 2,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.45)',
   },
 });

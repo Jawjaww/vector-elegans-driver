@@ -79,6 +79,35 @@ export function pickNextPendingRide(
   );
 }
 
+/** Merge live DB fields (incentive, matching window, price) into a tracked ride. */
+export function mergeRideSnapshot(existing: Ride, incoming: Ride): Ride {
+  return {
+    ...existing,
+    status: incoming.status ?? existing.status,
+    estimated_price:
+      incoming.estimated_price !== undefined
+        ? incoming.estimated_price
+        : existing.estimated_price,
+    final_price:
+      incoming.final_price !== undefined
+        ? incoming.final_price
+        : existing.final_price,
+    client_incentive:
+      incoming.client_incentive !== undefined
+        ? incoming.client_incentive
+        : existing.client_incentive,
+    matching_deadline_at:
+      incoming.matching_deadline_at !== undefined
+        ? incoming.matching_deadline_at
+        : existing.matching_deadline_at,
+    matching_paused_at:
+      incoming.matching_paused_at !== undefined
+        ? incoming.matching_paused_at
+        : existing.matching_paused_at,
+    updated_at: incoming.updated_at ?? existing.updated_at,
+  };
+}
+
 interface DriverState {
   isOnline: boolean;
   hasSeenRide: boolean;
@@ -103,6 +132,8 @@ interface DriverState {
   seedDeferredRides: (rides: Ride[]) => void;
   suppressRide: (rideId: string) => void;
   promoteDeferredRide: (rideId: string) => void;
+  /** Refresh incentive / matching fields on any tracked ride copy */
+  patchTrackedRide: (ride: Ride) => void;
   updateStats: (stats: Partial<DriverStats>) => void;
   completeRide: (ride: Ride) => void;
   setCurrentLocation: (location: Location | null) => void;
@@ -243,6 +274,32 @@ export const useDriverStore = create<DriverState>()(
             deferredRides,
             availableRides,
             availableRide: ride,
+          };
+        }),
+      patchTrackedRide: (incoming) =>
+        set((state) => {
+          const id = incoming.id;
+          const touches =
+            state.availableRide?.id === id ||
+            state.availableRides.some((r) => r.id === id) ||
+            state.deferredRides.some((r) => r.id === id) ||
+            state.activeRide?.id === id;
+          if (!touches) return state;
+          return {
+            availableRide:
+              state.availableRide?.id === id
+                ? mergeRideSnapshot(state.availableRide, incoming)
+                : state.availableRide,
+            availableRides: state.availableRides.map((r) =>
+              r.id === id ? mergeRideSnapshot(r, incoming) : r,
+            ),
+            deferredRides: state.deferredRides.map((r) =>
+              r.id === id ? mergeRideSnapshot(r, incoming) : r,
+            ),
+            activeRide:
+              state.activeRide?.id === id
+                ? mergeRideSnapshot(state.activeRide, incoming)
+                : state.activeRide,
           };
         }),
       stats: {

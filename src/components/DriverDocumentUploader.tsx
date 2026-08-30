@@ -150,6 +150,13 @@ export const DriverDocumentUploader: React.FC<
     }
 
     try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("documents.error"), t("documents.pickFailed"));
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,

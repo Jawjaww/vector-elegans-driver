@@ -1,6 +1,6 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
-const path = require("path");
+const path = require("node:path");
 
 const config = getDefaultConfig(__dirname);
 
@@ -13,14 +13,14 @@ if (process.env.CHOKIDAR_USEPOLLING) {
   config.watcher = {
     ...config.watcher,
     watchman: {
-      deferStates: ['hg.update'],
+      deferStates: ["hg.update"],
     },
     useWatchman: false,
-    additionalExts: ['mjs', 'cjs'],
+    additionalExts: ["mjs", "cjs"],
   };
 }
 
-module.exports = withNativeWind(config, { 
+module.exports = withNativeWind(config, {
   input: "./global.css",
-  configPath: path.resolve(__dirname, "tailwind.config.js")
+  configPath: path.resolve(__dirname, "tailwind.config.js"),
 });

@@ -359,9 +359,13 @@ export const FullscreenRideModal = ({
                             {formatPrice(offerPrice)}
                           </Text>
                           {Number(currentRide.client_incentive ?? 0) > 0 ? (
-                            <Text style={styles.bonusText} numberOfLines={1}>
-                              +{Number(currentRide.client_incentive).toFixed(0)}€
-                            </Text>
+                            <View style={styles.bonusPill}>
+                              <Text style={styles.bonusText} numberOfLines={1}>
+                                Bonus +
+                                {Number(currentRide.client_incentive).toFixed(0)}
+                                €
+                              </Text>
+                            </View>
                           ) : null}
                         </View>
                         <Text style={styles.separator}>·</Text>
@@ -541,9 +545,10 @@ const styles = StyleSheet.create({
   priceContainer: {
     flexShrink: 1,
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    maxWidth: '48%',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    maxWidth: '52%',
   },
   priceText: {
     color: '#065f46',
@@ -554,10 +559,19 @@ const styles = StyleSheet.create({
   priceTextCompact: {
     fontSize: 15,
   },
+  bonusPill: {
+    backgroundColor: 'rgba(245, 158, 11, 0.28)',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(180, 83, 9, 0.35)',
+  },
   bonusText: {
-    color: '#b45309',
-    fontSize: 10,
-    fontWeight: '700',
+    color: '#92400e',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   separator: {
     color: '#065f46',

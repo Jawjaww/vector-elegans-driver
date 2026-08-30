@@ -83,3 +83,37 @@ export function getPendingRideDisplayLabel(
   if (!Number.isNaN(pickup) && pickup < Date.now()) return 'En retard';
   return 'En attente';
 }
+
+export type RidePriceFields = {
+  estimated_price?: number | null;
+  final_price?: number | null;
+  client_incentive?: number | null;
+};
+
+/** Driver-facing fare: base (final preferred) + client incentive bonus. */
+export function resolveRideOfferPrice(ride: RidePriceFields): {
+  base: number;
+  incentive: number;
+  total: number;
+  hasIncentive: boolean;
+} {
+  const rawBase = ride.final_price ?? ride.estimated_price;
+  const base =
+    rawBase != null && Number.isFinite(Number(rawBase))
+      ? Number(rawBase)
+      : 0;
+  const incentive = Math.max(0, Number(ride.client_incentive ?? 0) || 0);
+  return {
+    base,
+    incentive,
+    total: base + incentive,
+    hasIncentive: incentive > 0,
+  };
+}
+
+export function formatIncentiveBonusLabel(incentive: number): string {
+  const n = Math.max(0, Number(incentive) || 0);
+  if (n <= 0) return '';
+  const rounded = Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2);
+  return `Bonus +${rounded}€`;
+}

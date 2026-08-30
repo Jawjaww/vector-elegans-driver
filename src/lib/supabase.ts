@@ -14,31 +14,59 @@ function localSupabaseUrl(host: string): string {
   return `http://${host}:${LOCAL_SUPABASE_PORT}`; // NOSONAR S5332 — local-only HTTP
 }
 
-// Determine Supabase URL at runtime to handle emulator/device networking differences
-const envUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const fallbackUrl =
-  Platform.OS === "android"
-    ? localSupabaseUrl(ANDROID_EMULATOR_LOOPBACK)
-    : localSupabaseUrl("127.0.0.1");
-
-// If envUrl uses host.docker.internal, map it to a platform-appropriate address
-let resolvedEnvUrl: string | undefined = envUrl;
-if (envUrl?.includes("host.docker.internal")) {
-  if (Platform.OS === "android") {
-    resolvedEnvUrl = envUrl.replace(
-      "host.docker.internal",
-      ANDROID_EMULATOR_LOOPBACK,
-    );
-  } else {
-    // On iOS and macOS, localhost/127.0.0.1 usually works
-    resolvedEnvUrl = envUrl.replace("host.docker.internal", "127.0.0.1");
+function isCloudSupabaseUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host.endsWith(".supabase.co") && url.startsWith("https://");
+  } catch {
+    return false;
   }
 }
 
-const supabaseUrl = resolvedEnvUrl?.length ? resolvedEnvUrl : fallbackUrl;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+function remapDockerInternalUrl(url: string): string {
+  if (!url.includes("host.docker.internal")) return url;
+  if (Platform.OS === "android") {
+    return url.replace("host.docker.internal", ANDROID_EMULATOR_LOOPBACK);
+  }
+  return url.replace("host.docker.internal", "127.0.0.1");
+}
 
-console.log("Supabase URL resolved to:", supabaseUrl);
+function resolveSupabaseUrl(): string {
+  const envUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+
+  // Release builds must use the same cloud project as Vercel (no local fallback).
+  if (!__DEV__) {
+    if (!envUrl || !isCloudSupabaseUrl(envUrl)) {
+      throw new Error(
+        "Release build requires EXPO_PUBLIC_SUPABASE_URL=https://<project>.supabase.co",
+      );
+    }
+    return envUrl.replace(/\/$/, "");
+  }
+
+  if (envUrl?.length) {
+    return remapDockerInternalUrl(envUrl);
+  }
+
+  return Platform.OS === "android"
+    ? localSupabaseUrl(ANDROID_EMULATOR_LOOPBACK)
+    : localSupabaseUrl("127.0.0.1");
+}
+
+function resolveSupabaseAnonKey(): string {
+  const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!key) {
+    throw new Error("Missing EXPO_PUBLIC_SUPABASE_ANON_KEY");
+  }
+  return key;
+}
+
+const supabaseUrl = resolveSupabaseUrl();
+const supabaseAnonKey = resolveSupabaseAnonKey();
+
+if (__DEV__) {
+  console.log("Supabase URL resolved to:", supabaseUrl);
+}
 
 /**
  * SecureStore rejects values > ~2048 bytes (Android). A Supabase session JWT

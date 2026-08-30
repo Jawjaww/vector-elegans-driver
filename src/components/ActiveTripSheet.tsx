@@ -1,9 +1,10 @@
 import { View, Text, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { Ride } from '../lib/stores/driverStore';
-import { NeonSwipeButton } from './NeonSwipeButton';
+import { NeonSwipeButton, type SwipeVariant } from './NeonSwipeButton';
 import { PreferredNavButton } from './PreferredNavButton';
 import { WaitingElapsedTimer } from './WaitingElapsedTimer';
+import { RidePriceBonus } from './RidePriceBonus';
 import type { NavDestination } from '../lib/utils/externalNavigation';
 
 type ActiveTripSheetProps = Readonly<{
@@ -39,7 +40,7 @@ export function ActiveTripSheet({
     isInProgress || (isScheduled && hasArrived) ? dropoffDest : pickupDest;
 
   let swipeLabel = 'Je suis arrivé';
-  let swipeVariant: 'emerald' | 'amber' | 'indigo' = 'amber';
+  let swipeVariant: SwipeVariant = 'amber';
   let onSwipe = onMarkArrived;
   let swipeKey = `arrived-${ride.id}`;
 
@@ -78,12 +79,10 @@ export function ActiveTripSheet({
             </View>
           ) : null}
         </View>
-        <Text className="text-white font-black text-base">
-          €{ride.estimated_price?.toFixed(2) ?? '—'}
-        </Text>
+        <RidePriceBonus ride={ride} size="md" tone="dark" />
       </View>
 
-      <View className="mb-1.5">
+      <View className="mb-3.5">
         <View className="flex-row items-center mb-0.5">
           <Feather
             name="map-pin"
@@ -108,7 +107,7 @@ export function ActiveTripSheet({
         </View>
       </View>
 
-      <View className="flex-row items-center gap-2">
+      <View className="flex-row items-center gap-2.5 mt-0.5">
         <PreferredNavButton destination={navDest} />
         <View className="flex-1">
           <NeonSwipeButton

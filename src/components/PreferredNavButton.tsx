@@ -66,9 +66,11 @@ export function PreferredNavButton({ destination }: PreferredNavButtonProps) {
       accessibilityHint="Appui long pour changer l'application préférée"
       style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}
     >
-      <View style={styles.row}>
-        <Feather name={icon} size={16} color="#93c5fd" />
-        <Text style={styles.label}>{label}</Text>
+      <View style={styles.stack}>
+        <Feather name={icon} size={18} color="#93c5fd" />
+        <Text style={styles.label} numberOfLines={1}>
+          {label}
+        </Text>
       </View>
     </Pressable>
   );
@@ -76,9 +78,10 @@ export function PreferredNavButton({ destination }: PreferredNavButtonProps) {
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
+    minWidth: 52,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
     backgroundColor: 'rgba(59, 130, 246, 0.18)',
     borderWidth: 1,
     borderColor: 'rgba(147, 197, 253, 0.4)',
@@ -88,15 +91,16 @@ const styles = StyleSheet.create({
   pillPressed: {
     opacity: 0.7,
   },
-  row: {
-    flexDirection: 'row',
+  stack: {
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 2,
   },
   label: {
     color: '#bfdbfe',
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
 });

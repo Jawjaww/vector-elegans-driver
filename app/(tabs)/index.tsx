@@ -15,7 +15,7 @@ import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
-import { useDriverStore, Ride, canPresentRideOffer, pickNextPendingRide } from "../../src/lib/stores/driverStore";
+import { useDriverStore, Ride, canPresentRideOffer, pickNextPendingRide, type DriverStats } from "../../src/lib/stores/driverStore";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
@@ -47,7 +47,9 @@ import {
 import {
   isRideStillOfferable,
   getPendingRideDisplayLabel,
+  resolveRideOfferPrice,
 } from "../../src/lib/utils/ridePickup";
+import { RidePriceBonus } from "../../src/components/RidePriceBonus";
 import { computeOfferMapFitPadding } from "../../src/lib/utils/offerMapFit";
 import { resolveTripMapPoints } from "../../src/lib/utils/tripMapPoints";
 
@@ -277,12 +279,56 @@ function useMapBootSeed(currentLocation: { lat: number; lng: number } | null) {
   return { mapBoot, hasGpsFix, setHasGpsFix };
 }
 
+function handlePendingRideRealtimeUpdate(
+  updated: Ride,
+  actions: {
+    presentOffer: (ride: Ride) => Promise<void>;
+    removeAvailableRide: (rideId: string) => void;
+    patchTrackedRide: (ride: Ride) => void;
+  },
+) {
+  const {
+    availableRide: current,
+    deferredRides: deferred,
+    availableRides: queued,
+  } = useDriverStore.getState();
+  const isTracked =
+    current?.id === updated.id ||
+    deferred.some((r) => r.id === updated.id) ||
+    queued.some((r) => r.id === updated.id);
+
+  if (isRideStillOfferable(updated)) {
+    if (isTracked) {
+      actions.patchTrackedRide(updated);
+      return;
+    }
+    void actions.presentOffer(updated);
+    return;
+  }
+
+  if (current?.id === updated.id) {
+    actions.removeAvailableRide(updated.id);
+    Alert.alert("Info", "The ride is no longer available.");
+    return;
+  }
+  if (deferred.some((r) => r.id === updated.id)) {
+    useDriverStore.setState((s) => ({
+      deferredRides: s.deferredRides.filter((r) => r.id !== updated.id),
+    }));
+    return;
+  }
+  if (queued.some((r) => r.id === updated.id)) {
+    actions.removeAvailableRide(updated.id);
+  }
+}
+
 function usePendingRideChannel({
   canReceiveOffers,
   isOnline,
   presentOffer,
   removeAvailableRide,
   setAvailableRide,
+  patchTrackedRide,
   getOfferGateState,
 }: {
   canReceiveOffers: boolean;
@@ -290,6 +336,7 @@ function usePendingRideChannel({
   presentOffer: (ride: Ride) => Promise<void>;
   removeAvailableRide: (rideId: string) => void;
   setAvailableRide: (ride: Ride | null) => void;
+  patchTrackedRide: (ride: Ride) => void;
   getOfferGateState: () => {
     suppressedRideIds: string[];
     deferredRides: Ride[];
@@ -364,18 +411,11 @@ function usePendingRideChannel({
           table: "rides",
         },
         (payload) => {
-          const updated = payload.new as Ride;
-          if (isRideStillOfferable(updated)) return;
-          const { availableRide: current, deferredRides: deferred } =
-            useDriverStore.getState();
-          if (current?.id === updated.id) {
-            removeAvailableRide(updated.id);
-            Alert.alert("Info", "The ride is no longer available.");
-          } else if (deferred.some((r) => r.id === updated.id)) {
-            useDriverStore.setState((s) => ({
-              deferredRides: s.deferredRides.filter((r) => r.id !== updated.id),
-            }));
-          }
+          handlePendingRideRealtimeUpdate(payload.new as Ride, {
+            presentOffer,
+            removeAvailableRide,
+            patchTrackedRide,
+          });
         },
       )
       .subscribe();
@@ -389,8 +429,87 @@ function usePendingRideChannel({
     presentOffer,
     removeAvailableRide,
     setAvailableRide,
+    patchTrackedRide,
     getOfferGateState,
   ]);
+}
+
+function shouldShowTripNavigationHud(
+  ride: Ride | null,
+  progress: NavProgress | null,
+): boolean {
+  if (!ride || !progress) return false;
+  const waitingAtPickup =
+    ride.status === "scheduled" && Boolean(ride.driver_arrived_at);
+  return !waitingAtPickup;
+}
+
+async function acceptTrackedRide(args: {
+  rideId: string;
+  driverStatus: string | null;
+  availableRides: Ride[];
+  deferredRides: Ride[];
+  availableRide: Ride | null;
+  setActiveRide: (ride: Ride | null) => void;
+  removeAvailableRide: (rideId: string) => void;
+  suppressRide: (rideId: string) => void;
+}): Promise<void> {
+  const ride =
+    args.availableRides.find((r) => r.id === args.rideId) ||
+    args.deferredRides.find((r) => r.id === args.rideId) ||
+    (args.availableRide?.id === args.rideId ? args.availableRide : null);
+  if (!ride) return;
+  if (args.driverStatus !== "active") {
+    Alert.alert("Error", "Only active drivers can accept rides");
+    return;
+  }
+
+  const result = await rideService.acceptRide(args.rideId);
+  if (!result.success) {
+    Alert.alert("Error", result.error || "Failed to accept ride");
+    args.suppressRide(args.rideId);
+    return;
+  }
+
+  args.setActiveRide({ ...ride, status: "scheduled", driver_arrived_at: null });
+  args.removeAvailableRide(args.rideId);
+  useDriverStore.setState((s) => ({
+    deferredRides: s.deferredRides.filter((r) => r.id !== args.rideId),
+  }));
+}
+
+function resolveBottomSheetAllowedSnaps(
+  activeRide: Ride | null,
+  availableRidesCount: number,
+): readonly SheetSnapLevel[] {
+  if (!activeRide && availableRidesCount > 0) return ["nav"];
+  if (activeRide) return ["nav", "trip", "notices"];
+  return ["peek", "stats", "rides", "notices"];
+}
+
+function resolveMapRecenterBottomOffset(activeRide: Ride | null): number {
+  if (!activeRide) return 56;
+  const waitingAtPickup =
+    activeRide.status === "scheduled" && Boolean(activeRide.driver_arrived_at);
+  return waitingAtPickup ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
+}
+
+function toggleDriverOnlineState(args: {
+  driverStatus: string | null;
+  isOnline: boolean;
+  setIsOnline: (online: boolean) => void;
+  setJustValidated: (value: boolean) => void;
+}) {
+  if (args.driverStatus !== "active" && !args.isOnline) {
+    Alert.alert(
+      "Unavailable",
+      "Your dossier must be active before going online.",
+    );
+    return;
+  }
+  const next = !args.isOnline;
+  args.setIsOnline(next);
+  if (next) args.setJustValidated(false);
 }
 
 export default function DashboardScreen() {
@@ -414,6 +533,7 @@ export default function DashboardScreen() {
     deferAvailableRide,
     suppressRide,
     promoteDeferredRide,
+    patchTrackedRide,
     activeRide,
     setActiveRide,
   } = useDriverStore();
@@ -493,33 +613,21 @@ export default function DashboardScreen() {
     presentOffer,
     removeAvailableRide,
     setAvailableRide,
+    patchTrackedRide,
     getOfferGateState,
   });
 
   const handleAcceptRide = async (rideId: string) => {
-    const ride =
-      availableRides.find((r) => r.id === rideId) ||
-      deferredRides.find((r) => r.id === rideId) ||
-      (availableRide?.id === rideId ? availableRide : null);
-    if (!ride) return;
-    if (driverStatus !== "active") {
-      Alert.alert("Error", "Only active drivers can accept rides");
-      return;
-    }
-
-    const result = await rideService.acceptRide(rideId);
-    if (!result.success) {
-      Alert.alert("Error", result.error || "Failed to accept ride");
-      suppressRide(rideId);
-      return;
-    }
-
-    setActiveRide({ ...ride, status: "scheduled", driver_arrived_at: null });
-    removeAvailableRide(rideId);
-    // Drop from deferred if promoted then accepted
-    useDriverStore.setState((s) => ({
-      deferredRides: s.deferredRides.filter((r) => r.id !== rideId),
-    }));
+    await acceptTrackedRide({
+      rideId,
+      driverStatus,
+      availableRides,
+      deferredRides,
+      availableRide,
+      setActiveRide,
+      removeAvailableRide,
+      suppressRide,
+    });
   };
 
   const handleDeclineRide = async (
@@ -653,18 +761,12 @@ export default function DashboardScreen() {
   }, [driverId, applyDriverStatus]);
 
   const handleToggleOnline = () => {
-    if (driverStatus !== "active" && !isOnline) {
-      Alert.alert(
-        "Unavailable",
-        "Your dossier must be active before going online.",
-      );
-      return;
-    }
-    const next = !isOnline;
-    setIsOnline(next);
-    if (next) {
-      setJustValidated(false);
-    }
+    toggleDriverOnlineState({
+      driverStatus,
+      isOnline,
+      setIsOnline,
+      setJustValidated,
+    });
   };
 
   const bottomSheetSnapLevel = useMemo(() => {
@@ -698,24 +800,15 @@ export default function DashboardScreen() {
     expiringDocs,
   ]);
 
-  const bottomSheetAllowedSnaps = useMemo((): readonly SheetSnapLevel[] => {
-    if (!activeRide && availableRides.length > 0) {
-      return ["nav"];
-    }
-    if (activeRide) {
-      // Avoid landing on stats/rides mid-heights that crop the swipe / title
-      return ["nav", "trip", "notices"];
-    }
-    return ["peek", "stats", "rides", "notices"];
-  }, [activeRide, availableRides.length]);
+  const bottomSheetAllowedSnaps = useMemo(
+    () => resolveBottomSheetAllowedSnaps(activeRide, availableRides.length),
+    [activeRide, availableRides.length],
+  );
 
-  const mapRecenterBottomOffset = useMemo(() => {
-    if (!activeRide) return 56;
-    const waitingAtPickup =
-      activeRide.status === "scheduled" &&
-      Boolean(activeRide.driver_arrived_at);
-    return waitingAtPickup ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
-  }, [activeRide, activeRide?.status, activeRide?.driver_arrived_at]);
+  const mapRecenterBottomOffset = useMemo(
+    () => resolveMapRecenterBottomOffset(activeRide),
+    [activeRide, activeRide?.status, activeRide?.driver_arrived_at],
+  );
 
   // Fullscreen offer uses the home map (no second WebView)
   const offerRide = !activeRide && availableRides.length > 0
@@ -877,12 +970,7 @@ export default function DashboardScreen() {
           hint={mapLoaderHint(mapReady, hasGpsFix)}
         />
 
-        {activeRide &&
-        navProgress &&
-        !(
-          activeRide.status === "scheduled" &&
-          Boolean(activeRide.driver_arrived_at)
-        ) ? (
+        {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
           <>
             <TripManeuverHud progress={navProgress} />
             <TripArrivalHud progress={navProgress} />
@@ -904,104 +992,138 @@ export default function DashboardScreen() {
             onOpenProfile={() => router.push("/(auth)/profile-setup")}
             onDismissValidated={() => setJustValidated(false)}
           />
-          {!activeRide ? (
-          <View className="flex-row justify-between mb-4 mt-1">
-            <View
-              style={{
-                flex: 1,
-                marginRight: 6,
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: "rgba(255, 255, 255, 0.03)",
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.05)",
-              }}
-            >
-              <Text
-                className="text-xs font-bold tracking-wider"
-                style={{ color: "rgba(255,255,255,0.4)" }}
-              >
-                JOURNÉE
-              </Text>
-              <Text
-                className="text-2xl font-black mt-1"
-                style={{ color: "#fff" }}
-              >
-                €{stats.todayEarnings}
-              </Text>
-            </View>
-            <View
-              style={{
-                flex: 1,
-                marginLeft: 6,
-                padding: 16,
-                borderRadius: 16,
-                backgroundColor: "rgba(255, 255, 255, 0.03)",
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.05)",
-              }}
-            >
-              <Text
-                className="text-xs font-bold tracking-wider"
-                style={{ color: "rgba(255,255,255,0.4)" }}
-              >
-                COURSES
-              </Text>
-              <Text
-                className="text-2xl font-black mt-1"
-                style={{ color: "#fff" }}
-              >
-                {stats.todayRides}
-              </Text>
-            </View>
-          </View>
-          ) : null}
-          <View className="mb-5">
-            {!activeRide ? (
-              <Text
-                className="text-sm font-semibold mb-3"
-                style={{ color: "rgba(255,255,255,0.8)" }}
-              >
-                COURSES DISPONIBLES
-              </Text>
-            ) : null}
-            {activeRide &&
-            tripActions.pickupDest() &&
-            tripActions.dropoffDest() ? (
-              <ActiveTripSheet
-                ride={activeRide}
-                pickupDest={tripActions.pickupDest()!}
-                dropoffDest={tripActions.dropoffDest()!}
-                onMarkArrived={() => {
-                  void tripActions.markArrived();
-                }}
-                onStartTrip={() => {
-                  void tripActions.startTrip();
-                }}
-                onCompleteTrip={() => {
-                  void tripActions.completeTrip();
-                }}
-                onCancel={tripActions.cancelTrip}
-              />
-            ) : (
-              <DashboardRidePreview
-                activeRide={null}
-                availableRide={availableRide}
-                deferredRides={deferredRides.filter((r) =>
-                  isRideStillOfferable(r),
-                )}
-                contentInset={24}
-                onOpenActiveRide={() => router.push("/(tabs)/rides")}
-                onPromoteDeferred={(rideId) => {
-                  promoteDeferredRide(rideId);
-                }}
-              />
-            )}
-          </View>
-          <OnlineStatusRow isOnline={isOnline} onToggle={handleToggleOnline} />
+          <DriverHomeSheetBody
+            activeRide={activeRide}
+            availableRide={availableRide}
+            deferredRides={deferredRides}
+            stats={stats}
+            tripActions={tripActions}
+            isOnline={isOnline}
+            onToggleOnline={handleToggleOnline}
+            onOpenActiveRide={() => router.push("/(tabs)/rides")}
+            onPromoteDeferred={promoteDeferredRide}
+          />
         </BottomSheet>
       </View>
     </AnimatedPage>
+  );
+}
+
+function DriverHomeSheetBody({
+  activeRide,
+  availableRide,
+  deferredRides,
+  stats,
+  tripActions,
+  isOnline,
+  onToggleOnline,
+  onOpenActiveRide,
+  onPromoteDeferred,
+}: Readonly<{
+  activeRide: Ride | null;
+  availableRide: Ride | null;
+  deferredRides: Ride[];
+  stats: DriverStats;
+  tripActions: ReturnType<typeof useActiveTripActions>;
+  isOnline: boolean;
+  onToggleOnline: () => void;
+  onOpenActiveRide: () => void;
+  onPromoteDeferred: (rideId: string) => void;
+}>) {
+  const pickupDest = tripActions.pickupDest();
+  const dropoffDest = tripActions.dropoffDest();
+  const showActiveTrip = Boolean(activeRide && pickupDest && dropoffDest);
+
+  return (
+    <>
+      {!activeRide ? <DriverDayStatsRow stats={stats} /> : null}
+      <View className="mb-5">
+        {!activeRide ? (
+          <Text
+            className="text-sm font-semibold mb-3"
+            style={{ color: "rgba(255,255,255,0.8)" }}
+          >
+            COURSES DISPONIBLES
+          </Text>
+        ) : null}
+        {showActiveTrip && activeRide && pickupDest && dropoffDest ? (
+          <ActiveTripSheet
+            ride={activeRide}
+            pickupDest={pickupDest}
+            dropoffDest={dropoffDest}
+            onMarkArrived={() => {
+              void tripActions.markArrived();
+            }}
+            onStartTrip={() => {
+              void tripActions.startTrip();
+            }}
+            onCompleteTrip={() => {
+              void tripActions.completeTrip();
+            }}
+            onCancel={tripActions.cancelTrip}
+          />
+        ) : (
+          <DashboardRidePreview
+            activeRide={null}
+            availableRide={availableRide}
+            deferredRides={deferredRides.filter((r) => isRideStillOfferable(r))}
+            contentInset={24}
+            onOpenActiveRide={onOpenActiveRide}
+            onPromoteDeferred={onPromoteDeferred}
+          />
+        )}
+      </View>
+      <OnlineStatusRow isOnline={isOnline} onToggle={onToggleOnline} />
+    </>
+  );
+}
+
+function DriverDayStatsRow({ stats }: Readonly<{ stats: DriverStats }>) {
+  return (
+    <View className="flex-row justify-between mb-4 mt-1">
+      <View
+        style={{
+          flex: 1,
+          marginRight: 6,
+          padding: 16,
+          borderRadius: 16,
+          backgroundColor: "rgba(255, 255, 255, 0.03)",
+          borderWidth: 1,
+          borderColor: "rgba(255, 255, 255, 0.05)",
+        }}
+      >
+        <Text
+          className="text-xs font-bold tracking-wider"
+          style={{ color: "rgba(255,255,255,0.4)" }}
+        >
+          JOURNÉE
+        </Text>
+        <Text className="text-2xl font-black mt-1" style={{ color: "#fff" }}>
+          €{stats.todayEarnings}
+        </Text>
+      </View>
+      <View
+        style={{
+          flex: 1,
+          marginLeft: 6,
+          padding: 16,
+          borderRadius: 16,
+          backgroundColor: "rgba(255, 255, 255, 0.03)",
+          borderWidth: 1,
+          borderColor: "rgba(255, 255, 255, 0.05)",
+        }}
+      >
+        <Text
+          className="text-xs font-bold tracking-wider"
+          style={{ color: "rgba(255,255,255,0.4)" }}
+        >
+          COURSES
+        </Text>
+        <Text className="text-2xl font-black mt-1" style={{ color: "#fff" }}>
+          {stats.todayRides}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -1238,12 +1360,10 @@ function DeferredRideCard({
   onPromote: (rideId: string) => void;
 }>) {
   const incentive = Number(ride.client_incentive ?? 0);
-  const basePrice = ride.estimated_price ?? 0;
+  const { total } = resolveRideOfferPrice(ride);
   let priceLabel = "Prix estimé";
-  if (ride.estimated_price != null) {
-    const incentiveSuffix =
-      incentive > 0 ? ` (+€${incentive.toFixed(0)})` : "";
-    priceLabel = `€${(basePrice + incentive).toFixed(2)}${incentiveSuffix}`;
+  if (ride.estimated_price != null || incentive > 0) {
+    priceLabel = `€${total.toFixed(2)}`;
   }
   const distanceLabel = formatRideDistanceKm(ride.distance);
   const durationLabel = formatRideDurationMin(ride.duration, ride.distance);
@@ -1269,7 +1389,7 @@ function DeferredRideCard({
           borderColor: "rgba(251, 191, 36, 0.22)",
         }}
       >
-        <View className="flex-row justify-between items-center mb-3">
+        <View className="flex-row justify-between items-start mb-3">
           <View
             className="px-2 py-0.5 rounded"
             style={{
@@ -1285,7 +1405,16 @@ function DeferredRideCard({
               {statusLabel}
             </Text>
           </View>
-          <Text className="text-white text-xl font-bold">{priceLabel}</Text>
+          <View className="items-end">
+            <Text className="text-white text-xl font-bold">{priceLabel}</Text>
+            {incentive > 0 ? (
+              <View className="mt-0.5 rounded-full bg-amber-500/20 px-1.5 py-0.5">
+                <Text className="text-amber-300 text-[10px] font-bold">
+                  Bonus +{incentive.toFixed(0)}€
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         {pickupWhen ? (
@@ -1380,15 +1509,13 @@ function DashboardRidePreview({
             borderColor: "rgba(16, 185, 129, 0.3)",
           }}
         >
-          <View className="flex-row justify-between items-center mb-3">
+          <View className="flex-row justify-between items-start mb-3">
             <View className="bg-emerald-500/20 px-2 py-0.5 rounded">
               <Text className="text-emerald-400 text-[10px] font-bold tracking-wide">
                 EN COURS
               </Text>
             </View>
-            <Text className="text-white text-xl font-bold">
-              €{activeRide.estimated_price?.toFixed(2)}
-            </Text>
+            <RidePriceBonus ride={activeRide} size="lg" tone="dark" />
           </View>
           {formatPickupDateTime(activeRide.pickup_time) ? (
             <View

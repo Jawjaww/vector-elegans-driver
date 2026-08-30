@@ -104,7 +104,7 @@ Le fichier `database.types.ts` a été généré par Supabase et est crucial pou
 - `src/components/DriverDocumentUploader.tsx`
 - `src/components/GlassCard.tsx`
 - `src/components/ElegantButton.tsx`
-- `src/components/SwipeButton.tsx`
+- `src/components/NeonSwipeButton.tsx`
 - `src/hooks/useDriverLocation.ts`
 - `src/hooks/useNotifications.ts`
 - `src/lib/stores/driverStore.ts`

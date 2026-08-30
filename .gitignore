@@ -11,8 +11,9 @@ npm-debug.*
 web-build/
 .DS_Store
 *.log
+.env
 .env.local
 .env.*.local
-.env
 .env.override
-elegance-mobilite tmp/.env
+.env.lan.bak
+.env.cloud

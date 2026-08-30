@@ -1,7 +1,9 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "./node_modules/expo/tsconfig.base.json",
   "compilerOptions": {
     "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-native",
     "module": "ESNext",
     "types": ["jest", "react-native"]
   },

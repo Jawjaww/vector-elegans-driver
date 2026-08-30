@@ -1,7 +1,9 @@
 import {
+  formatIncentiveBonusLabel,
   getPendingRideDisplayLabel,
   isRidePickupStillOfferable,
   isRideStillOfferable,
+  resolveRideOfferPrice,
   RIDE_MATCHING_WINDOW_MS,
   RIDE_PICKUP_GRACE_MS,
   ridePickupExpiryCutoffIso,
@@ -64,5 +66,21 @@ describe('ridePickup', () => {
   it('ridePickupExpiryCutoffIso is in the past', () => {
     const cutoff = new Date(ridePickupExpiryCutoffIso()).getTime();
     expect(cutoff).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('resolveRideOfferPrice adds client incentive to total', () => {
+    expect(
+      resolveRideOfferPrice({
+        estimated_price: 40,
+        client_incentive: 5,
+      }),
+    ).toEqual({
+      base: 40,
+      incentive: 5,
+      total: 45,
+      hasIncentive: true,
+    });
+    expect(formatIncentiveBonusLabel(5)).toBe('Bonus +5€');
+    expect(formatIncentiveBonusLabel(0)).toBe('');
   });
 });

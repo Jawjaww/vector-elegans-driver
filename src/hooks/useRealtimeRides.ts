@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
-import { supabase } from '../lib/supabase';
 import { useDriverStore, Ride } from '../lib/stores/driverStore';
 import { rideService, type PendingRide } from '../services/rideService';
 import { calculateDistance } from '../lib/utils/driverUtils';
@@ -23,6 +22,9 @@ const mapPendingRideToStoreRide = (ride: PendingRide): Ride => ({
   vehicle_type: ride.vehicleType,
   estimated_price: ride.estimatedPrice,
   final_price: ride.finalPrice,
+  client_incentive: ride.clientIncentive,
+  matching_deadline_at: ride.matchingDeadlineAt,
+  matching_paused_at: ride.matchingPausedAt,
   created_at: ride.createdAt,
   updated_at: new Date().toISOString(),
   options: ride.options

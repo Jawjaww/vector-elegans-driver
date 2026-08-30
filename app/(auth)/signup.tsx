@@ -211,42 +211,51 @@ export default function SignupScreen() {
               </View>
             </View>
 
-            {/* Neon Sign Up Button */}
+            {/* Neon Sign Up — same chrome as login Sign In */}
             <Pressable
               onPress={handleSignup}
               disabled={loading}
-              className={`rounded-xl h-14 items-center justify-center shadow-lg overflow-hidden relative ${loading ? 'opacity-70' : ''}`}
+              className={`rounded-full py-4 items-center shadow-lg overflow-hidden relative ${loading ? 'opacity-70' : 'opacity-100'}`}
               style={{
-                shadowColor: '#10b981',
+                shadowColor: '#22c55e',
                 shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.5,
-                shadowRadius: 15,
-                elevation: 5,
+                shadowOpacity: 0.6,
+                shadowRadius: 20,
+                elevation: 10,
               }}
             >
               <LinearGradient
-                colors={['#10b981', '#059669', '#047857']}
+                colors={['#10b981', '#4ade80', '#2dd4bf']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
-              />
-              
-              {/* Inner white gradient overlay for glass effect */}
-              <LinearGradient
-                 colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0)']}
-                 start={{ x: 0, y: 0 }}
-                 end={{ x: 1, y: 0 }}
-                 style={{ 
-                   position: 'absolute', 
-                   left: 2, 
-                   right: '40%', 
-                   top: 2, 
-                   bottom: 2, 
-                   borderRadius: 10 
-                 }}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                }}
               />
 
-              <Text className="text-white text-base font-black uppercase tracking-widest drop-shadow-md">
+              <LinearGradient
+                colors={[
+                  'rgba(255,255,255,0.35)',
+                  'rgba(255,255,255,0.15)',
+                  'rgba(255,255,255,0)',
+                ]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{
+                  position: 'absolute',
+                  left: 4,
+                  right: '30%',
+                  top: 4,
+                  bottom: 4,
+                  borderRadius: 9999,
+                }}
+              />
+
+              <Text className="text-white text-base font-black uppercase tracking-tighter drop-shadow-md">
                 {loading ? 'Creating...' : 'Sign Up'}
               </Text>
             </Pressable>

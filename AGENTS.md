@@ -2,11 +2,21 @@
 
 ## Variables d'environnement - CRUCIAL
 
-### IP Locale pour Supabase et Expo
+Deux backends possibles, **un seul actif** dans `.env` à la fois. Pas besoin de projet Expo distant pour le quotidien (Expo Go / Metro local).
 
-- L'IP locale de la machine DOIT être utilisée (pas localhost/127.0.0.1!)
-- Pour connaître votre IP : `ifconfig | grep "inet " | grep -v "127.0.0.1" | head -1`
-- Exemple: `10.89.89.240`
+| Mode | Script | Backend |
+|------|--------|---------|
+| **Local (défaut)** | `./scripts/sync-local-supabase-env.sh` | Supabase Docker via **IP LAN** `:54329` |
+| **Cloud (= Vercel)** | `./scripts/use-cloud-supabase-env.sh` | `https://iodsddzustunlahxafif.supabase.co` |
+
+Ou à la main : commenter le bloc LAN / décommenter le bloc cloud dans `.env` (et l’inverse).
+
+Après tout changement : `npx expo start -c`
+
+### Local — IP LAN (pas localhost)
+
+- Sur device physique : IP Wi‑Fi du Mac, jamais `localhost` / `127.0.0.1`
+- Exemple: `ifconfig | grep "inet " | grep -v "127.0.0.1" | head -1`
 
 ### Configuration docker-compose.yml
 
@@ -20,27 +30,49 @@ services:
 ### Configuration .env
 
 ```bash
-# Sync IP LAN + anon key from local Supabase (recommended):
+# Local Docker (quotidien) :
 ./scripts/sync-local-supabase-env.sh
 
-# Or set manually (IP must be current Wi-Fi address, not localhost):
-EXPO_PUBLIC_SUPABASE_URL=http://10.84.30.240:54329
-EXPO_PUBLIC_API_URL=http://10.84.30.240:54329
+# Même DB que elegance-mobility.vercel.app :
+./scripts/use-cloud-supabase-env.sh
+
+# Retour local :
+./scripts/sync-local-supabase-env.sh
+# ou: cp .env.lan.bak .env
 ```
 
-After changing `.env`, restart Metro with cache clear:
+Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/health`
+
+### Clés / carte
+
+- Clés anon : `EXPO_PUBLIC_SUPABASE_ANON_KEY` dans `.env`
+- Carte : **MapLibre WebView** (`src/map/VTCMap` → `WebViewMap`) — pas Google Maps
+- `extra.eas.projectId` dans `app.json` : requis pour `eas build` et EAS Update OTA
+
+## EAS Update (preview APK, OTA sans réinstall)
+
+L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview`, `runtimeVersion` = `"1.0.0"` aligné sur `version` dans `app.json` — workflow bare, pas de policy auto).
+
+### Première fois (ou changement natif)
 
 ```bash
-npx expo start -c
+# Bump version dans app.json seulement si plugin natif / dep native / permissions changent
+eas build --profile preview --platform android --non-interactive
+# Installer le nouvel APK sur le téléphone
 ```
 
-Smoke test (phone Safari, same Wi-Fi): `http://<LAN_IP>:54329/auth/v1/health`
+### Fixes JS après install (sans réinstall)
 
-### Clés à utiliser
+```bash
+npm run update:preview -- "fix login map"
+# Kill + relancer l’app sur le device pour appliquer l’update
+```
 
-- Voir `.env` pour les clés anon (EXPO_PUBLIC_SUPABASE_ANON_KEY)
-- NE JAMAIS utiliser localhost ou 127.0.0.1 dans le code ou config (Expo Go sur téléphone)
-- NE JAMAIS utiliser l'URL du cloud Supabase (supabase.co)
+- Env cloud : `--environment preview` reprend les `EXPO_PUBLIC_*` du projet EAS (même DB que Vercel).
+- **Expo Go / Metro** ≠ OTA : dev local reste `npx expo start` ; OTA ne s’applique qu’aux builds preview/production.
+- Rebuild obligatoire si : nouvelle dep native, plugin `app.json`, icône/splash, permissions.
+
+Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-driver/updates
 
 ## Commandes Docker
 
