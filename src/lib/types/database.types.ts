@@ -1566,6 +1566,14 @@ export type Database = {
         Returns: undefined
       }
       delete_user_by_id: { Args: { p_user_id: string }; Returns: undefined }
+      driver_has_document_with_expiry: {
+        Args: { p_document_types: string[]; p_driver_id: string }
+        Returns: boolean
+      }
+      driver_has_valid_approved_document: {
+        Args: { p_document_types: string[]; p_driver_id: string }
+        Returns: boolean
+      }
       ensure_driver_profile: {
         Args: { driver_user_id: string }
         Returns: string
@@ -1650,6 +1658,14 @@ export type Database = {
       }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
+      sync_driver_expiry_from_document: {
+        Args: {
+          p_document_type: string
+          p_driver_id: string
+          p_expiry_date: string
+        }
+        Returns: undefined
+      }
       test_driver_completeness_full: {
         Args: { target_user_id?: string }
         Returns: {
