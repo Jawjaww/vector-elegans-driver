@@ -103,6 +103,47 @@ const emptyToNull = (value: string): string | null => {
   return trimmed === "" ? null : trimmed;
 };
 
+/** DB CHECK placeholders — treated as empty in the form and by completeness RPCs. */
+const DRAFT_PLACEHOLDER_TEXT = "À compléter";
+const DRAFT_PLACEHOLDER_PHONE = "+00000000000";
+const DRAFT_PLACEHOLDER_DATE = "2099-12-31";
+
+const isPlaceholderText = (value: string | null | undefined): boolean =>
+  !value || value === DRAFT_PLACEHOLDER_TEXT;
+
+const isPlaceholderPhone = (value: string | null | undefined): boolean =>
+  !value ||
+  value === DRAFT_PLACEHOLDER_TEXT ||
+  value === DRAFT_PLACEHOLDER_PHONE;
+
+const isPlaceholderDate = (value: string | null | undefined): boolean =>
+  !value || value === DRAFT_PLACEHOLDER_DATE;
+
+const toFormText = (value: string | null | undefined): string =>
+  isPlaceholderText(value) ? "" : (value ?? "");
+
+const toFormPhone = (value: string | null | undefined): string =>
+  isPlaceholderPhone(value) ? "" : (value ?? "");
+
+const toFormDate = (value: string | null | undefined): string =>
+  isPlaceholderDate(value) ? "" : (value ?? "");
+
+/** Never NULL — satisfies drivers.required_fields and related CHECK constraints. */
+const requiredDriverText = (value: string): string => {
+  const trimmed = value.trim();
+  return trimmed === "" ? DRAFT_PLACEHOLDER_TEXT : trimmed;
+};
+
+const requiredDriverPhone = (value: string): string => {
+  const trimmed = value.trim();
+  return trimmed === "" ? DRAFT_PLACEHOLDER_PHONE : trimmed;
+};
+
+const requiredDriverDate = (value: string): string => {
+  const trimmed = value.trim();
+  return trimmed === "" ? DRAFT_PLACEHOLDER_DATE : trimmed;
+};
+
 // Champs requis par section
 const REQUIRED_FIELDS = {
   profil: [
@@ -314,23 +355,29 @@ export default function DriverProfileSetup({
           // Synchroniser l'état du dossier avec le backend
           await syncDossierStateWithBackend();
           setFormData({
-            first_name: existingDriver.first_name || "",
-            last_name: existingDriver.last_name || "",
-            phone: existingDriver.phone || "",
-            date_of_birth: existingDriver.date_of_birth || "",
-            emergency_contact_name: existingDriver.emergency_contact_name || "",
-            emergency_contact_phone:
-              existingDriver.emergency_contact_phone || "",
-            license_number: existingDriver.driving_license_number || "",
-            driving_license_expiry_date:
-              existingDriver.driving_license_expiry_date || "",
-            vtc_card_number: existingDriver.vtc_card_number || "",
-            vtc_card_expiry_date: existingDriver.vtc_card_expiry_date || "",
-            insurance_number: existingDriver.insurance_number || "",
-            company_siret: existingDriver.company_siret || "",
-            address: existingDriver.address_line1 || "",
-            city: existingDriver.city || "",
-            postal_code: existingDriver.postal_code || "",
+            first_name: toFormText(existingDriver.first_name),
+            last_name: toFormText(existingDriver.last_name),
+            phone: toFormPhone(existingDriver.phone),
+            date_of_birth: toFormDate(existingDriver.date_of_birth),
+            emergency_contact_name: toFormText(
+              existingDriver.emergency_contact_name,
+            ),
+            emergency_contact_phone: toFormPhone(
+              existingDriver.emergency_contact_phone,
+            ),
+            license_number: toFormText(existingDriver.driving_license_number),
+            driving_license_expiry_date: toFormDate(
+              existingDriver.driving_license_expiry_date,
+            ),
+            vtc_card_number: toFormText(existingDriver.vtc_card_number),
+            vtc_card_expiry_date: toFormDate(
+              existingDriver.vtc_card_expiry_date,
+            ),
+            insurance_number: toFormText(existingDriver.insurance_number),
+            company_siret: toFormText(existingDriver.company_siret),
+            address: toFormText(existingDriver.address_line1),
+            city: toFormText(existingDriver.city),
+            postal_code: toFormText(existingDriver.postal_code),
           });
           setAvatarUrl(existingDriver.avatar_url || null);
         }
@@ -558,21 +605,21 @@ export default function DriverProfileSetup({
         return false;
       }
 
-      // Empty strings break Postgres date columns and leave completeness false.
+      // Required CHECK columns must never be NULL; optional fields use emptyToNull.
       const driverData = {
         user_id: user.id,
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        phone: formData.phone.trim(),
+        first_name: requiredDriverText(formData.first_name),
+        last_name: requiredDriverText(formData.last_name),
+        phone: requiredDriverPhone(formData.phone),
         date_of_birth: emptyToNull(formData.date_of_birth),
         emergency_contact_name: emptyToNull(formData.emergency_contact_name),
         emergency_contact_phone: emptyToNull(formData.emergency_contact_phone),
-        driving_license_number: emptyToNull(formData.license_number),
-        driving_license_expiry_date: emptyToNull(
+        driving_license_number: requiredDriverText(formData.license_number),
+        driving_license_expiry_date: requiredDriverDate(
           formData.driving_license_expiry_date,
         ),
-        vtc_card_number: emptyToNull(formData.vtc_card_number),
-        vtc_card_expiry_date: emptyToNull(formData.vtc_card_expiry_date),
+        vtc_card_number: requiredDriverText(formData.vtc_card_number),
+        vtc_card_expiry_date: requiredDriverDate(formData.vtc_card_expiry_date),
         insurance_number: emptyToNull(formData.insurance_number),
         company_siret: emptyToNull(formData.company_siret),
         address_line1: emptyToNull(formData.address),
@@ -600,7 +647,7 @@ export default function DriverProfileSetup({
 
       const { data: newDriver, error } = await supabase
         .from("drivers")
-        .insert([driverData])
+        .insert([{ ...driverData, status: "draft" as const }])
         .select()
         .single();
 
