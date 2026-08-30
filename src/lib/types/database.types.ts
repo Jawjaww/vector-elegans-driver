@@ -1829,6 +1829,7 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       is_customer: { Args: never; Returns: boolean }
       is_driver: { Args: never; Returns: boolean }
+      is_driver_phone_filled: { Args: { p_phone: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       log_driver_action: {
         Args: {
