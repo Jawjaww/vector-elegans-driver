@@ -1,0 +1,72 @@
+import { buildChecklistItems, type DossierChecklistInput } from '../dossierChecklist';
+
+const baseInput = (): DossierChecklistInput => ({
+  formData: {
+    first_name: 'Jean',
+    last_name: 'Dupont',
+    phone: '+33612345678',
+    date_of_birth: '1990-01-01',
+    address: '1 rue Test',
+    city: 'Paris',
+    postal_code: '75001',
+    emergency_contact_name: 'Marie',
+    emergency_contact_phone: '+33698765432',
+    license_number: '123456789012',
+    driving_license_expiry_date: '2030-01-01',
+    vtc_card_number: 'VTC123',
+    vtc_card_expiry_date: '2030-01-01',
+    insurance_number: 'ASS123',
+    company_siret: '12345678901234',
+  },
+  avatarUrl: 'https://example.com/avatar.jpg',
+  documents: {
+    driving_license: 'path/license.jpg',
+    vtc_card: 'path/vtc.jpg',
+    insurance: 'path/insurance.jpg',
+    id_card: 'path/id.jpg',
+    proof_of_address: 'path/address.jpg',
+  },
+  documentMeta: {
+    driving_license: { status: 'pending', rejectionReason: null, expiryDate: '2030-01-01' },
+    vtc_card: { status: 'pending', rejectionReason: null, expiryDate: '2030-01-01' },
+    insurance: { status: 'pending', rejectionReason: null, expiryDate: '2030-01-01' },
+    id_card: { status: 'pending', rejectionReason: null, expiryDate: '2030-01-01' },
+    proof_of_address: { status: 'pending', rejectionReason: null, expiryDate: '2030-01-01' },
+  },
+  missingForSubmit: [],
+});
+
+describe('buildChecklistItems', () => {
+  it('marks all items provided when form, avatar and docs are complete', () => {
+    const items = buildChecklistItems(baseInput());
+    expect(items.every((i) => i.status === 'provided')).toBe(true);
+  });
+
+  it('marks rejected document even when URL is present', () => {
+    const input = baseInput();
+    input.documentMeta.driving_license = {
+      status: 'rejected',
+      rejectionReason: 'Blurry photo',
+      expiryDate: '2030-01-01',
+    };
+    const items = buildChecklistItems(input);
+    const license = items.find((i) => i.id === 'driving_license');
+    expect(license?.status).toBe('rejected');
+  });
+
+  it('marks missing profile field when empty', () => {
+    const input = baseInput();
+    input.formData.first_name = '';
+    const items = buildChecklistItems(input);
+    const firstName = items.find((i) => i.id === 'first_name');
+    expect(firstName?.status).toBe('missing');
+  });
+
+  it('marks missing document when no URL', () => {
+    const input = baseInput();
+    input.documents.driving_license = null;
+    const items = buildChecklistItems(input);
+    const license = items.find((i) => i.id === 'driving_license');
+    expect(license?.status).toBe('missing');
+  });
+});

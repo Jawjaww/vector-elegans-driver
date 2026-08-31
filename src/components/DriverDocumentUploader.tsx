@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../lib/supabase";
+import { openDocumentPreview } from "../lib/documentPreview";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { NativeDateField } from "./NativeDateField";
@@ -24,13 +25,16 @@ const decodeBase64 = (base64: string) => {
   return bytes.buffer;
 };
 
+type DocumentValidationStatus = "pending" | "approved" | "rejected";
+
 interface DriverDocumentUploaderProps {
   documentType: string;
   onUploadComplete?: (fileUrl: string, expiryDate: string) => void;
   driverId?: string;
   currentUrl?: string;
   currentExpiry?: string | null;
-  isEditable?: boolean;
+  documentStatus?: DocumentValidationStatus;
+  canReplace?: boolean;
 }
 
 function isValidFutureDate(isoDate: string): boolean {
@@ -42,22 +46,6 @@ function isValidFutureDate(isoDate: string): boolean {
   return d >= today;
 }
 
-function subtitleForDoc(opts: {
-  currentUrl?: string;
-  currentExpiry?: string | null;
-  expiresOn: string;
-  replaceFile: string;
-  formats: string;
-}): string {
-  if (opts.currentExpiry) {
-    return `${opts.expiresOn} ${opts.currentExpiry.slice(0, 10)}`;
-  }
-  if (opts.currentUrl) {
-    return opts.replaceFile;
-  }
-  return opts.formats;
-}
-
 export const DriverDocumentUploader: React.FC<
   Readonly<DriverDocumentUploaderProps>
 > = ({
@@ -66,13 +54,30 @@ export const DriverDocumentUploader: React.FC<
   driverId,
   currentUrl,
   currentExpiry,
-  isEditable = true,
+  documentStatus = "pending",
+  canReplace = true,
 }) => {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [expiryDate, setExpiryDate] = useState(
     currentExpiry?.slice(0, 10) ?? "",
   );
+
+  const hasDocument = Boolean(currentUrl);
+  const isRejected = documentStatus === "rejected";
+
+  const statusLabel = (() => {
+    if (!hasDocument) return t("documents.missingDocument");
+    if (isRejected) return t("documents.rejectedReplace");
+    return t("documents.uploadedPendingReview");
+  })();
+
+  const statusColor = (() => {
+    if (!hasDocument) return "#94a3b8";
+    if (isRejected) return "#f59e0b";
+    return "#10b981";
+  })();
 
   const sanitizeFileName = (fileName: string): string => {
     return fileName
@@ -139,7 +144,7 @@ export const DriverDocumentUploader: React.FC<
   };
 
   const pickImage = async () => {
-    if (!isEditable) {
+    if (!canReplace) {
       Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
       return;
     }
@@ -257,13 +262,15 @@ export const DriverDocumentUploader: React.FC<
     }
   };
 
-  const subtitle = subtitleForDoc({
-    currentUrl,
-    currentExpiry,
-    expiresOn: t("documents.expiresOn"),
-    replaceFile: t("documents.replaceFile"),
-    formats: t("documents.formats"),
-  });
+  const handleView = async () => {
+    if (!currentUrl) return;
+    try {
+      setViewing(true);
+      await openDocumentPreview(currentUrl, t);
+    } finally {
+      setViewing(false);
+    }
+  };
 
   return (
     <View className="w-full gap-2">
@@ -274,19 +281,19 @@ export const DriverDocumentUploader: React.FC<
         <NativeDateField
           value={expiryDate}
           onChange={setExpiryDate}
-          editable={isEditable && !uploading}
+          editable={canReplace && !uploading}
           placeholder="YYYY-MM-DD"
           minimumDate={new Date()}
         />
       </View>
 
-      <Pressable
-        onPress={pickImage}
-        disabled={uploading || !isEditable}
-        className={`w-full overflow-hidden rounded-xl border-2 border-dashed ${
-          currentUrl
-            ? "border-emerald-500/50 bg-emerald-500/10"
-            : "border-slate-600 bg-slate-800/50"
+      <View
+        className={`w-full overflow-hidden rounded-xl border-2 ${
+          hasDocument
+            ? isRejected
+              ? "border-amber-500/50 bg-amber-500/10"
+              : "border-emerald-500/50 bg-emerald-500/10"
+            : "border-dashed border-slate-600 bg-slate-800/50"
         }`}
       >
         {uploading ? (
@@ -301,39 +308,99 @@ export const DriverDocumentUploader: React.FC<
             </Text>
           </Animated.View>
         ) : (
-          <Animated.View
-            entering={FadeIn}
-            className="py-6 px-4 flex-row items-center justify-between"
-          >
-            <View className="flex-row items-center flex-1">
+          <View className="py-4 px-4 gap-3">
+            <View className="flex-row items-center">
               <View
                 className={`w-12 h-12 rounded-full items-center justify-center ${
-                  currentUrl ? "bg-emerald-500/20" : "bg-slate-700"
+                  hasDocument ? "bg-emerald-500/20" : "bg-slate-700"
                 }`}
               >
                 <Feather
-                  name={currentUrl ? "check" : "upload-cloud"}
+                  name={
+                    hasDocument
+                      ? isRejected
+                        ? "alert-circle"
+                        : "file-text"
+                      : "upload-cloud"
+                  }
                   size={24}
-                  color={currentUrl ? "#10b981" : "#94a3b8"}
+                  color={statusColor}
                 />
               </View>
               <View className="ml-4 flex-1">
-                <Text
-                  className={`font-semibold ${
-                    currentUrl ? "text-emerald-400" : "text-slate-400"
-                  }`}
-                >
-                  {currentUrl
-                    ? t("documents.uploadSuccess")
-                    : t("documents.tapToUpload")}
+                <Text className="font-semibold" style={{ color: statusColor }}>
+                  {statusLabel}
                 </Text>
-                <Text className="text-slate-400 text-xs mt-1">{subtitle}</Text>
+                {currentExpiry ? (
+                  <Text className="text-slate-400 text-xs mt-1">
+                    {t("documents.expiresOn")} {currentExpiry.slice(0, 10)}
+                  </Text>
+                ) : (
+                  <Text className="text-slate-400 text-xs mt-1">
+                    {t("documents.formats")}
+                  </Text>
+                )}
               </View>
             </View>
-            <Feather name="chevron-right" size={20} color="#64748b" />
-          </Animated.View>
+
+            <View className="flex-row gap-2">
+              {hasDocument ? (
+                <Pressable
+                  onPress={handleView}
+                  disabled={viewing}
+                  className="flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-slate-700/80"
+                >
+                  {viewing ? (
+                    <ActivityIndicator size="small" color="#e2e8f0" />
+                  ) : (
+                    <>
+                      <Feather name="eye" size={16} color="#e2e8f0" />
+                      <Text className="text-slate-200 text-sm font-medium ml-2">
+                        {t("documents.viewDocument")}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              ) : null}
+
+              {canReplace ? (
+                <Pressable
+                  onPress={pickImage}
+                  className={`flex-1 flex-row items-center justify-center py-2.5 rounded-lg ${
+                    hasDocument ? "bg-slate-600/80" : "bg-emerald-600/90"
+                  }`}
+                >
+                  <Feather
+                    name={hasDocument ? "refresh-cw" : "upload"}
+                    size={16}
+                    color="#fff"
+                  />
+                  <Text className="text-white text-sm font-medium ml-2">
+                    {hasDocument
+                      ? t("documents.replaceDocument")
+                      : t("documents.tapToUpload")}
+                  </Text>
+                </Pressable>
+              ) : hasDocument ? (
+                <Pressable
+                  onPress={() =>
+                    Alert.alert(
+                      t("profile.cannotEdit"),
+                      t("profile.submittedProfileLocked"),
+                    )
+                  }
+                  className="flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-slate-800/80 border border-slate-600"
+                >
+                  <Feather name="lock" size={16} color="#94a3b8" />
+                  <Text className="text-slate-400 text-sm ml-2">
+                    {t("documents.lockedHint")}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
         )}
-      </Pressable>
+      </View>
     </View>
   );
 };

@@ -29,12 +29,12 @@ import Animated, {
   FadeInDown,
   FadeIn,
   BounceIn,
-  ZoomIn,
   FlipInEasyX,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
+import { DossierValidationChecklist } from "./DossierValidationChecklist";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -306,13 +306,15 @@ export default function DriverProfileSetup({
     );
   }, [completionPercentage, completionProgress]);
 
-  // Refresh dossier status when landing on Validation
+  // Refresh dossier status when landing on Documents or Validation
   useEffect(() => {
-    if (currentSection !== 3 || !driverId || !userId) return;
+    if ((currentSection !== 2 && currentSection !== 3) || !driverId || !userId) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       await syncDossierStateWithBackend();
-      if (!cancelled) setValidationSyncDone(true);
+      if (!cancelled && currentSection === 3) setValidationSyncDone(true);
     })();
     return () => {
       cancelled = true;
@@ -472,6 +474,8 @@ export default function DriverProfileSetup({
 
         setDocuments(nextDocs);
         setDocumentMeta(nextMeta);
+      } else if (error) {
+        console.error("Error loading driver documents:", error);
       }
     } catch (error) {
       console.error("Error checking documents:", error);
@@ -590,7 +594,10 @@ export default function DriverProfileSetup({
         expiryDate: expiryDate ?? prev[key]?.expiryDate ?? null,
       },
     }));
-    void syncDossierStateWithBackend();
+    void (async () => {
+      await syncDossierStateWithBackend();
+      await loadDriverDocuments();
+    })();
 
     if (logger) {
       logDocumentUpload(documentType, fileUrl, 0);
@@ -1429,15 +1436,19 @@ export default function DriverProfileSetup({
               {t("profile.requiredDocuments")}
             </Text>
             <Text className="text-sm text-slate-400 mb-6">
-              {t("profile.uploadAllDocuments")}
+              {t("profile.documentsSectionHint")}
             </Text>
 
             {REQUIRED_DOCUMENTS.map((docType, index) => {
               const meta = documentMeta[docType];
               const isRejected = meta?.status === "rejected";
-              const canEditThisDoc =
+              const canReplace =
                 (!submitting && isEditable) ||
                 (!submitting && canEditDocuments && isRejected);
+              const docValidationStatus = (meta?.status ?? "pending") as
+                | "pending"
+                | "approved"
+                | "rejected";
 
               return (
               <Animated.View
@@ -1460,13 +1471,6 @@ export default function DriverProfileSetup({
                       {t("documents.status.rejected")}
                     </Text>
                   ) : null}
-                  {!isRejected && documents[docType] ? (
-                    <Animated.View
-                      entering={BounceIn.duration(500).delay(index * 150 + 100)}
-                    >
-                      <Feather name="check-circle" size={16} color="#10b981" />
-                    </Animated.View>
-                  ) : null}
                 </Animated.View>
                 {isRejected && meta?.rejectionReason ? (
                   <Text className="text-xs text-rose-300 mb-2">
@@ -1486,9 +1490,11 @@ export default function DriverProfileSetup({
                     onUploadComplete={(fileUrl, expiry) =>
                       handleDocumentUpload(docType, fileUrl, expiry)
                     }
+                    driverId={driverId ?? undefined}
                     currentUrl={documents[docType] || undefined}
                     currentExpiry={meta?.expiryDate}
-                    isEditable={canEditThisDoc}
+                    documentStatus={docValidationStatus}
+                    canReplace={canReplace}
                   />
                 </Animated.View>
               </Animated.View>
@@ -1592,102 +1598,16 @@ export default function DriverProfileSetup({
                 )}
             </Animated.View>
 
-            <Animated.View
-              entering={FadeInUp.duration(500).delay(500)}
-              className="space-y-3"
-            >
-              <Animated.View
-                entering={ZoomIn.duration(300).delay(600)}
-                className="flex-row items-center"
-              >
-                <Animated.View
-                  entering={
-                    REQUIRED_FIELDS.profil.every(
-                      (f) => formData[f]?.trim() !== "",
-                    )
-                      ? BounceIn.duration(500).delay(600)
-                      : undefined
-                  }
-                >
-                  <Feather
-                    name="check-circle"
-                    size={16}
-                    color={
-                      REQUIRED_FIELDS.profil.every(
-                        (f) => formData[f]?.trim() !== "",
-                      )
-                        ? "#10b981"
-                        : "#6b7280"
-                    }
-                  />
-                </Animated.View>
-                <Text className="text-white ml-3">
-                  Informations personnelles
-                </Text>
-              </Animated.View>
-              <Animated.View
-                entering={ZoomIn.duration(300).delay(650)}
-                className="flex-row items-center"
-              >
-                <Feather
-                  name="check-circle"
-                  size={16}
-                  color={avatarUrl ? "#10b981" : "#6b7280"}
-                />
-                <Text className="text-white ml-3">Photo de profil</Text>
-              </Animated.View>
-              <Animated.View
-                entering={ZoomIn.duration(300).delay(700)}
-                className="flex-row items-center"
-              >
-                <Animated.View
-                  entering={
-                    REQUIRED_FIELDS.professionnel.every(
-                      (f) => formData[f]?.trim() !== "",
-                    )
-                      ? BounceIn.duration(500).delay(700)
-                      : undefined
-                  }
-                >
-                  <Feather
-                    name="check-circle"
-                    size={16}
-                    color={
-                      REQUIRED_FIELDS.professionnel.every(
-                        (f) => formData[f]?.trim() !== "",
-                      )
-                        ? "#10b981"
-                        : "#6b7280"
-                    }
-                  />
-                </Animated.View>
-                <Text className="text-white ml-3">
-                  Informations professionnelles
-                </Text>
-              </Animated.View>
-              <Animated.View
-                entering={ZoomIn.duration(300).delay(800)}
-                className="flex-row items-center"
-              >
-                <Animated.View
-                  entering={
-                    Object.values(documents).every(Boolean)
-                      ? BounceIn.duration(500).delay(800)
-                      : undefined
-                  }
-                >
-                  <Feather
-                    name="check-circle"
-                    size={16}
-                    color={
-                      Object.values(documents).every(Boolean)
-                        ? "#10b981"
-                        : "#6b7280"
-                    }
-                  />
-                </Animated.View>
-                <Text className="text-white ml-3">Documents</Text>
-              </Animated.View>
+            <Animated.View entering={FadeInUp.duration(500).delay(500)}>
+              <DossierValidationChecklist
+                input={{
+                  formData,
+                  avatarUrl,
+                  documents,
+                  documentMeta,
+                  missingForSubmit,
+                }}
+              />
             </Animated.View>
 
             <Animated.View
