@@ -130,7 +130,8 @@ function resolveDriverHomeSnapLevel(input: {
   } = input;
 
   if (!activeRide && availableRidesCount > 0) return "nav";
-  if (hasDossierAlert) return "notices";
+  // Dossier banner sits at the top of the sheet — stats is enough; notices is almost fullscreen.
+  if (hasDossierAlert) return "stats";
   if (activeRide) {
     const waitingAtPickup =
       activeRide.status === "scheduled" &&
