@@ -1552,6 +1552,10 @@ export type Database = {
           is_valid: boolean
         }[]
       }
+      delete_driver_documents_of_type: {
+        Args: { p_document_type: string; p_driver_id: string }
+        Returns: number
+      }
       delete_driver_file: {
         Args: {
           document_type_param?: string
@@ -1656,8 +1660,20 @@ export type Database = {
         Args: { notification_uuid: string }
         Returns: undefined
       }
+      replace_driver_document: {
+        Args: {
+          p_document_type: string
+          p_driver_id: string
+          p_expiry_date?: string
+          p_file_name?: string
+          p_file_size?: number
+          p_file_url: string
+        }
+        Returns: Json
+      }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
+      storage_path_from_file_url: { Args: { p_url: string }; Returns: string }
       sync_driver_expiry_from_document: {
         Args: {
           p_document_type: string
@@ -1725,6 +1741,10 @@ export type Database = {
           driver_id: string
           rejection_reason?: string
         }
+        Returns: Json
+      }
+      validate_driver_document: {
+        Args: { p_approve: boolean; p_document_id: string; p_reason?: string }
         Returns: Json
       }
       validate_driver_dossier: {
