@@ -121,7 +121,7 @@
     "requiredDocuments": "Documents requis",
     "uploadAllDocuments": "Veuillez télécharger tous les documents requis",
     "documentsSectionHint": "Téléversez vos justificatifs ou consultez ceux déjà envoyés. Le vert signifie téléversé, pas encore validé par l'équipe.",
-    "checklistHint": "Le vert indique que l'information est renseignée. La vérification par notre équipe interviendra après soumission.",
+    "checklistHint": "Seuls les documents encore manquants sont listés. La vérification par notre équipe interviendra après soumission.",
     "checklist": {
       "firstName": "Prénom",
       "lastName": "Nom",
@@ -141,7 +141,7 @@
       "avatar": "Photo de profil",
       "personalSection": "Informations personnelles",
       "proSection": "Informations professionnelles",
-      "documentsSection": "Documents justificatifs"
+      "documentsSection": "Documents manquants"
     },
     "completion": "Complétion",
     "missingFields": "Champs manquants",

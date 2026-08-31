@@ -76,7 +76,7 @@ describe('buildChecklistItems', () => {
     expect(license?.status).toBe('missing');
   });
 
-  it('marks document provided via RPC when URL not loaded yet', () => {
+  it('marks document provided when meta pending even without URL', () => {
     const input = baseInput();
     input.documents.driving_license = null;
     input.documentMeta.driving_license = {

@@ -35,7 +35,6 @@ import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
 import { DossierValidationChecklist } from "./DossierValidationChecklist";
-import { DriverDocumentsStatusList } from "./DriverDocumentsStatusList";
 import { isDocumentUploaded, type DocumentTypeKey } from "../lib/dossierChecklist";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
@@ -299,8 +298,6 @@ export default function DriverProfileSetup({
 
   const completionPercentage = rpcCompletion;
   const isProfileComplete = canSubmit;
-  const displayMissing =
-    missingForSubmit.length > 0 ? missingForSubmit : missingFields;
 
   // Keep validation progress bar in sync with RPC completion %
   useEffect(() => {
@@ -1440,14 +1437,6 @@ export default function DriverProfileSetup({
         );
   };
   const renderDocumentsSection = () => {
-        const checklistInput = {
-          formData,
-          avatarUrl,
-          documents,
-          documentMeta,
-          missingForSubmit,
-        };
-
         return (
           <Animated.View
             entering={FadeInRight.duration(300)}
@@ -1461,8 +1450,6 @@ export default function DriverProfileSetup({
             <Text className="text-sm text-slate-400 mb-2">
               {t("profile.documentsSectionHint")}
             </Text>
-
-            <DriverDocumentsStatusList input={checklistInput} compact />
 
             {documentsLoading ? (
               <Text className="text-xs text-slate-400 mb-2">
@@ -1478,19 +1465,19 @@ export default function DriverProfileSetup({
             {REQUIRED_DOCUMENTS.map((docType, index) => {
               const meta = documentMeta[docType];
               const isRejected = meta?.status === "rejected";
-              const canReplace =
-                (!submitting && isEditable) ||
-                (!submitting && canEditDocuments && isRejected);
-              const docValidationStatus = (meta?.status ?? "pending") as
-                | "pending"
-                | "approved"
-                | "rejected";
               const uploaded = isDocumentUploaded(
                 docType as DocumentTypeKey,
                 documents,
                 documentMeta,
-                missingForSubmit,
               );
+              const canReplace =
+                !submitting &&
+                (isEditable ||
+                  (canEditDocuments && (isRejected || !uploaded)));
+              const docValidationStatus = (meta?.status ?? "pending") as
+                | "pending"
+                | "approved"
+                | "rejected";
 
               return (
               <Animated.View
@@ -1616,25 +1603,11 @@ export default function DriverProfileSetup({
                 <Text className="text-xs text-slate-400">
                   {Math.round(completionPercentage)}% {t("common.complete")}
                 </Text>
-                {!isProfileComplete && (
-                  <Text className="text-amber-300 text-xs">
-                    {t("profile.missingFields")}
-                  </Text>
-                )}
               </Animated.View>
-              {displayMissing.length > 0 && (
-                <View className="mt-3 space-y-1">
-                  {displayMissing.slice(0, 12).map((item) => (
-                    <Text key={item} className="text-xs text-amber-200/90">
-                      • {item}
-                    </Text>
-                  ))}
-                </View>
-              )}
               {validationSyncDone &&
                 !isProfileComplete &&
                 completionPercentage < 100 &&
-                displayMissing.length === 0 && (
+                missingForSubmit.length === 0 && (
                   <Text className="text-xs text-amber-200/90 mt-3">
                     {t("profile.missingFieldsLoadFailed")}
                   </Text>

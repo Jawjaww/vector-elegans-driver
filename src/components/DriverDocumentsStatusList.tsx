@@ -22,21 +22,22 @@ const STATUS_ICON: Record<ChecklistItemStatus, keyof typeof Feather.glyphMap> = 
 
 interface DriverDocumentsStatusListProps {
   input: DossierChecklistInput;
-  compact?: boolean;
 }
 
 export const DriverDocumentsStatusList: React.FC<
   Readonly<DriverDocumentsStatusListProps>
-> = ({ input, compact = false }) => {
+> = ({ input }) => {
   const { t } = useTranslation();
-  const items = buildDocumentChecklistItems(input);
+  const items = buildDocumentChecklistItems(input).filter(
+    (item) => item.status === 'missing' || item.status === 'rejected',
+  );
+
+  if (items.length === 0) {
+    return null;
+  }
 
   return (
-    <View
-      className={`rounded-xl border border-white/15 bg-white/5 ${
-        compact ? 'p-3 mb-4' : 'p-4 mb-2'
-      }`}
-    >
+    <View className="rounded-xl border border-white/15 bg-white/5 p-4 mb-2">
       <Text className="text-sm font-semibold text-white mb-3">
         {t('profile.checklist.documentsSection')}
       </Text>
@@ -54,15 +55,10 @@ export const DriverDocumentsStatusList: React.FC<
           >
             {t(item.labelKey)}
           </Text>
-          <Text
-            className="text-xs"
-            style={{ color: STATUS_COLOR[item.status] }}
-          >
-            {item.status === 'missing'
-              ? t('documents.missingDocument')
-              : item.status === 'rejected'
-                ? t('documents.status.rejected')
-                : t('documents.uploadedPendingReview')}
+          <Text className="text-xs" style={{ color: STATUS_COLOR[item.status] }}>
+            {item.status === 'rejected'
+              ? t('documents.status.rejected')
+              : t('documents.missingDocument')}
           </Text>
         </View>
       ))}

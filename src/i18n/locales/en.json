@@ -98,7 +98,7 @@
     "missingFields": "Missing fields",
     "missingFieldsLoadFailed": "Could not load missing items. Try again after saving.",
     "documentsSectionHint": "Upload your documents or view those already sent. Green means uploaded, not yet verified by our team.",
-    "checklistHint": "Green means the information is filled in. Our team will verify after submission.",
+    "checklistHint": "Only documents still missing are listed. Our team will verify after submission.",
     "checklist": {
       "firstName": "First name",
       "lastName": "Last name",
@@ -118,7 +118,7 @@
       "avatar": "Profile photo",
       "personalSection": "Personal information",
       "proSection": "Professional information",
-      "documentsSection": "Supporting documents"
+      "documentsSection": "Missing documents"
     },
     "pendingValidation": "Pending Validation",
     "approved": "Approved",

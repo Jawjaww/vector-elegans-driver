@@ -157,11 +157,6 @@ export const DriverDocumentUploader: React.FC<
       return;
     }
 
-    if (!isValidFutureDate(expiryDate.trim())) {
-      Alert.alert(t("documents.error"), t("documents.expiryRequired"));
-      return;
-    }
-
     try {
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -176,13 +171,18 @@ export const DriverDocumentUploader: React.FC<
         quality: 0.8,
       });
 
-      if (!result.canceled) {
-        await uploadImage(
-          result.assets[0].uri,
-          result.assets[0].fileName || "document.jpg",
-          expiryDate.trim(),
-        );
+      if (result.canceled) return;
+
+      if (!isValidFutureDate(expiryDate.trim())) {
+        Alert.alert(t("documents.error"), t("documents.expiryRequired"));
+        return;
       }
+
+      await uploadImage(
+        result.assets[0].uri,
+        result.assets[0].fileName || "document.jpg",
+        expiryDate.trim(),
+      );
     } catch (error) {
       console.error("Error picking image:", error);
       Alert.alert(t("common.error"), t("documents.pickFailed"));
@@ -392,7 +392,7 @@ export const DriverDocumentUploader: React.FC<
                       : t("documents.tapToUpload")}
                   </Text>
                 </Pressable>
-              ) : hasDocument ? (
+              ) : (
                 <Pressable
                   onPress={() =>
                     Alert.alert(
@@ -407,7 +407,7 @@ export const DriverDocumentUploader: React.FC<
                     {t("documents.lockedHint")}
                   </Text>
                 </Pressable>
-              ) : null}
+              )}
             </View>
           </View>
         )}

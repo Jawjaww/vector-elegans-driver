@@ -190,20 +190,13 @@ export function buildChecklistItems(input: DossierChecklistInput): ChecklistItem
   return [...buildProfileChecklistItems(input), ...buildDocumentChecklistItems(input)];
 }
 
+/** True only when a file is actually present — never infer from RPC completeness. */
 export function isDocumentUploaded(
   docType: DocumentTypeKey,
   documents: Partial<Record<DocumentTypeKey, string | null>>,
   documentMeta: DossierChecklistInput['documentMeta'],
-  missingForSubmit: string[],
 ): boolean {
-  const item = DOCUMENT_CHECKLIST_ITEMS.find((d) => d.id === docType);
-  if (!item) return false;
-  const status = resolveDocumentChecklistStatus(
-    docType,
-    documents,
-    documentMeta,
-    missingForSubmit,
-    item.missingLabel,
-  );
-  return status === 'provided' || status === 'rejected';
+  if (documents[docType]) return true;
+  const meta = documentMeta[docType];
+  return Boolean(meta && (meta.status === 'pending' || meta.status === 'approved' || meta.status === 'rejected'));
 }
