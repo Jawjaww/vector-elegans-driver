@@ -1,8 +1,17 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import type { DossierChecklistInput } from '../lib/dossierChecklist';
-import { DriverDocumentsStatusList } from './DriverDocumentsStatusList';
+import {
+  buildDocumentChecklistItems,
+  buildProfileChecklistItems,
+  computeWizardCompletion,
+  driverFacingSubmitGaps,
+  type DossierChecklistInput,
+} from '../lib/dossierChecklist';
+import {
+  DriverDocumentsStatusList,
+  MissingChecklistCard,
+} from './DriverDocumentsStatusList';
 
 interface DossierValidationChecklistProps {
   input: DossierChecklistInput;
@@ -12,11 +21,41 @@ export const DossierValidationChecklist: React.FC<
   Readonly<DossierValidationChecklistProps>
 > = ({ input }) => {
   const { t } = useTranslation();
+  const rpcGaps = driverFacingSubmitGaps(input.missingForSubmit);
+  const profileMissing = buildProfileChecklistItems(input).filter(
+    (item) => item.status !== 'provided',
+  );
+  const documentMissing = buildDocumentChecklistItems(input).filter(
+    (item) => item.status === 'missing' || item.status === 'rejected',
+  );
+  const progress = computeWizardCompletion(input);
 
   return (
     <View>
       <Text className="text-xs text-slate-400 mb-3">{t('profile.checklistHint')}</Text>
-      <DriverDocumentsStatusList input={input} />
+      <MissingChecklistCard
+        title={t('profile.checklist.fieldsSection')}
+        items={profileMissing}
+        missingBadge={t('profile.missingFields')}
+      />
+      <DriverDocumentsStatusList items={documentMissing} />
+      {rpcGaps.length > 0 ? (
+        <View className="rounded-xl border border-white/15 bg-white/5 p-4 mb-2">
+          <Text className="text-sm font-semibold text-white mb-3">
+            {t('profile.missingFields')}
+          </Text>
+          {rpcGaps.map((label) => (
+            <Text key={label} className="text-sm text-slate-400 mb-1">
+              {label}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {progress.missing.length === 0 && rpcGaps.length === 0 ? (
+        <Text className="text-sm text-emerald-300/90">
+          {t('profile.checklist.allReady')}
+        </Text>
+      ) : null}
     </View>
   );
 };

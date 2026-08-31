@@ -30,6 +30,7 @@ export interface DossierFormFields {
   address: string;
   city: string;
   postal_code: string;
+  license_plate: string;
 }
 
 export interface DossierChecklistInput {
@@ -117,6 +118,11 @@ const FIELD_ITEMS: { id: string; labelKey: string; field: keyof DossierFormField
     field: 'insurance_number',
   },
   { id: 'company_siret', labelKey: 'profile.checklist.siret', field: 'company_siret' },
+  {
+    id: 'license_plate',
+    labelKey: 'profile.checklist.licensePlate',
+    field: 'license_plate',
+  },
 ];
 
 function isFilled(value: string | undefined): boolean {
@@ -124,11 +130,19 @@ function isFilled(value: string | undefined): boolean {
   return trimmed !== '' && trimmed !== 'À compléter';
 }
 
-function isDocMissingInRpc(missingForSubmit: string[], missingLabel: string, docType: DocumentTypeKey): boolean {
-  return missingForSubmit.some(
-    (m) =>
-      m.includes(missingLabel) ||
-      m.toLowerCase().includes(docType.replaceAll('_', ' ')),
+/** True only when a file is actually present — never infer from RPC completeness. */
+export function isDocumentUploaded(
+  docType: DocumentTypeKey,
+  documents: Partial<Record<DocumentTypeKey, string | null>>,
+  documentMeta: DossierChecklistInput['documentMeta'],
+): boolean {
+  if (documents[docType]) return true;
+  const meta = documentMeta[docType];
+  return Boolean(
+    meta &&
+      (meta.status === 'pending' ||
+        meta.status === 'approved' ||
+        meta.status === 'rejected'),
   );
 }
 
@@ -136,18 +150,10 @@ export function resolveDocumentChecklistStatus(
   docType: DocumentTypeKey,
   documents: Partial<Record<DocumentTypeKey, string | null>>,
   documentMeta: DossierChecklistInput['documentMeta'],
-  missingForSubmit: string[],
-  missingLabel: string,
 ): ChecklistItemStatus {
   const meta = documentMeta[docType];
   if (meta?.status === 'rejected') return 'rejected';
-  if (documents[docType]) return 'provided';
-  if (meta && (meta.status === 'pending' || meta.status === 'approved')) {
-    return 'provided';
-  }
-  if (missingForSubmit.length > 0 && !isDocMissingInRpc(missingForSubmit, missingLabel, docType)) {
-    return 'provided';
-  }
+  if (isDocumentUploaded(docType, documents, documentMeta)) return 'provided';
   return 'missing';
 }
 
@@ -164,8 +170,6 @@ export function buildDocumentChecklistItems(input: DossierChecklistInput): Check
       doc.id,
       input.documents,
       input.documentMeta,
-      input.missingForSubmit,
-      doc.missingLabel,
     ),
   }));
 }
@@ -190,13 +194,29 @@ export function buildChecklistItems(input: DossierChecklistInput): ChecklistItem
   return [...buildProfileChecklistItems(input), ...buildDocumentChecklistItems(input)];
 }
 
-/** True only when a file is actually present — never infer from RPC completeness. */
-export function isDocumentUploaded(
-  docType: DocumentTypeKey,
-  documents: Partial<Record<DocumentTypeKey, string | null>>,
-  documentMeta: DossierChecklistInput['documentMeta'],
-): boolean {
-  if (documents[docType]) return true;
-  const meta = documentMeta[docType];
-  return Boolean(meta && (meta.status === 'pending' || meta.status === 'approved' || meta.status === 'rejected'));
+export function computeWizardCompletion(input: DossierChecklistInput): {
+  provided: number;
+  total: number;
+  percentage: number;
+  missing: ChecklistItem[];
+} {
+  const items = buildChecklistItems(input);
+  const missing = items.filter((item) => item.status !== 'provided');
+  const provided = items.length - missing.length;
+  const percentage =
+    items.length === 0 ? 0 : Math.round((provided / items.length) * 100);
+  return { provided, total: items.length, percentage, missing };
+}
+
+/**
+ * RPC missing_for_submit leftovers the wizard can still fix.
+ * Hide admin-review labels ("approuvé") — the driver cannot approve documents.
+ */
+export function driverFacingSubmitGaps(missingForSubmit: string[]): string[] {
+  return missingForSubmit.filter((label) => {
+    const lower = label.toLowerCase();
+    if (lower.includes('approuv')) return false;
+    if (lower.includes('approved')) return false;
+    return true;
+  });
 }
