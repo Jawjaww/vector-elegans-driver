@@ -3,7 +3,7 @@
  */
 
 import { supabase } from '../supabase';
-import { normalizeFolderStatus, type DriverFolderStatus } from '../folderStatus';
+import { normalizeFolderStatus, isUnsubmittedDossier, type DriverFolderStatus } from '../folderStatus';
 import type { ExpiringDocument } from '../dossierBanner';
 
 export type { ExpiringDocument } from '../dossierBanner';
@@ -216,6 +216,51 @@ export async function canEditDossier(driverId: string, userId: string): Promise<
   }
 }
 
+export interface OwnDriverDocumentRow {
+  document_type: string;
+  validation_status: string | null;
+  file_url: string | null;
+  rejection_reason: string | null;
+  expiry_date: string | null;
+}
+
+export async function listOwnDriverDocuments(
+  driverId: string,
+): Promise<{ rows: OwnDriverDocumentRow[]; error: string | null }> {
+  try {
+    const { data, error } = await supabase.rpc('list_own_driver_documents', {
+      p_driver_id: driverId,
+    });
+
+    if (!error && Array.isArray(data)) {
+      return { rows: data as OwnDriverDocumentRow[], error: null };
+    }
+
+    if (error) {
+      console.error('[dossierService] list_own_driver_documents:', error);
+    }
+
+    const { data: docs, error: selectError } = await supabase
+      .from('driver_documents')
+      .select(
+        'document_type, validation_status, file_url, rejection_reason, expiry_date',
+      )
+      .eq('driver_id', driverId)
+      .in('validation_status', ['approved', 'pending', 'rejected'])
+      .order('upload_date', { ascending: false });
+
+    if (selectError) {
+      console.error('[dossierService] driver_documents select:', selectError);
+      return { rows: [], error: 'load_failed' };
+    }
+
+    return { rows: (docs ?? []) as OwnDriverDocumentRow[], error: null };
+  } catch (error) {
+    console.error('[dossierService] listOwnDriverDocuments - exception:', error);
+    return { rows: [], error: 'load_failed' };
+  }
+}
+
 export async function submitDossier(driverId: string, userId: string): Promise<DossierSubmissionResult> {
   try {
     const { data, error } = await supabase
@@ -353,17 +398,20 @@ export async function syncDossierState(driverId: string, userId: string) {
       return null;
     }
 
-    const canEdit = await canEditDossier(driverId, userId);
+    const folderStatus = status.status;
+    const unsubmitted = isUnsubmittedDossier(folderStatus);
+    const rpcEdit = await canEditDossier(driverId, userId);
 
     return {
-      status: status.status,
+      status: folderStatus,
       submittedAt: status.submitted_at,
       validatedAt: status.validated_at,
       rejectedAt: status.rejected_at,
       rejectionReason: status.rejection_reason,
-      isEditable: canEdit,
-      canSubmit: status.can_submit,
-      canEditDocuments: status.can_edit_documents,
+      isEditable: unsubmitted || Boolean(status.is_editable) || rpcEdit,
+      canSubmit: Boolean(status.can_submit),
+      canEditDocuments:
+        unsubmitted || Boolean(status.can_edit_documents),
       completionPercentage: status.completion_percentage,
       rejectedDocumentCount: status.rejected_document_count,
       rejectedDocumentTypes: status.rejected_document_types,

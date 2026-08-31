@@ -31,3 +31,9 @@ export function normalizeFolderStatus(
   }
   return "draft";
 }
+
+/** Unsubmitted / rejected dossiers stay fully editable (profile + documents). */
+export function isUnsubmittedDossier(status: string | null | undefined): boolean {
+  const s = normalizeFolderStatus(status);
+  return s === "draft" || s === "rejected";
+}

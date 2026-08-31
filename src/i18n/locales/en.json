@@ -94,6 +94,8 @@
     "emergencyContactPhonePlaceholder": "+33 6 12 34 56 79",
     "complete": "Profile Complete",
     "incomplete": "Profile Incomplete",
+    "cannotEdit": "Cannot edit",
+    "submittedProfileLocked": "This file is under review. Cancel the request to edit it, or replace a rejected document.",
     "completion": "Completion",
     "missingFields": "Missing fields",
     "missingFieldsLoadFailed": "Could not load missing items. Try again after saving.",
@@ -169,7 +171,8 @@
     "previewFailed": "Could not open document",
     "lockedHint": "Locked",
     "loadingDocuments": "Loading documents…",
-    "loadFailed": "Could not load documents"
+    "loadFailed": "Could not load documents",
+    "loadFailedHint": "Uploaded documents could not be displayed. Please try again in a moment."
   },
   "navigation": {
     "home": "Home",

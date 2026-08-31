@@ -1720,6 +1720,7 @@ export type Database = {
         Args: { p_document_types: string[]; p_driver_id: string }
         Returns: boolean
       }
+      driver_owns_driver_id: { Args: { p_driver_id: string }; Returns: boolean }
       ensure_driver_profile: {
         Args: { driver_user_id: string }
         Returns: string
@@ -1831,6 +1832,17 @@ export type Database = {
       is_driver: { Args: never; Returns: boolean }
       is_driver_phone_filled: { Args: { p_phone: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      list_own_driver_documents: {
+        Args: { p_driver_id: string }
+        Returns: {
+          document_type: string
+          expiry_date: string
+          file_url: string
+          rejection_reason: string
+          upload_date: string
+          validation_status: string
+        }[]
+      }
       log_driver_action: {
         Args: {
           p_action: string

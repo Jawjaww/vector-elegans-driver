@@ -157,6 +157,8 @@
     "cannotCancelSubmission": "Impossible d'annuler la soumission pour le moment",
     "submissionCancelled": "Soumission annulée, vous pouvez modifier le profil",
     "incomplete": "Profil incomplet",
+    "cannotEdit": "Modification impossible",
+    "submittedProfileLocked": "Ce dossier est en cours de vérification. Vous pourrez le modifier après annulation de la demande, ou remplacer un document refusé.",
     "completeAllFields": "Veuillez compléter tous les champs requis",
     "draftSaveFailed": "Impossible d'enregistrer le brouillon. Réessayez dans un instant.",
     "success": "Succès",
@@ -211,7 +213,8 @@
     "previewFailed": "Impossible d'ouvrir le document",
     "lockedHint": "Verrouillé",
     "loadingDocuments": "Chargement des documents…",
-    "loadFailed": "Impossible de charger les documents"
+    "loadFailed": "Impossible de charger les documents",
+    "loadFailedHint": "Les documents déjà envoyés n'ont pas pu être affichés. Réessayez dans un instant."
   },
   "navigation": {
     "home": "Accueil",

@@ -50,7 +50,9 @@ import {
   submitDossier,
   cancelDossierReview,
   ensureDriverProfile,
+  listOwnDriverDocuments,
 } from "../lib/services/dossierService";
+import { isUnsubmittedDossier, normalizeFolderStatus } from "../lib/folderStatus";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -382,8 +384,15 @@ export default function DriverProfileSetup({
 
         if (existingDriver && !error) {
           setDriverId(existingDriver.id);
+          const folderStatus = normalizeFolderStatus(existingDriver.status);
+          if (isUnsubmittedDossier(folderStatus)) {
+            useDriverFolderStore.setState({
+              status: folderStatus,
+              isEditable: true,
+              canEditDocuments: true,
+            });
+          }
 
-          // Synchroniser l'état du dossier avec le backend
           await syncDossierStateWithBackend();
           setFormData({
             first_name: toFormText(existingDriver.first_name),
@@ -444,18 +453,10 @@ export default function DriverProfileSetup({
     setDocumentsLoadError(null);
 
     try {
-      const { data: docs, error } = await supabase
-        .from("driver_documents")
-        .select(
-          "document_type, validation_status, file_url, rejection_reason, expiry_date",
-        )
-        .eq("driver_id", driverId)
-        .in("validation_status", ["approved", "pending", "rejected"])
-        .order("upload_date", { ascending: false });
+      const { rows, error } = await listOwnDriverDocuments(driverId);
 
-      if (error) {
-        console.error("Error loading driver documents:", error);
-        setDocumentsLoadError(error.message);
+      if (error && rows.length === 0) {
+        setDocumentsLoadError(t("documents.loadFailedHint"));
         return;
       }
 
@@ -468,7 +469,7 @@ export default function DriverProfileSetup({
       };
       const nextMeta: typeof documentMeta = {};
 
-      for (const doc of docs ?? []) {
+      for (const doc of rows) {
         const key = doc.document_type as keyof DocumentStatus;
         if (!(key in nextDocs)) continue;
         if (nextDocs[key]) continue;
@@ -486,9 +487,7 @@ export default function DriverProfileSetup({
       setDocumentMeta(nextMeta);
     } catch (error) {
       console.error("Error checking documents:", error);
-      setDocumentsLoadError(
-        error instanceof Error ? error.message : "Unknown error",
-      );
+      setDocumentsLoadError(t("documents.loadFailedHint"));
     } finally {
       setDocumentsLoading(false);
     }
@@ -566,7 +565,10 @@ export default function DriverProfileSetup({
   const handleInputChange = (field: keyof DriverProfileData, value: string) => {
     // Vérifier si le dossier peut être modifié
     if (!isEditable) {
-      Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
+      Alert.alert(
+        t("profile.cannotEdit"),
+        t("profile.submittedProfileLocked"),
+      );
       return;
     }
 
@@ -589,8 +591,11 @@ export default function DriverProfileSetup({
     const key = documentType as keyof DocumentStatus;
     const canReplaceRejected =
       canEditDocuments && documentMeta[key]?.status === "rejected";
-    if (!isEditable && !canReplaceRejected) {
-      Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
+    if (!isEditable && !canEditDocuments && !canReplaceRejected) {
+      Alert.alert(
+        t("profile.cannotEdit"),
+        t("profile.submittedProfileLocked"),
+      );
       return;
     }
 
@@ -1458,7 +1463,7 @@ export default function DriverProfileSetup({
             ) : null}
             {documentsLoadError ? (
               <Text className="text-xs text-amber-300 mb-2">
-                {t("documents.loadFailed")}: {documentsLoadError}
+                {documentsLoadError}
               </Text>
             ) : null}
 
@@ -1471,9 +1476,7 @@ export default function DriverProfileSetup({
                 documentMeta,
               );
               const canReplace =
-                !submitting &&
-                (isEditable ||
-                  (canEditDocuments && (isRejected || !uploaded)));
+                !submitting && (isEditable || canEditDocuments);
               const docValidationStatus = (meta?.status ?? "pending") as
                 | "pending"
                 | "approved"

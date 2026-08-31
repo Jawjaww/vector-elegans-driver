@@ -1,4 +1,4 @@
-import { normalizeFolderStatus } from '../folderStatus';
+import { normalizeFolderStatus, isUnsubmittedDossier } from '../folderStatus';
 import {
   getUserRole,
   isUserDriver,
@@ -17,10 +17,27 @@ describe('normalizeFolderStatus', () => {
     expect(normalizeFolderStatus('validated')).toBe('active');
   });
 
+  it('maps incomplete to draft', () => {
+    expect(normalizeFolderStatus('incomplete')).toBe('draft');
+  });
+
   it('keeps canonical statuses', () => {
     expect(normalizeFolderStatus('draft')).toBe('draft');
     expect(normalizeFolderStatus('pending_review')).toBe('pending_review');
     expect(normalizeFolderStatus('rejected')).toBe('rejected');
+  });
+});
+
+describe('isUnsubmittedDossier', () => {
+  it('treats draft and rejected as unlocked', () => {
+    expect(isUnsubmittedDossier('draft')).toBe(true);
+    expect(isUnsubmittedDossier('incomplete')).toBe(true);
+    expect(isUnsubmittedDossier('rejected')).toBe(true);
+  });
+
+  it('locks pending_review and active', () => {
+    expect(isUnsubmittedDossier('pending_review')).toBe(false);
+    expect(isUnsubmittedDossier('active')).toBe(false);
   });
 });
 
