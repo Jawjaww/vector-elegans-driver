@@ -1,4 +1,8 @@
-import { buildChecklistItems, type DossierChecklistInput } from '../dossierChecklist';
+import {
+  buildChecklistItems,
+  resolveDocumentChecklistStatus,
+  type DossierChecklistInput,
+} from '../dossierChecklist';
 
 const baseInput = (): DossierChecklistInput => ({
   formData: {
@@ -65,8 +69,29 @@ describe('buildChecklistItems', () => {
   it('marks missing document when no URL', () => {
     const input = baseInput();
     input.documents.driving_license = null;
+    input.documentMeta.driving_license = undefined;
+    input.missingForSubmit = ['Document permis (avec date)'];
     const items = buildChecklistItems(input);
     const license = items.find((i) => i.id === 'driving_license');
     expect(license?.status).toBe('missing');
+  });
+
+  it('marks document provided via RPC when URL not loaded yet', () => {
+    const input = baseInput();
+    input.documents.driving_license = null;
+    input.documentMeta.driving_license = {
+      status: 'pending',
+      rejectionReason: null,
+      expiryDate: '2030-01-01',
+    };
+    input.missingForSubmit = ['Prénom'];
+    const status = resolveDocumentChecklistStatus(
+      'driving_license',
+      input.documents,
+      input.documentMeta,
+      input.missingForSubmit,
+      'Document permis (avec date)',
+    );
+    expect(status).toBe('provided');
   });
 });

@@ -6,6 +6,7 @@ import { StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import "../global.css"; // ← OK, utilisé par NativeWind
 import "../src/i18n";
+import { DocumentPreviewModalHost } from "../src/lib/documentPreview";
 
 export default function RootLayout() {
   return (
@@ -33,6 +34,7 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: "transparent" },
           }}
         />
+        <DocumentPreviewModalHost />
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

@@ -138,7 +138,10 @@
       "vtcExpiry": "Expiration carte VTC",
       "insuranceNumber": "Numéro assurance",
       "siret": "SIRET entreprise",
-      "avatar": "Photo de profil"
+      "avatar": "Photo de profil",
+      "personalSection": "Informations personnelles",
+      "proSection": "Informations professionnelles",
+      "documentsSection": "Documents justificatifs"
     },
     "completion": "Complétion",
     "missingFields": "Champs manquants",
@@ -206,7 +209,9 @@
     "viewDocument": "Consulter",
     "replaceDocument": "Remplacer",
     "previewFailed": "Impossible d'ouvrir le document",
-    "lockedHint": "Verrouillé"
+    "lockedHint": "Verrouillé",
+    "loadingDocuments": "Chargement des documents…",
+    "loadFailed": "Impossible de charger les documents"
   },
   "navigation": {
     "home": "Accueil",

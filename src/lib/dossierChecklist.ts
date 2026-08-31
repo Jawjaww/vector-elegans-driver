@@ -13,8 +13,27 @@ export type DocumentTypeKey =
   | 'id_card'
   | 'proof_of_address';
 
+/** Form fields used by the dossier checklist (matches DriverProfileSetup). */
+export interface DossierFormFields {
+  first_name: string;
+  last_name: string;
+  phone: string;
+  date_of_birth: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+  license_number: string;
+  driving_license_expiry_date: string;
+  vtc_card_number: string;
+  vtc_card_expiry_date: string;
+  insurance_number: string;
+  company_siret: string;
+  address: string;
+  city: string;
+  postal_code: string;
+}
+
 export interface DossierChecklistInput {
-  formData: Record<string, string | undefined>;
+  formData: DossierFormFields;
   avatarUrl: string | null;
   documents: Partial<Record<DocumentTypeKey, string | null>>;
   documentMeta: Partial<
@@ -26,7 +45,39 @@ export interface DossierChecklistInput {
   missingForSubmit: string[];
 }
 
-const FIELD_ITEMS: { id: string; labelKey: string; field: string }[] = [
+export const DOCUMENT_CHECKLIST_ITEMS: {
+  id: DocumentTypeKey;
+  labelKey: string;
+  missingLabel: string;
+}[] = [
+  {
+    id: 'driving_license',
+    labelKey: 'documents.driving_license',
+    missingLabel: 'Document permis (avec date)',
+  },
+  {
+    id: 'vtc_card',
+    labelKey: 'documents.vtc_card',
+    missingLabel: 'Document carte VTC (avec date)',
+  },
+  {
+    id: 'insurance',
+    labelKey: 'documents.insurance',
+    missingLabel: 'Document assurance (avec date)',
+  },
+  {
+    id: 'id_card',
+    labelKey: 'documents.id_card',
+    missingLabel: "Pièce d'identité (avec date)",
+  },
+  {
+    id: 'proof_of_address',
+    labelKey: 'documents.proof_of_address',
+    missingLabel: 'Justificatif de domicile (avec date)',
+  },
+];
+
+const FIELD_ITEMS: { id: string; labelKey: string; field: keyof DossierFormFields }[] = [
   { id: 'first_name', labelKey: 'profile.checklist.firstName', field: 'first_name' },
   { id: 'last_name', labelKey: 'profile.checklist.lastName', field: 'last_name' },
   { id: 'phone', labelKey: 'profile.checklist.phone', field: 'phone' },
@@ -68,49 +119,20 @@ const FIELD_ITEMS: { id: string; labelKey: string; field: string }[] = [
   { id: 'company_siret', labelKey: 'profile.checklist.siret', field: 'company_siret' },
 ];
 
-const DOCUMENT_ITEMS: { id: DocumentTypeKey; labelKey: string; missingLabel: string }[] = [
-  {
-    id: 'driving_license',
-    labelKey: 'documents.driving_license',
-    missingLabel: 'Document permis (avec date)',
-  },
-  {
-    id: 'vtc_card',
-    labelKey: 'documents.vtc_card',
-    missingLabel: 'Document carte VTC (avec date)',
-  },
-  {
-    id: 'insurance',
-    labelKey: 'documents.insurance',
-    missingLabel: 'Document assurance (avec date)',
-  },
-  {
-    id: 'id_card',
-    labelKey: 'documents.id_card',
-    missingLabel: "Pièce d'identité (avec date)",
-  },
-  {
-    id: 'proof_of_address',
-    labelKey: 'documents.proof_of_address',
-    missingLabel: 'Justificatif de domicile (avec date)',
-  },
-];
-
 function isFilled(value: string | undefined): boolean {
   const trimmed = value?.trim() ?? '';
   return trimmed !== '' && trimmed !== 'À compléter';
 }
 
-function fieldStatus(
-  field: string,
-  formData: Record<string, string | undefined>,
-  missingForSubmit: string[],
-): ChecklistItemStatus {
-  if (isFilled(formData[field])) return 'provided';
-  return 'missing';
+function isDocMissingInRpc(missingForSubmit: string[], missingLabel: string, docType: DocumentTypeKey): boolean {
+  return missingForSubmit.some(
+    (m) =>
+      m.includes(missingLabel) ||
+      m.toLowerCase().includes(docType.replaceAll('_', ' ')),
+  );
 }
 
-function documentStatus(
+export function resolveDocumentChecklistStatus(
   docType: DocumentTypeKey,
   documents: Partial<Record<DocumentTypeKey, string | null>>,
   documentMeta: DossierChecklistInput['documentMeta'],
@@ -120,22 +142,40 @@ function documentStatus(
   const meta = documentMeta[docType];
   if (meta?.status === 'rejected') return 'rejected';
   if (documents[docType]) return 'provided';
-  if (missingForSubmit.some((m) => m.includes(missingLabel) || m.toLowerCase().includes(docType.replace('_', ' ')))) {
-    return 'missing';
+  if (meta && (meta.status === 'pending' || meta.status === 'approved')) {
+    return 'provided';
+  }
+  if (missingForSubmit.length > 0 && !isDocMissingInRpc(missingForSubmit, missingLabel, docType)) {
+    return 'provided';
   }
   return 'missing';
 }
 
-export function buildChecklistItems(input: DossierChecklistInput): ChecklistItem[] {
-  const items: ChecklistItem[] = [];
+function fieldStatus(field: keyof DossierFormFields, formData: DossierFormFields): ChecklistItemStatus {
+  if (isFilled(formData[field])) return 'provided';
+  return 'missing';
+}
 
-  for (const { id, labelKey, field } of FIELD_ITEMS) {
-    items.push({
-      id,
-      labelKey,
-      status: fieldStatus(field, input.formData, input.missingForSubmit),
-    });
-  }
+export function buildDocumentChecklistItems(input: DossierChecklistInput): ChecklistItem[] {
+  return DOCUMENT_CHECKLIST_ITEMS.map((doc) => ({
+    id: doc.id,
+    labelKey: doc.labelKey,
+    status: resolveDocumentChecklistStatus(
+      doc.id,
+      input.documents,
+      input.documentMeta,
+      input.missingForSubmit,
+      doc.missingLabel,
+    ),
+  }));
+}
+
+export function buildProfileChecklistItems(input: DossierChecklistInput): ChecklistItem[] {
+  const items: ChecklistItem[] = FIELD_ITEMS.map(({ id, labelKey, field }) => ({
+    id,
+    labelKey,
+    status: fieldStatus(field, input.formData),
+  }));
 
   items.push({
     id: 'avatar',
@@ -143,19 +183,27 @@ export function buildChecklistItems(input: DossierChecklistInput): ChecklistItem
     status: input.avatarUrl?.trim() ? 'provided' : 'missing',
   });
 
-  for (const doc of DOCUMENT_ITEMS) {
-    items.push({
-      id: doc.id,
-      labelKey: doc.labelKey,
-      status: documentStatus(
-        doc.id,
-        input.documents,
-        input.documentMeta,
-        input.missingForSubmit,
-        doc.missingLabel,
-      ),
-    });
-  }
-
   return items;
+}
+
+export function buildChecklistItems(input: DossierChecklistInput): ChecklistItem[] {
+  return [...buildProfileChecklistItems(input), ...buildDocumentChecklistItems(input)];
+}
+
+export function isDocumentUploaded(
+  docType: DocumentTypeKey,
+  documents: Partial<Record<DocumentTypeKey, string | null>>,
+  documentMeta: DossierChecklistInput['documentMeta'],
+  missingForSubmit: string[],
+): boolean {
+  const item = DOCUMENT_CHECKLIST_ITEMS.find((d) => d.id === docType);
+  if (!item) return false;
+  const status = resolveDocumentChecklistStatus(
+    docType,
+    documents,
+    documentMeta,
+    missingForSubmit,
+    item.missingLabel,
+  );
+  return status === 'provided' || status === 'rejected';
 }

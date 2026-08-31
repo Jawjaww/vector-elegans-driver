@@ -115,7 +115,10 @@
       "vtcExpiry": "VTC card expiry",
       "insuranceNumber": "Insurance number",
       "siret": "Company SIRET",
-      "avatar": "Profile photo"
+      "avatar": "Profile photo",
+      "personalSection": "Personal information",
+      "proSection": "Professional information",
+      "documentsSection": "Supporting documents"
     },
     "pendingValidation": "Pending Validation",
     "approved": "Approved",
@@ -164,7 +167,9 @@
     "viewDocument": "View",
     "replaceDocument": "Replace",
     "previewFailed": "Could not open document",
-    "lockedHint": "Locked"
+    "lockedHint": "Locked",
+    "loadingDocuments": "Loading documents…",
+    "loadFailed": "Could not load documents"
   },
   "navigation": {
     "home": "Home",

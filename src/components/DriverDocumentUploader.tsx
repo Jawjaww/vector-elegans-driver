@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ interface DriverDocumentUploaderProps {
   currentExpiry?: string | null;
   documentStatus?: DocumentValidationStatus;
   canReplace?: boolean;
+  isUploaded?: boolean;
 }
 
 function isValidFutureDate(isoDate: string): boolean {
@@ -56,6 +57,7 @@ export const DriverDocumentUploader: React.FC<
   currentExpiry,
   documentStatus = "pending",
   canReplace = true,
+  isUploaded = false,
 }) => {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
@@ -64,7 +66,13 @@ export const DriverDocumentUploader: React.FC<
     currentExpiry?.slice(0, 10) ?? "",
   );
 
-  const hasDocument = Boolean(currentUrl);
+  useEffect(() => {
+    if (currentExpiry) {
+      setExpiryDate(currentExpiry.slice(0, 10));
+    }
+  }, [currentExpiry]);
+
+  const hasDocument = Boolean(currentUrl) || isUploaded;
   const isRejected = documentStatus === "rejected";
 
   const statusLabel = (() => {
@@ -263,10 +271,13 @@ export const DriverDocumentUploader: React.FC<
   };
 
   const handleView = async () => {
-    if (!currentUrl) return;
+    if (!hasDocument) return;
     try {
       setViewing(true);
-      await openDocumentPreview(currentUrl, t);
+      await openDocumentPreview(currentUrl ?? "", t, {
+        driverId,
+        documentType,
+      });
     } finally {
       setViewing(false);
     }
@@ -343,7 +354,7 @@ export const DriverDocumentUploader: React.FC<
               </View>
             </View>
 
-            <View className="flex-row gap-2">
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               {hasDocument ? (
                 <Pressable
                   onPress={handleView}

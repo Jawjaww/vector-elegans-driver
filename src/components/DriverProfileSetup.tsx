@@ -35,6 +35,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
 import { DossierValidationChecklist } from "./DossierValidationChecklist";
+import { DriverDocumentsStatusList } from "./DriverDocumentsStatusList";
+import { isDocumentUploaded, type DocumentTypeKey } from "../lib/dossierChecklist";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -290,6 +292,8 @@ export default function DriverProfileSetup({
   const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [validationSyncDone, setValidationSyncDone] = useState(false);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsLoadError, setDocumentsLoadError] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
@@ -439,6 +443,9 @@ export default function DriverProfileSetup({
   const loadDriverDocuments = async () => {
     if (!driverId) return;
 
+    setDocumentsLoading(true);
+    setDocumentsLoadError(null);
+
     try {
       const { data: docs, error } = await supabase
         .from("driver_documents")
@@ -449,36 +456,44 @@ export default function DriverProfileSetup({
         .in("validation_status", ["approved", "pending", "rejected"])
         .order("upload_date", { ascending: false });
 
-      if (!error && docs) {
-        const nextDocs: DocumentStatus = {
-          driving_license: null,
-          vtc_card: null,
-          insurance: null,
-          id_card: null,
-          proof_of_address: null,
-        };
-        const nextMeta: typeof documentMeta = {};
-
-        for (const doc of docs) {
-          const key = doc.document_type as keyof DocumentStatus;
-          if (!(key in nextDocs)) continue;
-          // Keep first (latest) per type
-          if (nextDocs[key]) continue;
-          nextDocs[key] = doc.file_url;
-          nextMeta[key] = {
-            status: doc.validation_status ?? "pending",
-            rejectionReason: doc.rejection_reason ?? null,
-            expiryDate: doc.expiry_date ?? null,
-          };
-        }
-
-        setDocuments(nextDocs);
-        setDocumentMeta(nextMeta);
-      } else if (error) {
+      if (error) {
         console.error("Error loading driver documents:", error);
+        setDocumentsLoadError(error.message);
+        return;
       }
+
+      const nextDocs: DocumentStatus = {
+        driving_license: null,
+        vtc_card: null,
+        insurance: null,
+        id_card: null,
+        proof_of_address: null,
+      };
+      const nextMeta: typeof documentMeta = {};
+
+      for (const doc of docs ?? []) {
+        const key = doc.document_type as keyof DocumentStatus;
+        if (!(key in nextDocs)) continue;
+        if (nextDocs[key]) continue;
+        if (doc.file_url) {
+          nextDocs[key] = doc.file_url;
+        }
+        nextMeta[key] = {
+          status: doc.validation_status ?? "pending",
+          rejectionReason: doc.rejection_reason ?? null,
+          expiryDate: doc.expiry_date ?? null,
+        };
+      }
+
+      setDocuments(nextDocs);
+      setDocumentMeta(nextMeta);
     } catch (error) {
       console.error("Error checking documents:", error);
+      setDocumentsLoadError(
+        error instanceof Error ? error.message : "Unknown error",
+      );
+    } finally {
+      setDocumentsLoading(false);
     }
   };
 
@@ -1425,6 +1440,14 @@ export default function DriverProfileSetup({
         );
   };
   const renderDocumentsSection = () => {
+        const checklistInput = {
+          formData,
+          avatarUrl,
+          documents,
+          documentMeta,
+          missingForSubmit,
+        };
+
         return (
           <Animated.View
             entering={FadeInRight.duration(300)}
@@ -1435,9 +1458,22 @@ export default function DriverProfileSetup({
             <Text className="text-xl font-bold text-white mb-4">
               {t("profile.requiredDocuments")}
             </Text>
-            <Text className="text-sm text-slate-400 mb-6">
+            <Text className="text-sm text-slate-400 mb-2">
               {t("profile.documentsSectionHint")}
             </Text>
+
+            <DriverDocumentsStatusList input={checklistInput} compact />
+
+            {documentsLoading ? (
+              <Text className="text-xs text-slate-400 mb-2">
+                {t("documents.loadingDocuments")}
+              </Text>
+            ) : null}
+            {documentsLoadError ? (
+              <Text className="text-xs text-amber-300 mb-2">
+                {t("documents.loadFailed")}: {documentsLoadError}
+              </Text>
+            ) : null}
 
             {REQUIRED_DOCUMENTS.map((docType, index) => {
               const meta = documentMeta[docType];
@@ -1449,6 +1485,12 @@ export default function DriverProfileSetup({
                 | "pending"
                 | "approved"
                 | "rejected";
+              const uploaded = isDocumentUploaded(
+                docType as DocumentTypeKey,
+                documents,
+                documentMeta,
+                missingForSubmit,
+              );
 
               return (
               <Animated.View
@@ -1495,6 +1537,7 @@ export default function DriverProfileSetup({
                     currentExpiry={meta?.expiryDate}
                     documentStatus={docValidationStatus}
                     canReplace={canReplace}
+                    isUploaded={uploaded}
                   />
                 </Animated.View>
               </Animated.View>
