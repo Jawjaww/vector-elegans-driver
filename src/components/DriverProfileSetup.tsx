@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -35,7 +35,11 @@ import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
 import { DossierValidationChecklist } from "./DossierValidationChecklist";
-import { isDocumentUploaded, type DocumentTypeKey } from "../lib/dossierChecklist";
+import { DriverVehicleSection } from "./DriverVehicleSection";
+import {
+  isDocumentUploaded,
+  type DocumentTypeKey,
+} from "../lib/dossierChecklist";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -53,6 +57,12 @@ import {
   listOwnDriverDocuments,
 } from "../lib/services/dossierService";
 import { isUnsubmittedDossier, normalizeFolderStatus } from "../lib/folderStatus";
+import {
+  EMPTY_VEHICLE_FORM,
+  getOwnPrimaryVehicle,
+  upsertOwnPrimaryVehicle,
+  type DriverVehicleForm,
+} from "../lib/services/vehicleService";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -72,6 +82,18 @@ function isApprovedLikeStatus(status: string): boolean {
 
 function isPendingLikeStatus(status: string): boolean {
   return status === "pending_review" || status === "submitted";
+}
+
+function nextSectionButtonClass(
+  currentSection: number,
+  lastSectionIndex: number,
+  isEditable: boolean,
+  canProceed: boolean,
+): string {
+  const base = "flex-row items-center py-3 px-6 rounded-full bg-emerald-500";
+  if (currentSection === lastSectionIndex) return `${base} opacity-30`;
+  if (isEditable && !canProceed) return `${base} opacity-80`;
+  return `${base} opacity-100`;
 }
 
 // Structure des données du profil
@@ -202,6 +224,12 @@ const SECTIONS = [
     description: "Cartes et autorisations",
   },
   {
+    id: "vehicule",
+    label: "Véhicule",
+    icon: "truck",
+    description: "Immatriculation et modèle",
+  },
+  {
     id: "documents",
     label: "Documents",
     icon: "file-text",
@@ -230,7 +258,7 @@ export default function DriverProfileSetup({
   const [userId, setUserId] = useState<string | null>(null);
 
   // Dossier state management
-  const { status, isEditable, canSubmit, canEditDocuments } =
+  const { status, isEditable, canEditDocuments } =
     useDriverFolderStatus();
   const { setStatus, completeSubmission } = useDriverFolderStore();
   const {
@@ -269,6 +297,8 @@ export default function DriverProfileSetup({
     city: "",
     postal_code: "",
   });
+  const [vehicleForm, setVehicleForm] =
+    useState<DriverVehicleForm>(EMPTY_VEHICLE_FORM);
 
   const [documents, setDocuments] = useState<DocumentStatus>({
     driving_license: null,
@@ -289,19 +319,30 @@ export default function DriverProfileSetup({
       >
     >
   >({});
-  const [rpcCompletion, setRpcCompletion] = useState(0);
   const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
-  const [missingFields, setMissingFields] = useState<string[]>([]);
-  const [validationSyncDone, setValidationSyncDone] = useState(false);
+  const [rpcCompletionPercentage, setRpcCompletionPercentage] = useState(0);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsLoadError, setDocumentsLoadError] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const completionPercentage = rpcCompletion;
-  const isProfileComplete = canSubmit;
+  const checklistInput = useMemo(
+    () => ({
+      formData: {
+        ...formData,
+        license_plate: vehicleForm.license_plate,
+      },
+      avatarUrl,
+      documents,
+      documentMeta,
+      missingForSubmit,
+    }),
+    [formData, vehicleForm.license_plate, avatarUrl, documents, documentMeta, missingForSubmit],
+  );
+  const completionPercentage = rpcCompletionPercentage;
+  const isProfileComplete = rpcCompletionPercentage >= 100;
 
-  // Keep validation progress bar in sync with RPC completion %
+  // Keep validation progress bar in sync with RPC completeness %
   useEffect(() => {
     completionProgress.value = withSpring(
       Math.min(100, Math.max(0, completionPercentage)) / 100,
@@ -311,17 +352,10 @@ export default function DriverProfileSetup({
 
   // Refresh dossier status when landing on Documents or Validation
   useEffect(() => {
-    if ((currentSection !== 2 && currentSection !== 3) || !driverId || !userId) {
+    if ((currentSection !== 3 && currentSection !== 4) || !driverId || !userId) {
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      await syncDossierStateWithBackend();
-      if (!cancelled && currentSection === 3) setValidationSyncDone(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void syncDossierStateWithBackend();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync on section entry only
   }, [currentSection, driverId, userId]);
 
@@ -420,6 +454,10 @@ export default function DriverProfileSetup({
             postal_code: toFormText(existingDriver.postal_code),
           });
           setAvatarUrl(existingDriver.avatar_url || null);
+          const existingVehicle = await getOwnPrimaryVehicle();
+          if (existingVehicle) {
+            setVehicleForm(existingVehicle);
+          }
         }
       } catch (error) {
         console.error("Error loading profile:", error);
@@ -639,9 +677,8 @@ export default function DriverProfileSetup({
           rejectionReason: syncedState.rejectionReason,
           rejectedAt: syncedState.rejectedAt,
         });
-        setRpcCompletion(Number(syncedState.completionPercentage ?? 0));
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
-        setMissingFields(syncedState.missingFields ?? []);
+        setRpcCompletionPercentage(syncedState.completionPercentage ?? 0);
         await loadDriverDocuments();
       }
       return syncedState;
@@ -731,6 +768,20 @@ export default function DriverProfileSetup({
     }
   };
 
+  const saveVehicle = async (): Promise<boolean> => {
+    if (!isFieldEditable()) return true;
+    const result = await upsertOwnPrimaryVehicle(vehicleForm);
+    if (!result.success) {
+      const message =
+        result.error === "license_plate_taken"
+          ? t("profile.licensePlateTaken")
+          : (result.error ?? t("profile.vehicleSaveFailed"));
+      Alert.alert(t("common.error"), message);
+      return false;
+    }
+    return true;
+  };
+
   const finishSuccessfulSubmit = async (normalizedStatus: string) => {
     if (isApprovedLikeStatus(normalizedStatus)) {
       completeSubmission(true);
@@ -783,6 +834,8 @@ export default function DriverProfileSetup({
     try {
       const savedDriverId = await handleSave({ silent: true });
       if (!savedDriverId) return;
+      const vehicleSaved = await saveVehicle();
+      if (!vehicleSaved) return;
 
       const syncedState = await syncDossierStateWithBackend();
       if (!syncedState?.canSubmit) {
@@ -867,7 +920,13 @@ export default function DriverProfileSetup({
           return hasValue;
         });
         break;
-      case 2: // Documents
+      case 2: // Véhicule
+        canProceed =
+          vehicleForm.make.trim() !== "" &&
+          vehicleForm.model.trim() !== "" &&
+          vehicleForm.license_plate.trim() !== "";
+        break;
+      case 3: // Documents
         canProceed = Object.values(documents).every(Boolean);
         console.log("Documents status:", documents);
         console.log("All documents uploaded:", canProceed);
@@ -897,11 +956,16 @@ export default function DriverProfileSetup({
       }
     }
 
+    if (currentSection === 2 && isFieldEditable()) {
+      const saved = await saveVehicle();
+      if (saved) {
+        await syncDossierStateWithBackend();
+      }
+    }
+
     // Leaving Documents → Validation: refresh % and missing list from RPC
-    if (currentSection === 2) {
-      setValidationSyncDone(false);
+    if (currentSection === 3) {
       await syncDossierStateWithBackend();
-      setValidationSyncDone(true);
     }
 
     buttonScale.value = withSequence(
@@ -1010,10 +1074,20 @@ export default function DriverProfileSetup({
   const renderSectionContent = () => {
     if (currentSection === 0) return renderProfilSection();
     if (currentSection === 1) return renderProfessionnelSection();
-    if (currentSection === 2) return renderDocumentsSection();
-    if (currentSection === 3) return renderValidationSection();
+    if (currentSection === 2) return renderVehicleSection();
+    if (currentSection === 3) return renderDocumentsSection();
+    if (currentSection === 4) return renderValidationSection();
     return null;
   };
+
+  const renderVehicleSection = () => (
+    <DriverVehicleSection
+      form={vehicleForm}
+      editable={isFieldEditable()}
+      onChange={(patch) => setVehicleForm((prev) => ({ ...prev, ...patch }))}
+      contentStyle={animatedContentStyle}
+    />
+  );
 
   const renderProfilSection = () => {
         return (
@@ -1607,26 +1681,10 @@ export default function DriverProfileSetup({
                   {Math.round(completionPercentage)}% {t("common.complete")}
                 </Text>
               </Animated.View>
-              {validationSyncDone &&
-                !isProfileComplete &&
-                completionPercentage < 100 &&
-                missingForSubmit.length === 0 && (
-                  <Text className="text-xs text-amber-200/90 mt-3">
-                    {t("profile.missingFieldsLoadFailed")}
-                  </Text>
-                )}
             </Animated.View>
 
             <Animated.View entering={FadeInUp.duration(500).delay(500)}>
-              <DossierValidationChecklist
-                input={{
-                  formData,
-                  avatarUrl,
-                  documents,
-                  documentMeta,
-                  missingForSubmit,
-                }}
-              />
+              <DossierValidationChecklist input={checklistInput} />
             </Animated.View>
 
             <Animated.View
@@ -1680,6 +1738,7 @@ export default function DriverProfileSetup({
                       onPress={async () => {
                         const savedDriverId = await handleSave({ silent: true });
                         if (!savedDriverId) return;
+                        await saveVehicle();
                         await syncDossierStateWithBackend();
                         Alert.alert(
                           t("common.success"),
@@ -1861,13 +1920,12 @@ export default function DriverProfileSetup({
                 <Pressable
                   onPress={nextSection}
                   disabled={currentSection === SECTIONS.length - 1}
-                  className={`flex-row items-center py-3 px-6 rounded-full bg-emerald-500 ${
-                    currentSection === SECTIONS.length - 1
-                      ? "opacity-30"
-                      : isEditable && !canProceedToNext()
-                        ? "opacity-80"
-                        : "opacity-100"
-                  }`}
+                  className={nextSectionButtonClass(
+                    currentSection,
+                    SECTIONS.length - 1,
+                    isEditable,
+                    canProceedToNext(),
+                  )}
                 >
                   <Text className="text-white mr-2">{t("common.next")}</Text>
                   <Feather name="arrow-right" size={16} color="white" />

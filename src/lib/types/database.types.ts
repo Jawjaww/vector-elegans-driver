@@ -1823,6 +1823,17 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_own_primary_vehicle: {
+        Args: never
+        Returns: {
+          color: string
+          id: string
+          license_plate: string
+          make: string
+          model: string
+          vehicle_type: Database["public"]["Enums"]["vehicle_type_enum"]
+        }[]
+      }
       get_safe_email: { Args: never; Returns: string }
       get_user_profile: { Args: { user_id: string }; Returns: Json }
       get_user_role: { Args: never; Returns: string }
@@ -1945,6 +1956,16 @@ export type Database = {
         Args: {
           p_ride_id: string
           p_status: Database["public"]["Enums"]["ride_status"]
+        }
+        Returns: Json
+      }
+      upsert_own_primary_vehicle: {
+        Args: {
+          p_color?: string
+          p_license_plate: string
+          p_make: string
+          p_model: string
+          p_vehicle_type?: Database["public"]["Enums"]["vehicle_type_enum"]
         }
         Returns: Json
       }
