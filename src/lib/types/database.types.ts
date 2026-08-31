@@ -1623,6 +1623,27 @@ export type Database = {
           section: string
         }[]
       }
+      get_driver_dossier_status: {
+        Args: { p_driver_id: string }
+        Returns: {
+          can_edit_documents: boolean
+          can_submit: boolean
+          completion_percentage: number
+          expired_document_types: string[]
+          expiring_documents: Json
+          is_complete: boolean
+          is_editable: boolean
+          missing_fields: string[]
+          missing_for_submit: string[]
+          rejected_at: string
+          rejected_document_count: number
+          rejected_document_types: string[]
+          rejection_reason: string
+          status: string
+          submitted_at: string
+          validated_at: string
+        }[]
+      }
       get_driver_id_from_auth: { Args: never; Returns: string }
       get_drivers_completeness_stats: {
         Args: never
