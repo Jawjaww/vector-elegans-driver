@@ -35,6 +35,25 @@ export interface DossierSubmissionResult {
   message: string;
 }
 
+function firstRpcRow(data: unknown): Record<string, unknown> | null {
+  if (Array.isArray(data)) {
+    const row = data[0];
+    return row && typeof row === 'object'
+      ? (row as Record<string, unknown>)
+      : null;
+  }
+  if (data && typeof data === 'object') {
+    return data as Record<string, unknown>;
+  }
+  return null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string')
+    : [];
+}
+
 function parseExpiringDocuments(raw: unknown): ExpiringDocument[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -55,43 +74,124 @@ function parseExpiringDocuments(raw: unknown): ExpiringDocument[] {
     .filter((x): x is ExpiringDocument => x !== null);
 }
 
-export async function getDossierStatus(driverId: string): Promise<DossierStatus | null> {
-  try {
-    const { data, error } = await supabase
-      .rpc('get_driver_dossier_status', { p_driver_id: driverId });
+function mapDossierStatusRow(row: Record<string, unknown>): DossierStatus {
+  return {
+    status: normalizeFolderStatus(
+      typeof row.status === 'string' ? row.status : 'draft',
+    ),
+    submitted_at:
+      typeof row.submitted_at === 'string' ? row.submitted_at : null,
+    validated_at:
+      typeof row.validated_at === 'string' ? row.validated_at : null,
+    rejected_at: typeof row.rejected_at === 'string' ? row.rejected_at : null,
+    rejection_reason:
+      typeof row.rejection_reason === 'string' ? row.rejection_reason : null,
+    is_editable: Boolean(row.is_editable),
+    can_submit: Boolean(row.can_submit),
+    can_edit_documents: Boolean(row.can_edit_documents ?? true),
+    rejected_document_count: Number(row.rejected_document_count ?? 0),
+    rejected_document_types: asStringArray(row.rejected_document_types),
+    expired_document_types: asStringArray(row.expired_document_types),
+    expiring_documents: parseExpiringDocuments(row.expiring_documents),
+    missing_for_submit: asStringArray(row.missing_for_submit),
+    is_complete: Boolean(row.is_complete),
+    missing_fields: asStringArray(row.missing_fields),
+    completion_percentage: Number(row.completion_percentage ?? 0),
+  };
+}
 
-    if (error) {
+/** Fallback when get_driver_dossier_status is missing from PostgREST schema cache. */
+async function getDossierStatusFromCompleteness(
+  driverId: string,
+  userId: string,
+): Promise<DossierStatus | null> {
+  const { data: driver, error: driverError } = await supabase
+    .from('drivers')
+    .select('id, status, user_id')
+    .eq('id', driverId)
+    .maybeSingle();
+
+  if (driverError || !driver) {
+    console.error(
+      '[dossierService] completeness fallback - driver lookup failed:',
+      driverError,
+    );
+    return null;
+  }
+
+  const { data: compData, error: compError } = await supabase.rpc(
+    'check_driver_profile_completeness',
+    { driver_user_id: userId || driver.user_id },
+  );
+
+  if (compError) {
+    console.error(
+      '[dossierService] completeness fallback - RPC failed:',
+      compError,
+    );
+    return null;
+  }
+
+  const comp = firstRpcRow(compData);
+  if (!comp) return null;
+
+  const status = normalizeFolderStatus(
+    typeof driver.status === 'string' ? driver.status : 'draft',
+  );
+  const canSubmit = Boolean(comp.can_submit) &&
+    (status === 'draft' || status === 'rejected' || status === 'incomplete');
+
+  return {
+    status,
+    submitted_at: null,
+    validated_at: null,
+    rejected_at: null,
+    rejection_reason: null,
+    is_editable: status !== 'pending_review' && status !== 'active',
+    can_submit: canSubmit,
+    can_edit_documents: status !== 'active',
+    completion_percentage: Number(comp.completion_percentage ?? 0),
+    rejected_document_count: 0,
+    rejected_document_types: [],
+    expired_document_types: [],
+    expiring_documents: [],
+    missing_for_submit: asStringArray(comp.missing_for_submit),
+    is_complete: Boolean(comp.is_complete),
+    missing_fields: asStringArray(comp.missing_fields),
+  };
+}
+
+export async function getDossierStatus(
+  driverId: string,
+  userId?: string,
+): Promise<DossierStatus | null> {
+  try {
+    const { data, error } = await supabase.rpc('get_driver_dossier_status', {
+      p_driver_id: driverId,
+    });
+
+    if (!error) {
+      const row = firstRpcRow(data);
+      if (row) return mapDossierStatusRow(row);
+    } else {
       console.error('[dossierService] getDossierStatus - error:', error);
-      return null;
     }
 
-    const row = data && data.length > 0 ? data[0] : null;
-    if (!row) return null;
+    if (userId) {
+      return getDossierStatusFromCompleteness(driverId, userId);
+    }
 
-    return {
-      ...row,
-      status: normalizeFolderStatus(row.status),
-      submitted_at: row.submitted_at ?? null,
-      validated_at: row.validated_at ?? null,
-      rejected_at: row.rejected_at ?? null,
-      rejection_reason: row.rejection_reason ?? null,
-      rejected_document_count: Number(row.rejected_document_count ?? 0),
-      rejected_document_types: Array.isArray(row.rejected_document_types)
-        ? row.rejected_document_types
-        : [],
-      expired_document_types: Array.isArray(row.expired_document_types)
-        ? row.expired_document_types
-        : [],
-      expiring_documents: parseExpiringDocuments(row.expiring_documents),
-      missing_for_submit: Array.isArray(row.missing_for_submit)
-        ? row.missing_for_submit
-        : [],
-      is_complete: Boolean(row.is_complete),
-      missing_fields: Array.isArray(row.missing_fields) ? row.missing_fields : [],
-      completion_percentage: Number(row.completion_percentage ?? 0),
-    };
+    const { data: auth } = await supabase.auth.getUser();
+    if (auth.user?.id) {
+      return getDossierStatusFromCompleteness(driverId, auth.user.id);
+    }
+
+    return null;
   } catch (error) {
     console.error('[dossierService] getDossierStatus - exception:', error);
+    if (userId) {
+      return getDossierStatusFromCompleteness(driverId, userId);
+    }
     return null;
   }
 }
@@ -133,7 +233,7 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
       };
     }
 
-    const row = data && data.length > 0 ? data[0] : null;
+    const row = firstRpcRow(data) as DossierSubmissionResult | null;
     return row || {
       success: false,
       new_status: 'error',
@@ -171,7 +271,7 @@ export async function validateDossier(
       };
     }
 
-    const row = data && data.length > 0 ? data[0] : null;
+    const row = firstRpcRow(data) as DossierSubmissionResult | null;
     return row || {
       success: false,
       new_status: 'error',
@@ -207,7 +307,7 @@ export async function cancelDossierReview(
       };
     }
 
-    const row = data && data.length > 0 ? data[0] : null;
+    const row = firstRpcRow(data) as DossierSubmissionResult | null;
     return row || {
       success: false,
       new_status: 'error',
@@ -246,7 +346,7 @@ export async function ensureDriverProfile(
 
 export async function syncDossierState(driverId: string, userId: string) {
   try {
-    const status = await getDossierStatus(driverId);
+    const status = await getDossierStatus(driverId, userId);
 
     if (!status) {
       console.warn('[dossierService] syncDossierState - no status returned');

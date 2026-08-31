@@ -1,9 +1,11 @@
 const mockRpc = jest.fn();
 const mockGetUser = jest.fn();
+const mockFrom = jest.fn();
 
 jest.mock('../supabase', () => ({
   supabase: {
     rpc: (...args: unknown[]) => mockRpc(...args),
+    from: (...args: unknown[]) => mockFrom(...args),
     auth: {
       getUser: (...args: unknown[]) => mockGetUser(...args),
     },
@@ -16,6 +18,8 @@ import { pushDriverLocation } from '../services/locationService';
 describe('dossierService', () => {
   beforeEach(() => {
     mockRpc.mockReset();
+    mockFrom.mockReset();
+    mockGetUser.mockReset();
   });
 
   it('submitDossier calls submit_driver_dossier RPC', async () => {
@@ -64,6 +68,8 @@ describe('dossierService', () => {
           can_submit: false,
           can_edit_documents: false,
           completion_percentage: 90,
+          missing_for_submit: [],
+          missing_fields: [],
         },
       ],
       error: null,
@@ -71,6 +77,69 @@ describe('dossierService', () => {
 
     const status = await getDossierStatus('driver-1');
     expect(status?.status).toBe('pending_review');
+    expect(status?.completion_percentage).toBe(90);
+  });
+
+  it('getDossierStatus accepts single-object RPC payload', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        status: 'draft',
+        can_submit: true,
+        completion_percentage: 75,
+        missing_for_submit: ['Photo de profil'],
+        missing_fields: ['Photo de profil'],
+        is_editable: true,
+        can_edit_documents: true,
+      },
+      error: null,
+    });
+
+    const status = await getDossierStatus('driver-1');
+    expect(status?.completion_percentage).toBe(75);
+    expect(status?.missing_for_submit).toEqual(['Photo de profil']);
+  });
+
+  it('getDossierStatus falls back to check_driver_profile_completeness', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Could not find the function' },
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            is_complete: false,
+            can_submit: false,
+            completion_percentage: 40,
+            missing_for_submit: ['Document permis (avec date)'],
+            missing_fields: ['Document permis (approuvé et valide)'],
+          },
+        ],
+        error: null,
+      });
+
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: 'driver-1', status: 'draft', user_id: 'user-1' },
+            error: null,
+          }),
+        }),
+      }),
+    });
+
+    const status = await getDossierStatus('driver-1', 'user-1');
+    expect(mockRpc).toHaveBeenCalledWith('get_driver_dossier_status', {
+      p_driver_id: 'driver-1',
+    });
+    expect(mockRpc).toHaveBeenCalledWith('check_driver_profile_completeness', {
+      driver_user_id: 'user-1',
+    });
+    expect(status?.completion_percentage).toBe(40);
+    expect(status?.missing_for_submit).toEqual([
+      'Document permis (avec date)',
+    ]);
   });
 
   it('canEditDossier returns RPC boolean', async () => {

@@ -288,12 +288,15 @@ export default function DriverProfileSetup({
   >({});
   const [rpcCompletion, setRpcCompletion] = useState(0);
   const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
   const [validationSyncDone, setValidationSyncDone] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const completionPercentage = rpcCompletion;
   const isProfileComplete = canSubmit;
+  const displayMissing =
+    missingForSubmit.length > 0 ? missingForSubmit : missingFields;
 
   // Keep validation progress bar in sync with RPC completion %
   useEffect(() => {
@@ -614,6 +617,7 @@ export default function DriverProfileSetup({
         });
         setRpcCompletion(Number(syncedState.completionPercentage ?? 0));
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
+        setMissingFields(syncedState.missingFields ?? []);
         await loadDriverDocuments();
       }
       return syncedState;
@@ -1569,9 +1573,9 @@ export default function DriverProfileSetup({
                   </Text>
                 )}
               </Animated.View>
-              {missingForSubmit.length > 0 && (
+              {displayMissing.length > 0 && (
                 <View className="mt-3 space-y-1">
-                  {missingForSubmit.slice(0, 8).map((item) => (
+                  {displayMissing.slice(0, 12).map((item) => (
                     <Text key={item} className="text-xs text-amber-200/90">
                       • {item}
                     </Text>
@@ -1581,7 +1585,7 @@ export default function DriverProfileSetup({
               {validationSyncDone &&
                 !isProfileComplete &&
                 completionPercentage < 100 &&
-                missingForSubmit.length === 0 && (
+                displayMissing.length === 0 && (
                   <Text className="text-xs text-amber-200/90 mt-3">
                     {t("profile.missingFieldsLoadFailed")}
                   </Text>
