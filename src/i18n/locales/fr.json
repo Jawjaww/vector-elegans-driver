@@ -122,6 +122,7 @@
     "uploadAllDocuments": "Veuillez télécharger tous les documents requis",
     "completion": "Complétion",
     "missingFields": "Champs manquants",
+    "missingFieldsLoadFailed": "Impossible de charger les éléments manquants. Réessayez ou revenez après avoir enregistré.",
     "saveProgress": "Sauvegarder le progrès",
     "progressSavedLocally": "Progrès enregistré sur le serveur",
     "submitForReview": "Soumettre pour validation",

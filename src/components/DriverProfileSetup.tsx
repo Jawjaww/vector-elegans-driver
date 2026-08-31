@@ -240,6 +240,7 @@ export default function DriverProfileSetup({
 
   // Valeurs animées
   const sectionProgress = useSharedValue(0);
+  const completionProgress = useSharedValue(0);
   const headerOpacity = useSharedValue(0);
   const contentTranslateX = useSharedValue(0);
   const buttonScale = useSharedValue(1);
@@ -287,11 +288,34 @@ export default function DriverProfileSetup({
   >({});
   const [rpcCompletion, setRpcCompletion] = useState(0);
   const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
+  const [validationSyncDone, setValidationSyncDone] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const completionPercentage = rpcCompletion;
   const isProfileComplete = canSubmit;
+
+  // Keep validation progress bar in sync with RPC completion %
+  useEffect(() => {
+    completionProgress.value = withSpring(
+      Math.min(100, Math.max(0, completionPercentage)) / 100,
+      { damping: 14, stiffness: 120 },
+    );
+  }, [completionPercentage, completionProgress]);
+
+  // Refresh dossier status when landing on Validation
+  useEffect(() => {
+    if (currentSection !== 3 || !driverId || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      await syncDossierStateWithBackend();
+      if (!cancelled) setValidationSyncDone(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync on section entry only
+  }, [currentSection, driverId, userId]);
 
   // Animer l'entête au montage avec effet de séquence
   useEffect(() => {
@@ -471,6 +495,11 @@ export default function DriverProfileSetup({
   const animatedProgressStyle = useAnimatedStyle(() => ({
     width: `${interpolate(sectionProgress.value, [0, 1], [0, 100])}%`,
     opacity: interpolate(sectionProgress.value, [0, 0.1, 1], [0.5, 1, 1]),
+  }));
+
+  const animatedCompletionStyle = useAnimatedStyle(() => ({
+    width: `${interpolate(completionProgress.value, [0, 1], [0, 100])}%`,
+    opacity: interpolate(completionProgress.value, [0, 0.05, 1], [0.5, 1, 1]),
   }));
 
   // Style pour l'effet shimmer
@@ -832,12 +861,19 @@ export default function DriverProfileSetup({
       return;
     }
 
-    // Best-effort save; never block section navigation in editable draft flow.
+    // Best-effort save / sync; never block section navigation in editable draft flow.
     if (currentSection <= 1 && isFieldEditable()) {
       const savedDriverId = await handleSave({ silent: true });
       if (savedDriverId) {
         await syncDossierStateWithBackend();
       }
+    }
+
+    // Leaving Documents → Validation: refresh % and missing list from RPC
+    if (currentSection === 2) {
+      setValidationSyncDone(false);
+      await syncDossierStateWithBackend();
+      setValidationSyncDone(true);
     }
 
     buttonScale.value = withSequence(
@@ -1484,7 +1520,7 @@ export default function DriverProfileSetup({
               </Animated.Text>
               <View className="bg-white/20 rounded-full h-3 mb-2 overflow-hidden relative">
                 <Animated.View
-                  style={animatedProgressStyle}
+                  style={animatedCompletionStyle}
                   className="bg-gradient-to-r from-emerald-500 to-teal-400 h-3 rounded-full"
                 />
                 {/* Effet shimmer sur la barre de progression */}
@@ -1542,6 +1578,14 @@ export default function DriverProfileSetup({
                   ))}
                 </View>
               )}
+              {validationSyncDone &&
+                !isProfileComplete &&
+                completionPercentage < 100 &&
+                missingForSubmit.length === 0 && (
+                  <Text className="text-xs text-amber-200/90 mt-3">
+                    {t("profile.missingFieldsLoadFailed")}
+                  </Text>
+                )}
             </Animated.View>
 
             <Animated.View
