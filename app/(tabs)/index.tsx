@@ -69,6 +69,8 @@ function mapRouteFitPaddingBottom(
   return 72;
 }
 
+const DEFAULT_MAP_CENTER = { lat: 48.8566, lng: 2.3522 };
+
 function mapLoaderHint(mapReady: boolean, hasGpsFix: boolean): string {
   if (!mapReady) return "Préparation de la carte";
   if (!hasGpsFix) return "Localisation en cours";
@@ -228,13 +230,15 @@ function useMapBootSeed(currentLocation: { lat: number; lng: number } | null) {
   const [mapBoot, setMapBoot] = useState<{
     center: { lat: number; lng: number };
     zoom: number;
-  } | null>(() => {
+  }>(() => {
     const loc = useDriverStore.getState().currentLocation;
-    return loc ? { center: { lat: loc.lat, lng: loc.lng }, zoom: 15 } : null;
+    return loc
+      ? { center: { lat: loc.lat, lng: loc.lng }, zoom: 15 }
+      : { center: DEFAULT_MAP_CENTER, zoom: 12 };
   });
 
   useEffect(() => {
-    if (mapBoot) return;
+    if (hasGpsFix) return;
     let cancelled = false;
 
     void (async () => {
@@ -265,16 +269,16 @@ function useMapBootSeed(currentLocation: { lat: number; lng: number } | null) {
     return () => {
       cancelled = true;
     };
-  }, [mapBoot]);
+  }, [hasGpsFix]);
 
   useEffect(() => {
-    if (mapBoot || !currentLocation) return;
+    if (hasGpsFix || !currentLocation) return;
     setHasGpsFix(true);
     setMapBoot({
       center: { lat: currentLocation.lat, lng: currentLocation.lng },
       zoom: 15,
     });
-  }, [mapBoot, currentLocation]);
+  }, [hasGpsFix, currentLocation]);
 
   return { mapBoot, hasGpsFix, setHasGpsFix };
 }
@@ -908,8 +912,7 @@ export default function DashboardScreen() {
 
       <View style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}>
         {/* Single warm VTCMap — also used for offer overview + route */}
-        {mapBoot ? (
-          <VTCMap
+        <VTCMap
             style={{ zIndex: 0 }}
             initialCenter={mapBoot.center}
             initialZoom={mapBoot.zoom}
@@ -956,7 +959,6 @@ export default function DashboardScreen() {
               setMapReady(true);
             }}
           />
-        ) : null}
 
         <MapRecenterButton
           visible={mapFollowPaused && !mapInOfferMode}
