@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "12.2.3 (519615d)"
-  }
   public: {
     Tables: {
       audit_logs: {
@@ -279,6 +274,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "driver_rewards_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_submission_logs: {
+        Row: {
+          action: string
+          created_at: string | null
+          details: Json | null
+          driver_id: string
+          error_message: string | null
+          id: string
+          ip_address: unknown
+          new_status: string | null
+          previous_status: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          details?: Json | null
+          driver_id: string
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown
+          new_status?: string | null
+          previous_status?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          details?: Json | null
+          driver_id?: string
+          error_message?: string | null
+          id?: string
+          ip_address?: unknown
+          new_status?: string | null
+          previous_status?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_submission_logs_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
@@ -841,6 +886,57 @@ export type Database = {
           },
         ]
       }
+      ride_offers: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          offered_at: string
+          responded_at: string | null
+          ride_id: string
+          snapshot: Json
+          status: Database["public"]["Enums"]["ride_offer_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          offered_at?: string
+          responded_at?: string | null
+          ride_id: string
+          snapshot?: Json
+          status?: Database["public"]["Enums"]["ride_offer_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          offered_at?: string
+          responded_at?: string | null
+          ride_id?: string
+          snapshot?: Json
+          status?: Database["public"]["Enums"]["ride_offer_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_offers_ride_id_fkey"
+            columns: ["ride_id"]
+            isOneToOne: false
+            referencedRelation: "rides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ride_status_history: {
         Row: {
           changed_at: string | null
@@ -968,6 +1064,7 @@ export type Database = {
       }
       rides: {
         Row: {
+          accepted_at: string | null
           canceled_at: string | null
           canceled_by: string | null
           cancellation_reason: string | null
@@ -1002,6 +1099,7 @@ export type Database = {
           vehicle_type: string
         }
         Insert: {
+          accepted_at?: string | null
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
@@ -1036,6 +1134,7 @@ export type Database = {
           vehicle_type: string
         }
         Update: {
+          accepted_at?: string | null
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
@@ -1360,6 +1459,27 @@ export type Database = {
       }
     }
     Views: {
+      driver_offer_stats: {
+        Row: {
+          accept_rate_pct: number | null
+          accepted_count: number | null
+          declined_count: number | null
+          driver_id: string | null
+          expired_taken_count: number | null
+          open_offered_count: number | null
+          responded_count: number | null
+          timeout_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ride_offers_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vehicles_public: {
         Row: {
           color: string | null
@@ -1445,6 +1565,7 @@ export type Database = {
       }
     }
     Functions: {
+      _current_driver_id: { Args: never; Returns: string }
       _insert_client_push_notification: {
         Args: {
           p_data?: Json
@@ -1455,6 +1576,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      _ride_offer_snapshot: {
+        Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
+        Returns: Json
       }
       accept_ride: {
         Args: { p_driver_id?: string; p_ride_id: string }
@@ -1468,6 +1593,14 @@ export type Database = {
         Args: { p_reason?: string; p_ride_id: string }
         Returns: Json
       }
+      admin_reassign_ride: {
+        Args: { p_driver_id: string; p_ride_id: string }
+        Returns: Json
+      }
+      associate_temp_documents: {
+        Args: { p_driver_id: string; p_user_id: string }
+        Returns: Json
+      }
       calculate_driver_rating: {
         Args: { driver_uuid: string }
         Returns: {
@@ -1476,13 +1609,17 @@ export type Database = {
         }[]
       }
       can_driver_accept_rides: {
-        Args: { driver_user_id: string }
+        Args: { driver_ref: string }
         Returns: {
           can_accept: boolean
           profile_status: string
           reason: string
           validation_status: string
         }[]
+      }
+      can_edit_driver_dossier: {
+        Args: { p_driver_id: string; p_user_id: string }
+        Returns: boolean
       }
       cancel_driver_dossier_review: {
         Args: {
@@ -1506,8 +1643,13 @@ export type Database = {
           missing_for_submit: string[]
         }[]
       }
+      check_driver_upload_permission: {
+        Args: { p_path: string; p_user_id: string }
+        Returns: boolean
+      }
       check_user_role_update: { Args: never; Returns: boolean }
       cleanup_old_driver_locations: { Args: never; Returns: undefined }
+      cleanup_orphaned_documents: { Args: never; Returns: number }
       client_cancel_ride: {
         Args: { p_reason?: string; p_ride_id: string }
         Returns: Json
@@ -1645,6 +1787,19 @@ export type Database = {
         }[]
       }
       get_driver_id_from_auth: { Args: never; Returns: string }
+      get_driver_submission_history: {
+        Args: { p_driver_id: string }
+        Returns: {
+          action: string
+          created_at: string
+          details: Json
+          error_message: string
+          formatted_date: string
+          id: string
+          new_status: string
+          previous_status: string
+        }[]
+      }
       get_drivers_completeness_stats: {
         Args: never
         Returns: {
@@ -1676,11 +1831,24 @@ export type Database = {
       is_driver: { Args: never; Returns: boolean }
       is_driver_phone_filled: { Args: { p_phone: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      log_driver_action: {
+        Args: {
+          p_action: string
+          p_details?: Json
+          p_driver_id: string
+          p_error_message?: string
+          p_new_status?: string
+          p_previous_status?: string
+          p_user_id: string
+        }
+        Returns: string
+      }
       mark_driver_arrived: { Args: { p_ride_id: string }; Returns: Json }
       mark_notification_read: {
         Args: { notification_uuid: string }
         Returns: undefined
       }
+      record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
       replace_driver_document: {
         Args: {
           p_document_type: string
@@ -1692,9 +1860,21 @@ export type Database = {
         }
         Returns: Json
       }
+      respond_ride_offer: {
+        Args: { p_response: string; p_ride_id: string }
+        Returns: Json
+      }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
       storage_path_from_file_url: { Args: { p_url: string }; Returns: string }
+      submit_driver_dossier: {
+        Args: { p_driver_id: string; p_user_id: string }
+        Returns: {
+          message: string
+          new_status: string
+          success: boolean
+        }[]
+      }
       sync_driver_expiry_from_document: {
         Args: {
           p_document_type: string
@@ -1710,6 +1890,10 @@ export type Database = {
           info: string
           section: string
         }[]
+      }
+      update_driver_document_expiry: {
+        Args: { p_document_id: string; p_expiry_date: string }
+        Returns: Json
       }
       update_driver_document_url: {
         Args: {
@@ -1796,6 +1980,12 @@ export type Database = {
         | "pending_review"
       promo_type_enum: "percentage" | "fixed_amount"
       reward_type_enum: "bonus" | "commission_increase"
+      ride_offer_status:
+        | "offered"
+        | "accepted"
+        | "declined"
+        | "timeout"
+        | "expired_taken"
       ride_status:
         | "pending"
         | "scheduled"
@@ -1948,6 +2138,13 @@ export const Constants = {
       ],
       promo_type_enum: ["percentage", "fixed_amount"],
       reward_type_enum: ["bonus", "commission_increase"],
+      ride_offer_status: [
+        "offered",
+        "accepted",
+        "declined",
+        "timeout",
+        "expired_taken",
+      ],
       ride_status: [
         "pending",
         "scheduled",
