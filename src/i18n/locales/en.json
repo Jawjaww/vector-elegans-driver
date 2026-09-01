@@ -139,7 +139,8 @@
       "proSection": "Professional information",
       "fieldsSection": "Missing information",
       "documentsSection": "Missing documents",
-      "allReady": "Nothing left on your side. You can submit the file."
+      "allReady": "Nothing left on your side. You can submit the file.",
+      "expiryMissing": "Expiry date required"
     },
     "pendingValidation": "Pending Validation",
     "approved": "Approved",
@@ -184,6 +185,8 @@
     "driverNotFound": "Driver not found",
     "uploadedPendingReview": "Uploaded — pending review",
     "missingDocument": "Document missing",
+    "expiryMissing": "Expiry date required",
+    "expiryMissingHint": "Enter the expiry date, then replace the document.",
     "rejectedReplace": "Rejected — replace document",
     "viewDocument": "View",
     "replaceDocument": "Replace",
@@ -192,7 +195,7 @@
     "loadingDocuments": "Loading documents…",
     "loadFailed": "Could not load documents",
     "loadFailedHint": "Uploaded documents could not be displayed. Please try again in a moment.",
-    "pinchToZoom": "Pinch to zoom, zoom out or crop · double tap to reset",
+    "pinchToZoom": "Pinch to zoom and drag to frame within the crop area · double tap to reset",
     "usePhoto": "Use this photo",
     "closePreview": "Close"
   },

@@ -9,9 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import Animated, {
@@ -37,9 +40,13 @@ import { DriverDocumentUploader } from "./DriverDocumentUploader";
 import { DossierValidationChecklist } from "./DossierValidationChecklist";
 import { DriverVehicleSection } from "./DriverVehicleSection";
 import {
+  computeWizardCompletion,
+  hasDocumentFile,
   isDocumentUploaded,
   type DocumentTypeKey,
 } from "../lib/dossierChecklist";
+import { resolveAvatarPreviewUrl } from "../lib/avatarPreview";
+import { DriverAvatar } from "./DriverAvatar";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -74,6 +81,36 @@ function avatarButtonLabel(
   if (uploading) return labels.uploading;
   if (hasAvatar) return labels.ready;
   return labels.upload;
+}
+
+/** Reanimated NativeWind gradients are ignored — paint the fill with LinearGradient. */
+function EmeraldProgressFill({
+  animatedStyle,
+  height,
+}: Readonly<{
+  animatedStyle: StyleProp<ViewStyle>;
+  height: number;
+}>) {
+  return (
+    <Animated.View
+      style={[
+        animatedStyle,
+        {
+          height,
+          borderRadius: 9999,
+          overflow: "hidden",
+          backgroundColor: "#10b981",
+        },
+      ]}
+    >
+      <LinearGradient
+        colors={["#10b981", "#2dd4bf"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{ height, width: "100%" }}
+      />
+    </Animated.View>
+  );
 }
 
 function isApprovedLikeStatus(status: string): boolean {
@@ -252,6 +289,7 @@ export default function DriverProfileSetup({
 }: Readonly<DriverProfileSetupProps>) {
   const { t } = useTranslation();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [currentSection, setCurrentSection] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
@@ -324,6 +362,7 @@ export default function DriverProfileSetup({
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentsLoadError, setDocumentsLoadError] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const checklistInput = useMemo(
@@ -339,8 +378,15 @@ export default function DriverProfileSetup({
     }),
     [formData, vehicleForm.license_plate, avatarUrl, documents, documentMeta, missingForSubmit],
   );
-  const completionPercentage = rpcCompletionPercentage;
-  const isProfileComplete = rpcCompletionPercentage >= 100;
+  const localCompletionPercentage = useMemo(
+    () => computeWizardCompletion(checklistInput).percentage,
+    [checklistInput],
+  );
+  const completionPercentage =
+    rpcCompletionPercentage > 0
+      ? Math.min(rpcCompletionPercentage, localCompletionPercentage)
+      : localCompletionPercentage;
+  const isProfileComplete = completionPercentage >= 100;
 
   // Keep validation progress bar in sync with RPC completeness %
   useEffect(() => {
@@ -349,6 +395,20 @@ export default function DriverProfileSetup({
       { damping: 14, stiffness: 120 },
     );
   }, [completionPercentage, completionProgress]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!avatarUrl) {
+      setAvatarPreviewUri(null);
+      return;
+    }
+    void resolveAvatarPreviewUrl(avatarUrl).then((url) => {
+      if (!cancelled && url) setAvatarPreviewUri(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [avatarUrl]);
 
   // Refresh dossier status when landing on Documents or Validation
   useEffect(() => {
@@ -927,7 +987,13 @@ export default function DriverProfileSetup({
           vehicleForm.license_plate.trim() !== "";
         break;
       case 3: // Documents
-        canProceed = Object.values(documents).every(Boolean);
+        canProceed = REQUIRED_DOCUMENTS.every((docType) =>
+          isDocumentUploaded(
+            docType as DocumentTypeKey,
+            documents,
+            documentMeta,
+          ),
+        );
         console.log("Documents status:", documents);
         console.log("All documents uploaded:", canProceed);
         break;
@@ -996,6 +1062,7 @@ export default function DriverProfileSetup({
 
   const uploadAvatar = async () => {
     if (!isFieldEditable()) return;
+    let previousPreview = avatarPreviewUri;
     try {
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1032,6 +1099,8 @@ export default function DriverProfileSetup({
 
       setUploadingAvatar(true);
       const asset = result.assets[0];
+      previousPreview = avatarPreviewUri;
+      setAvatarPreviewUri(asset.uri);
       const base64 = await FileSystem.readAsStringAsync(asset.uri, {
         encoding: "base64",
       });
@@ -1048,6 +1117,7 @@ export default function DriverProfileSetup({
           upsert: true,
         });
       if (upErr) {
+        setAvatarPreviewUri(previousPreview);
         Alert.alert(t("documents.error"), upErr.message);
         return;
       }
@@ -1056,12 +1126,14 @@ export default function DriverProfileSetup({
         .update({ avatar_url: path })
         .eq("id", activeDriverId);
       if (updErr) {
+        setAvatarPreviewUri(previousPreview);
         Alert.alert(t("documents.error"), updErr.message);
         return;
       }
       setAvatarUrl(path);
       await syncDossierStateWithBackend();
     } catch (e) {
+      setAvatarPreviewUri(previousPreview);
       Alert.alert(
         t("documents.error"),
         e instanceof Error ? e.message : t("documents.failedToUpload"),
@@ -1113,13 +1185,12 @@ export default function DriverProfileSetup({
                 disabled={!isFieldEditable() || uploadingAvatar}
                 className="flex-row items-center bg-white/10 rounded-lg px-4 py-3 border border-white/20"
               >
-                <View className="w-12 h-12 rounded-full bg-emerald-500/20 items-center justify-center mr-3">
-                  <Feather
-                    name={avatarUrl ? "check" : "camera"}
-                    size={22}
-                    color="#10b981"
-                  />
-                </View>
+                <DriverAvatar
+                  uri={avatarPreviewUri}
+                  size={48}
+                  fallback="camera"
+                  className="mr-3 bg-emerald-500/20"
+                />
                 <View className="flex-1">
                   <Text className="text-white font-medium">
                     {avatarButtonLabel(uploadingAvatar, Boolean(avatarUrl), {
@@ -1544,7 +1615,7 @@ export default function DriverProfileSetup({
             {REQUIRED_DOCUMENTS.map((docType, index) => {
               const meta = documentMeta[docType];
               const isRejected = meta?.status === "rejected";
-              const uploaded = isDocumentUploaded(
+              const filePresent = hasDocumentFile(
                 docType as DocumentTypeKey,
                 documents,
                 documentMeta,
@@ -1601,7 +1672,7 @@ export default function DriverProfileSetup({
                     currentExpiry={meta?.expiryDate}
                     documentStatus={docValidationStatus}
                     canReplace={canReplace}
-                    isUploaded={uploaded}
+                    hasFile={filePresent}
                   />
                 </Animated.View>
               </Animated.View>
@@ -1636,9 +1707,9 @@ export default function DriverProfileSetup({
                 {t("profile.completion")}
               </Animated.Text>
               <View className="bg-white/20 rounded-full h-3 mb-2 overflow-hidden relative">
-                <Animated.View
-                  style={animatedCompletionStyle}
-                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-3 rounded-full"
+                <EmeraldProgressFill
+                  animatedStyle={animatedCompletionStyle}
+                  height={12}
                 />
                 {/* Effet shimmer sur la barre de progression */}
                 <Animated.View
@@ -1806,18 +1877,22 @@ export default function DriverProfileSetup({
             flexGrow: 1,
             justifyContent: "center",
             paddingHorizontal: 24,
+            paddingTop: insets.top + 16,
+            paddingBottom: 32,
           }}
           showsVerticalScrollIndicator={false}
         >
-          <View className="py-8">
+          <View className="py-10">
             {/* Header animé */}
             <Animated.View
               style={animatedHeaderStyle}
               className="items-center mb-8"
             >
-              <View className="w-20 h-20 rounded-full items-center justify-center mb-4 border border-white/10 bg-white/5">
-                <Text className="text-4xl">👤</Text>
-              </View>
+              <DriverAvatar
+                uri={avatarPreviewUri}
+                size={80}
+                className="mb-4"
+              />
               <Text className="text-3xl font-black text-white tracking-tighter uppercase mb-2 text-center">
                 {t("profile.setupTitle")}
               </Text>
@@ -1853,9 +1928,9 @@ export default function DriverProfileSetup({
                 {/* Banner de statut du dossier */}
                 <DriverFolderStatusBanner />
                 <View className="bg-white/20 rounded-full h-1 mt-2 relative overflow-hidden">
-                  <Animated.View
-                    style={animatedProgressStyle}
-                    className="bg-gradient-to-r from-emerald-500 to-teal-400 h-1 rounded-full"
+                  <EmeraldProgressFill
+                    animatedStyle={animatedProgressStyle}
+                    height={4}
                   />
                   {/* Effet shimmer */}
                   <Animated.View

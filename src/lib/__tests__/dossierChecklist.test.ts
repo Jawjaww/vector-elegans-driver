@@ -1,7 +1,9 @@
 import {
   buildChecklistItems,
+  buildDocumentChecklistItems,
   computeWizardCompletion,
   driverFacingSubmitGaps,
+  filterRpcGapsForChecklist,
   resolveDocumentChecklistStatus,
   type DossierChecklistInput,
 } from '../dossierChecklist';
@@ -128,6 +130,33 @@ describe('buildChecklistItems', () => {
     );
     expect(status).toBe('provided');
   });
+
+  it('marks expiry_missing when file exists without expiry date', () => {
+    const input = baseInput();
+    input.documentMeta.driving_license = {
+      status: 'pending',
+      rejectionReason: null,
+      expiryDate: null,
+    };
+    const status = resolveDocumentChecklistStatus(
+      'driving_license',
+      input.documents,
+      input.documentMeta,
+    );
+    expect(status).toBe('expiry_missing');
+  });
+
+  it('drops below 100% when document has file but no expiry', () => {
+    const input = baseInput();
+    input.documentMeta.driving_license = {
+      status: 'pending',
+      rejectionReason: null,
+      expiryDate: null,
+    };
+    const progress = computeWizardCompletion(input);
+    expect(progress.percentage).toBeLessThan(100);
+    expect(progress.missing.some((i) => i.id === 'driving_license')).toBe(true);
+  });
 });
 
 describe('driverFacingSubmitGaps', () => {
@@ -141,5 +170,33 @@ describe('driverFacingSubmitGaps', () => {
       'Document permis (avec date)',
       "Plaque d'immatriculation (véhicule)",
     ]);
+  });
+});
+
+describe('filterRpcGapsForChecklist', () => {
+  it('removes RPC labels already covered by local document checklist', () => {
+    const input = baseInput();
+    input.documents.driving_license = null;
+    input.documentMeta.driving_license = undefined;
+    input.missingForSubmit = [
+      'Document permis (avec date)',
+      "Plaque d'immatriculation (véhicule)",
+    ];
+    const documentItems = buildDocumentChecklistItems(input);
+    const gaps = filterRpcGapsForChecklist(input.missingForSubmit, documentItems);
+    expect(gaps).toEqual(["Plaque d'immatriculation (véhicule)"]);
+  });
+
+  it('keeps RPC gaps for expiry_missing documents not covered by missingLabel alone', () => {
+    const input = baseInput();
+    input.documentMeta.driving_license = {
+      status: 'pending',
+      rejectionReason: null,
+      expiryDate: null,
+    };
+    input.missingForSubmit = ['Document permis (avec date)'];
+    const documentItems = buildDocumentChecklistItems(input);
+    const gaps = filterRpcGapsForChecklist(input.missingForSubmit, documentItems);
+    expect(gaps).toEqual([]);
   });
 });

@@ -11,12 +11,14 @@ const STATUS_COLOR: Record<ChecklistItemStatus, string> = {
   missing: '#6b7280',
   provided: '#10b981',
   rejected: '#f59e0b',
+  expiry_missing: '#f59e0b',
 };
 
 const STATUS_ICON: Record<ChecklistItemStatus, keyof typeof Feather.glyphMap> = {
   missing: 'circle',
   provided: 'check-circle',
   rejected: 'alert-circle',
+  expiry_missing: 'alert-circle',
 };
 
 export const MissingChecklistCard: React.FC<
@@ -49,7 +51,9 @@ export const MissingChecklistCard: React.FC<
           <Text className="text-xs" style={{ color: STATUS_COLOR[item.status] }}>
             {item.status === 'rejected'
               ? t('documents.status.rejected')
-              : missingBadge}
+              : item.status === 'expiry_missing'
+                ? t('profile.checklist.expiryMissing')
+                : missingBadge}
           </Text>
         </View>
       ))}

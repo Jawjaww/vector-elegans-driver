@@ -5,7 +5,7 @@ import {
   buildDocumentChecklistItems,
   buildProfileChecklistItems,
   computeWizardCompletion,
-  driverFacingSubmitGaps,
+  filterRpcGapsForChecklist,
   type DossierChecklistInput,
 } from '../lib/dossierChecklist';
 import {
@@ -21,12 +21,16 @@ export const DossierValidationChecklist: React.FC<
   Readonly<DossierValidationChecklistProps>
 > = ({ input }) => {
   const { t } = useTranslation();
-  const rpcGaps = driverFacingSubmitGaps(input.missingForSubmit);
+  const documentItems = buildDocumentChecklistItems(input);
+  const rpcGaps = filterRpcGapsForChecklist(input.missingForSubmit, documentItems);
   const profileMissing = buildProfileChecklistItems(input).filter(
     (item) => item.status !== 'provided',
   );
-  const documentMissing = buildDocumentChecklistItems(input).filter(
-    (item) => item.status === 'missing' || item.status === 'rejected',
+  const documentMissing = documentItems.filter(
+    (item) =>
+      item.status === 'missing' ||
+      item.status === 'rejected' ||
+      item.status === 'expiry_missing',
   );
   const progress = computeWizardCompletion(input);
 

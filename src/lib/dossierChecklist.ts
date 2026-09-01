@@ -1,4 +1,8 @@
-export type ChecklistItemStatus = 'missing' | 'provided' | 'rejected';
+export type ChecklistItemStatus =
+  | 'missing'
+  | 'provided'
+  | 'rejected'
+  | 'expiry_missing';
 
 export interface ChecklistItem {
   id: string;
@@ -130,8 +134,8 @@ function isFilled(value: string | undefined): boolean {
   return trimmed !== '' && trimmed !== 'À compléter';
 }
 
-/** True only when a file is actually present — never infer from RPC completeness. */
-export function isDocumentUploaded(
+/** True when a file row exists in UI state (URL or validation meta). */
+export function hasDocumentFile(
   docType: DocumentTypeKey,
   documents: Partial<Record<DocumentTypeKey, string | null>>,
   documentMeta: DossierChecklistInput['documentMeta'],
@@ -146,6 +150,29 @@ export function isDocumentUploaded(
   );
 }
 
+export function isValidDocumentExpiry(
+  isoDate: string | null | undefined,
+): boolean {
+  if (!isoDate?.trim()) return false;
+  const trimmed = isoDate.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
+  const d = new Date(`${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d >= today;
+}
+
+/** True when file and future expiry date are present (matches RPC can_submit). */
+export function isDocumentUploaded(
+  docType: DocumentTypeKey,
+  documents: Partial<Record<DocumentTypeKey, string | null>>,
+  documentMeta: DossierChecklistInput['documentMeta'],
+): boolean {
+  if (!hasDocumentFile(docType, documents, documentMeta)) return false;
+  return isValidDocumentExpiry(documentMeta[docType]?.expiryDate);
+}
+
 export function resolveDocumentChecklistStatus(
   docType: DocumentTypeKey,
   documents: Partial<Record<DocumentTypeKey, string | null>>,
@@ -153,7 +180,10 @@ export function resolveDocumentChecklistStatus(
 ): ChecklistItemStatus {
   const meta = documentMeta[docType];
   if (meta?.status === 'rejected') return 'rejected';
-  if (isDocumentUploaded(docType, documents, documentMeta)) return 'provided';
+  if (hasDocumentFile(docType, documents, documentMeta)) {
+    if (!isValidDocumentExpiry(meta?.expiryDate)) return 'expiry_missing';
+    return 'provided';
+  }
   return 'missing';
 }
 
@@ -219,4 +249,22 @@ export function driverFacingSubmitGaps(missingForSubmit: string[]): string[] {
     if (lower.includes('approved')) return false;
     return true;
   });
+}
+
+/** Drop RPC labels already shown on the local document checklist. */
+export function filterRpcGapsForChecklist(
+  missingForSubmit: string[],
+  documentItems: ChecklistItem[],
+): string[] {
+  const gaps = driverFacingSubmitGaps(missingForSubmit);
+  const coveredLabels = new Set(
+    DOCUMENT_CHECKLIST_ITEMS.filter((doc) => {
+      const item = documentItems.find((entry) => entry.id === doc.id);
+      return (
+        item &&
+        (item.status === 'missing' || item.status === 'expiry_missing')
+      );
+    }).map((doc) => doc.missingLabel),
+  );
+  return gaps.filter((label) => !coveredLabels.has(label));
 }
