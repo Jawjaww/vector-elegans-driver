@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  Alert,
   ActivityIndicator,
   Pressable,
 } from "react-native";
@@ -16,6 +15,11 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { NativeDateField } from "./NativeDateField";
 import { isValidDocumentExpiry } from "../lib/dossierChecklist";
+import { showAppAlert } from "./AppDialog";
+import {
+  persistDocumentExpiryIfNeeded,
+  useDebouncedExpiryPersist,
+} from "../lib/documentExpirySync";
 
 const decodeBase64 = (base64: string) => {
   const binaryString = atob(base64);
@@ -32,6 +36,7 @@ type DocumentValidationStatus = "pending" | "approved" | "rejected";
 interface DriverDocumentUploaderProps {
   documentType: string;
   onUploadComplete?: (fileUrl: string, expiryDate: string) => void;
+  onExpiryDateChange?: (expiryDate: string) => void;
   driverId?: string;
   currentUrl?: string;
   currentExpiry?: string | null;
@@ -195,7 +200,7 @@ async function persistDocumentRow(
   );
 
   if (replaceError) {
-    Alert.alert(
+    showAppAlert(
       t("documents.error"),
       replaceError.message || t("documents.failedToUpload"),
     );
@@ -203,7 +208,7 @@ async function persistDocumentRow(
   }
 
   if (!isReplaceRpcSuccess(replaceResult)) {
-    Alert.alert(
+    showAppAlert(
       t("documents.error"),
       replaceRpcErrorMessage(replaceResult, t("documents.failedToUpload")),
     );
@@ -229,13 +234,13 @@ async function uploadDriverDocument(
   } = await supabase.auth.getUser();
 
   if (!user) {
-    Alert.alert(t("documents.error"), t("documents.notAuthenticated"));
+    showAppAlert(t("documents.error"), t("documents.notAuthenticated"));
     return;
   }
 
   const actualDriverId = await resolveDriverId(user.id, params.driverId);
   if (!actualDriverId) {
-    Alert.alert(t("documents.error"), t("documents.driverNotFound"));
+    showAppAlert(t("documents.error"), t("documents.driverNotFound"));
     return;
   }
 
@@ -253,7 +258,7 @@ async function uploadDriverDocument(
     });
 
   if (uploadError) {
-    Alert.alert(
+    showAppAlert(
       t("documents.error"),
       `${t("documents.failedToUpload")}: ${uploadError.message}${storageRlsHint(uploadError.message)}`,
     );
@@ -299,10 +304,31 @@ const DocumentActionRow: React.FC<
   }>
 > = ({ hasDocument, canReplace, viewing, onView, onPick, t }) => {
   if (!canReplace) {
+    if (hasDocument) {
+      return (
+        <Pressable
+          onPress={onView}
+          disabled={viewing}
+          className={GLASS_BUTTON}
+        >
+          {viewing ? (
+            <ActivityIndicator size="small" color="#e2e8f0" />
+          ) : (
+            <>
+              <Feather name="eye" size={16} color="#e2e8f0" />
+              <Text className="text-white text-sm font-medium ml-2">
+                {t("documents.viewDocument")}
+              </Text>
+            </>
+          )}
+        </Pressable>
+      );
+    }
+
     return (
       <Pressable
         onPress={() =>
-          Alert.alert(
+          showAppAlert(
             t("profile.cannotEdit"),
             t("profile.submittedProfileLocked"),
           )
@@ -366,14 +392,14 @@ async function pickDocumentImage(
   expiryDate: string,
 ): Promise<{ uri: string; fileName: string } | null> {
   if (!canReplace) {
-    Alert.alert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
+    showAppAlert(t("profile.cannotEdit"), t("profile.submittedProfileLocked"));
     return null;
   }
 
   try {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(t("documents.error"), t("documents.pickFailed"));
+      showAppAlert(t("documents.error"), t("documents.pickFailed"));
       return null;
     }
 
@@ -386,7 +412,7 @@ async function pickDocumentImage(
     if (result.canceled) return null;
 
     if (!isValidFutureDate(expiryDate.trim())) {
-      Alert.alert(t("documents.error"), t("documents.expiryRequired"));
+      showAppAlert(t("documents.error"), t("documents.expiryRequired"));
       return null;
     }
 
@@ -397,7 +423,7 @@ async function pickDocumentImage(
     };
   } catch (error) {
     console.error("Error picking image:", error);
-    Alert.alert(t("common.error"), t("documents.pickFailed"));
+    showAppAlert(t("common.error"), t("documents.pickFailed"));
     return null;
   }
 }
@@ -416,6 +442,7 @@ export const DriverDocumentUploader: React.FC<
 > = ({
   documentType,
   onUploadComplete,
+  onExpiryDateChange,
   driverId,
   currentUrl,
   currentExpiry,
@@ -430,13 +457,29 @@ export const DriverDocumentUploader: React.FC<
     currentExpiry?.slice(0, 10) ?? "",
   );
 
+  const scheduleExpiryPersist = useDebouncedExpiryPersist(450);
+  const hasDocument = hasFile ?? Boolean(currentUrl);
+
   useEffect(() => {
     if (currentExpiry) {
       setExpiryDate(currentExpiry.slice(0, 10));
     }
   }, [currentExpiry]);
 
-  const hasDocument = hasFile ?? Boolean(currentUrl);
+  const handleExpiryChange = (next: string) => {
+    setExpiryDate(next);
+    onExpiryDateChange?.(next);
+    if (!driverId || !hasDocument) return;
+    scheduleExpiryPersist(() => {
+      void persistDocumentExpiryIfNeeded(t, {
+        driverId,
+        documentType,
+        expiryDate: next,
+        hasDocument: true,
+      });
+    });
+  };
+
   const isRejected = documentStatus === "rejected";
   const expiryMissing =
     hasDocument && !isRejected && !isValidDocumentExpiry(currentExpiry);
@@ -482,7 +525,7 @@ export const DriverDocumentUploader: React.FC<
         </Text>
         <NativeDateField
           value={expiryDate}
-          onChange={setExpiryDate}
+          onChange={handleExpiryChange}
           editable={canReplace && !uploading}
           placeholder="YYYY-MM-DD"
           minimumDate={new Date()}
@@ -550,6 +593,11 @@ export const DriverDocumentUploader: React.FC<
                 t={t}
               />
             </View>
+            {!canReplace && hasDocument ? (
+              <Text className="text-xs text-slate-500 text-center">
+                {t("documents.viewOnlyPendingReview")}
+              </Text>
+            ) : null}
           </View>
         )}
       </View>

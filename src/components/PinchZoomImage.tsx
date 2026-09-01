@@ -3,13 +3,16 @@ import { StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   clamp,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
 } from 'react-native-reanimated';
 
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 6;
+const PREVIEW_MAX_SCALE = 10;
+const PREVIEW_DOUBLE_TAP_SCALE = 3;
 
 export type PinchZoomTransform = {
   scale: number;
@@ -27,12 +30,27 @@ type PinchZoomImageProps = {
   uri: string;
   onImageSize?: (width: number, height: number) => void;
   minScale?: number;
+  /** crop = document framing; preview = full-screen viewer */
+  mode?: 'crop' | 'preview';
+  onPreviewBackgroundTap?: () => void;
 };
+
+const SPRING_CONFIG = { damping: 22, stiffness: 280, mass: 0.7 };
 
 export const PinchZoomImage = forwardRef<
   PinchZoomImageHandle,
   PinchZoomImageProps
->(function PinchZoomImage({ uri, onImageSize, minScale = 1 }, ref) {
+>(function PinchZoomImage(
+  {
+    uri,
+    onImageSize,
+    minScale = 1,
+    mode = 'crop',
+    onPreviewBackgroundTap,
+  },
+  ref,
+) {
+  const isPreview = mode === 'preview';
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -40,6 +58,7 @@ export const PinchZoomImage = forwardRef<
   const savedX = useSharedValue(0);
   const savedY = useSharedValue(0);
   const minScaleRef = useSharedValue(Math.max(minScale, MIN_SCALE));
+  const maxScaleRef = useSharedValue(isPreview ? PREVIEW_MAX_SCALE : MAX_SCALE);
 
   const applyMinScale = (value: number) => {
     const next = Math.max(value, MIN_SCALE);
@@ -50,9 +69,26 @@ export const PinchZoomImage = forwardRef<
     }
   };
 
+  const resetTransform = (animated: boolean) => {
+    const next = minScaleRef.value;
+    if (animated) {
+      scale.value = withSpring(next, SPRING_CONFIG);
+      translateX.value = withSpring(0, SPRING_CONFIG);
+      translateY.value = withSpring(0, SPRING_CONFIG);
+    } else {
+      scale.value = next;
+      translateX.value = 0;
+      translateY.value = 0;
+    }
+    savedScale.value = next;
+    savedX.value = 0;
+    savedY.value = 0;
+  };
+
   useEffect(() => {
     applyMinScale(minScale);
-  }, [minScale]);
+    maxScaleRef.value = isPreview ? PREVIEW_MAX_SCALE : MAX_SCALE;
+  }, [minScale, isPreview]);
 
   useImperativeHandle(ref, () => ({
     getTransform: () => ({
@@ -61,32 +97,36 @@ export const PinchZoomImage = forwardRef<
       translateY: translateY.value,
     }),
     reset: () => {
-      const next = minScaleRef.value;
-      scale.value = withTiming(next);
-      savedScale.value = next;
-      translateX.value = withTiming(0);
-      translateY.value = withTiming(0);
-      savedX.value = 0;
-      savedY.value = 0;
+      resetTransform(true);
     },
     setMinScale: applyMinScale,
   }));
 
   const pinch = Gesture.Pinch()
+    .onBegin(() => {
+      savedScale.value = scale.value;
+    })
     .onUpdate((event) => {
-      scale.value = clamp(
-        savedScale.value * event.scale,
-        minScaleRef.value,
-        MAX_SCALE,
-      );
+      const sensitivity = isPreview ? 1.45 : 1;
+      const nextScale = savedScale.value * event.scale ** sensitivity;
+      scale.value = clamp(nextScale, minScaleRef.value, maxScaleRef.value);
     })
     .onEnd(() => {
       savedScale.value = scale.value;
     });
 
   const pan = Gesture.Pan()
-    .minDistance(8)
+    .minPointers(1)
+    .maxPointers(1)
+    .averageTouches(true)
+    .onBegin(() => {
+      savedX.value = translateX.value;
+      savedY.value = translateY.value;
+    })
     .onUpdate((event) => {
+      if (isPreview && scale.value <= minScaleRef.value + 0.02) {
+        return;
+      }
       translateX.value = savedX.value + event.translationX;
       translateY.value = savedY.value + event.translationY;
     })
@@ -97,20 +137,48 @@ export const PinchZoomImage = forwardRef<
 
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
+    .maxDuration(280)
     .onEnd(() => {
-      const next = minScaleRef.value;
-      scale.value = withTiming(next);
-      savedScale.value = next;
-      translateX.value = withTiming(0);
-      translateY.value = withTiming(0);
-      savedX.value = 0;
-      savedY.value = 0;
+      if (isPreview) {
+        const zoomedIn = scale.value > minScaleRef.value + 0.08;
+        const target = zoomedIn
+          ? minScaleRef.value
+          : Math.min(PREVIEW_DOUBLE_TAP_SCALE, maxScaleRef.value);
+        scale.value = withSpring(target, SPRING_CONFIG);
+        savedScale.value = target;
+        if (zoomedIn) {
+          translateX.value = withSpring(0, SPRING_CONFIG);
+          translateY.value = withSpring(0, SPRING_CONFIG);
+          savedX.value = 0;
+          savedY.value = 0;
+        }
+        return;
+      }
+
+      resetTransform(true);
     });
 
-  const composed = Gesture.Exclusive(
-    doubleTap,
-    Gesture.Simultaneous(pinch, pan),
-  );
+  const singleTap = Gesture.Tap()
+    .numberOfTaps(1)
+    .maxDuration(250)
+    .maxDistance(14)
+    .onEnd(() => {
+      if (
+        isPreview &&
+        onPreviewBackgroundTap &&
+        scale.value <= minScaleRef.value + 0.05
+      ) {
+        runOnJS(onPreviewBackgroundTap)();
+      }
+    });
+
+  const composed = isPreview
+    ? Gesture.Simultaneous(
+        pinch,
+        pan,
+        Gesture.Exclusive(doubleTap, singleTap),
+      )
+    : Gesture.Exclusive(doubleTap, Gesture.Simultaneous(pinch, pan));
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -142,6 +210,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+    overflow: 'visible',
   },
   image: {
     width: '100%',

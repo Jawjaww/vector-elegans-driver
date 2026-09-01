@@ -163,7 +163,8 @@
       "proSection": "Informations professionnelles",
       "fieldsSection": "Informations manquantes",
       "documentsSection": "Documents manquants",
-      "allReady": "Rien à compléter de votre côté. Vous pouvez soumettre le dossier.",
+      "completeToSubmit": "Complétez ces éléments pour pouvoir soumettre votre dossier à validation.",
+      "allReady": "Votre dossier est complet. Vous pouvez le soumettre à validation.",
       "expiryMissing": "Date d'expiration requise"
     },
     "completion": "Complétion",
@@ -185,7 +186,17 @@
     "completeAllFields": "Veuillez compléter tous les champs requis",
     "draftSaveFailed": "Impossible d'enregistrer le brouillon. Réessayez dans un instant.",
     "success": "Succès",
+    "submissionPendingTitle": "Dossier envoyé",
+    "submissionPendingMessage": "Notre équipe va le valider. Vous serez notifié du résultat.",
     "waitingForValidation": "En attente de validation",
+    "folderStatus": {
+      "pendingReviewTitle": "Dossier en vérification",
+      "pendingReviewMessage": "Soumis à notre équipe — vous serez notifié du résultat.",
+      "validatedTitle": "Dossier validé",
+      "validatedMessage": "Vous pouvez passer en ligne et accepter des courses.",
+      "rejectedTitle": "Dossier refusé",
+      "rejectedMessage": "Corrigez les éléments indiqués puis resoumettez."
+    },
     "documentTypes": {
       "drivingLicense": "Permis de conduire",
       "vtcCard": "Carte VTC",
@@ -224,6 +235,7 @@
     "error": "Erreur",
     "failedToUpload": "Échec du téléchargement du document",
     "expiryDate": "Date de fin de validité",
+    "expiryMustBeFuture": "La date d'expiration doit être dans le futur.",
     "expiryRequired": "Saisissez une date de fin de validité (AAAA-MM-JJ) dans le futur avant de téléverser.",
     "expiresOn": "Expire le",
     "pickFailed": "Impossible de sélectionner l'image",
@@ -237,10 +249,12 @@
     "replaceDocument": "Remplacer",
     "previewFailed": "Impossible d'ouvrir le document",
     "lockedHint": "Verrouillé",
+    "viewOnlyPendingReview": "Consultation seule — dossier en cours de vérification",
     "loadingDocuments": "Chargement des documents…",
     "loadFailed": "Impossible de charger les documents",
     "loadFailedHint": "Les documents déjà envoyés n'ont pas pu être affichés. Réessayez dans un instant.",
     "pinchToZoom": "Pincez pour zoomer et déplacez pour cadrer dans le cadre · double tap pour réinitialiser",
+    "previewHint": "Pincez ou double-tapez pour zoomer · tapez l'image ou en bas pour fermer",
     "usePhoto": "Utiliser cette photo",
     "closePreview": "Fermer"
   },

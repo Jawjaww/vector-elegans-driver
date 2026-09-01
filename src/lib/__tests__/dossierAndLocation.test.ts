@@ -38,6 +38,31 @@ describe('dossierService', () => {
     expect(result.new_status).toBe('pending_review');
   });
 
+  it('submitDossier maps RPC business failure rows', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ success: false, new_status: 'draft', message: 'Dossier incomplete: Photo' }],
+      error: null,
+    });
+
+    const result = await submitDossier('driver-1', 'user-1');
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('Dossier incomplete');
+  });
+
+  it('submitDossier maps schema cache errors to a friendly message', async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: {
+        message:
+          "Could not find the function public.submit_driver_dossier(p_driver_id, p_user_id) in the schema cache",
+      },
+    });
+
+    const result = await submitDossier('driver-1', 'user-1');
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('schéma Supabase');
+  });
+
   it('cancelDossierReview calls cancel_driver_dossier_review RPC', async () => {
     mockRpc.mockResolvedValue({
       data: [{ success: true, new_status: 'draft', message: 'cancelled' }],

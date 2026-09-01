@@ -49,7 +49,7 @@ export async function logDriverAction(logEntry: DriverLogEntry): Promise<void> {
         p_action: logEntry.action,
         p_previous_status: logEntry.previous_status,
         p_new_status: logEntry.new_status,
-        p_details: logEntry.details ? JSON.stringify(logEntry.details) : null,
+        p_details: logEntry.details ?? null,
         p_error_message: logEntry.error_message
       });
 
@@ -73,13 +73,13 @@ export async function getDriverSubmissionHistory(driverId: string) {
       });
 
     if (error) {
-      console.error('Erreur lors de la récupération de l\historique:', error);
+      console.error("Erreur lors de la récupération de l'historique:", error);
       return [];
     }
 
     return data || [];
   } catch (error) {
-    console.error('Exception lors de la récupération de l\historique:', error);
+    console.error("Exception lors de la récupération de l'historique:", error);
     return [];
   }
 }
@@ -88,9 +88,9 @@ export async function getDriverSubmissionHistory(driverId: string) {
  * Logger spécifique pour le processus de soumission
  */
 export class DriverSubmissionLogger {
-  private driverId: string;
-  private userId: string;
-  private startTime: number;
+  private readonly driverId: string;
+  private readonly userId: string;
+  private readonly startTime: number;
 
   constructor(driverId: string, userId: string) {
     this.driverId = driverId;

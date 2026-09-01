@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import "../global.css"; // ← OK, utilisé par NativeWind
 import "../src/i18n";
 import { DocumentPreviewModalHost } from "../src/lib/documentPreview";
+import { AppDialogProvider } from "../src/components/AppDialog";
 
 export default function RootLayout() {
   return (
@@ -28,13 +29,15 @@ export default function RootLayout() {
           style={[StyleSheet.absoluteFill, { zIndex: -9 }]}
         />
 
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: "transparent" },
-          }}
-        />
-        <DocumentPreviewModalHost />
+        <AppDialogProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: "transparent" },
+            }}
+          />
+          <DocumentPreviewModalHost />
+        </AppDialogProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

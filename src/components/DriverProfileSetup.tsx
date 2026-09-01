@@ -5,7 +5,6 @@ import {
   TextInput,
   ScrollView,
   Pressable,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Dimensions,
@@ -20,24 +19,23 @@ import { useTranslation } from "react-i18next";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
   withSequence,
   withDelay,
-  withRepeat,
   interpolate,
+  Easing,
   FadeInRight,
   FadeOutLeft,
   FadeInUp,
   FadeInDown,
   FadeIn,
-  BounceIn,
   FlipInEasyX,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
 import { DriverDocumentUploader } from "./DriverDocumentUploader";
 import { DossierValidationChecklist } from "./DossierValidationChecklist";
+import { showAppAlert } from "./AppDialog";
 import { DriverVehicleSection } from "./DriverVehicleSection";
 import {
   computeWizardCompletion,
@@ -46,6 +44,13 @@ import {
   type DocumentTypeKey,
 } from "../lib/dossierChecklist";
 import { resolveAvatarPreviewUrl } from "../lib/avatarPreview";
+import { translateDocumentType } from "../lib/documentTypeLabels";
+import {
+  getFormExpiryFieldForDocument,
+  persistDocumentExpiryIfNeeded,
+  useDebouncedExpiryPersist,
+  syncUploadedDocumentExpiries,
+} from "../lib/documentExpirySync";
 import { DriverAvatar } from "./DriverAvatar";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
@@ -104,7 +109,7 @@ function EmeraldProgressFill({
       ]}
     >
       <LinearGradient
-        colors={["#10b981", "#2dd4bf"]}
+        colors={["#059669", "#10b981"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={{ height, width: "100%" }}
@@ -112,6 +117,11 @@ function EmeraldProgressFill({
     </Animated.View>
   );
 }
+
+const PROGRESS_BAR_TIMING = {
+  duration: 320,
+  easing: Easing.out(Easing.cubic),
+};
 
 function isApprovedLikeStatus(status: string): boolean {
   return status === "approved" || status === "validated";
@@ -237,6 +247,13 @@ const REQUIRED_DOCUMENTS: (keyof DocumentStatus)[] = [
   "proof_of_address",
 ];
 
+const FORM_EXPIRY_TO_DOC: Partial<
+  Record<keyof DriverProfileData, DocumentTypeKey>
+> = {
+  driving_license_expiry_date: "driving_license",
+  vtc_card_expiry_date: "vtc_card",
+};
+
 // Labels des documents
 const DOC_LABELS: Record<keyof DocumentStatus, string> = {
   driving_license: "Permis de conduire",
@@ -306,6 +323,7 @@ export default function DriverProfileSetup({
     logDocumentUpload,
     logSubmissionComplete,
   } = useDriverSubmissionLogger(driverId, userId);
+  const scheduleFormExpirySync = useDebouncedExpiryPersist(450);
 
   // Valeurs animées
   const sectionProgress = useSharedValue(0);
@@ -314,9 +332,6 @@ export default function DriverProfileSetup({
   const contentTranslateX = useSharedValue(0);
   const buttonScale = useSharedValue(1);
   const fieldOpacity = useSharedValue(0);
-  const documentPulse = useSharedValue(1);
-  const particleAnimation = useSharedValue(0);
-  const shimmerAnimation = useSharedValue(0);
 
   const [formData, setFormData] = useState<DriverProfileData>({
     first_name: "",
@@ -386,13 +401,12 @@ export default function DriverProfileSetup({
     rpcCompletionPercentage > 0
       ? Math.min(rpcCompletionPercentage, localCompletionPercentage)
       : localCompletionPercentage;
-  const isProfileComplete = completionPercentage >= 100;
 
-  // Keep validation progress bar in sync with RPC completeness %
+  // Smooth completion % — no spring overshoot
   useEffect(() => {
-    completionProgress.value = withSpring(
+    completionProgress.value = withTiming(
       Math.min(100, Math.max(0, completionPercentage)) / 100,
-      { damping: 14, stiffness: 120 },
+      PROGRESS_BAR_TIMING,
     );
   }, [completionPercentage, completionProgress]);
 
@@ -419,42 +433,20 @@ export default function DriverProfileSetup({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync on section entry only
   }, [currentSection, driverId, userId]);
 
-  // Animer l'entête au montage avec effet de séquence
+  // Header fade-in on mount
   useEffect(() => {
     headerOpacity.value = withDelay(200, withTiming(1, { duration: 1000 }));
     fieldOpacity.value = withDelay(400, withTiming(1, { duration: 800 }));
+  }, [headerOpacity, fieldOpacity]);
 
-    // Animation shimmer pour la barre de progression
-    shimmerAnimation.value = withRepeat(
-      withTiming(1, { duration: 2000 }),
-      -1,
-      true,
-    );
-
-    // Animation particules pour la validation
-    if (isProfileComplete) {
-      particleAnimation.value = withSequence(
-        withTiming(1, { duration: 500 }),
-        withTiming(0, { duration: 500 }),
-      );
-    }
-  }, [isProfileComplete]);
-
-  // Animer la progression quand la section change
+  // Step indicator fill — linear easing, matches section jumps
   useEffect(() => {
-    sectionProgress.value = withSpring(currentSection / (SECTIONS.length - 1), {
-      damping: 12,
-      stiffness: 150,
-    });
-
-    contentTranslateX.value = withTiming(0, { duration: 300 });
-
-    // Effet de pulse sur les boutons de section
-    documentPulse.value = withSequence(
-      withTiming(1.1, { duration: 150 }),
-      withTiming(1, { duration: 150 }),
+    sectionProgress.value = withTiming(
+      currentSection / (SECTIONS.length - 1),
+      PROGRESS_BAR_TIMING,
     );
-  }, [currentSection]);
+    contentTranslateX.value = withTiming(0, { duration: 300 });
+  }, [currentSection, sectionProgress, contentTranslateX]);
 
   // Charger le profil existant
   useEffect(() => {
@@ -609,33 +601,11 @@ export default function DriverProfileSetup({
   }));
 
   const animatedProgressStyle = useAnimatedStyle(() => ({
-    width: `${interpolate(sectionProgress.value, [0, 1], [0, 100])}%`,
-    opacity: interpolate(sectionProgress.value, [0, 0.1, 1], [0.5, 1, 1]),
+    width: `${sectionProgress.value * 100}%`,
   }));
 
   const animatedCompletionStyle = useAnimatedStyle(() => ({
-    width: `${interpolate(completionProgress.value, [0, 1], [0, 100])}%`,
-    opacity: interpolate(completionProgress.value, [0, 0.05, 1], [0.5, 1, 1]),
-  }));
-
-  // Style pour l'effet shimmer
-  const shimmerStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(shimmerAnimation.value, [0, 1], [-100, 100]),
-      },
-    ],
-    opacity: interpolate(shimmerAnimation.value, [0, 0.5, 1], [0, 0.5, 0]),
-  }));
-
-  // Style pour les particules d'animation
-  const particleStyle = useAnimatedStyle(() => ({
-    opacity: particleAnimation.value,
-    transform: [
-      {
-        scale: interpolate(particleAnimation.value, [0, 1], [0.5, 1.5]),
-      },
-    ],
+    width: `${completionProgress.value * 100}%`,
   }));
 
   const animatedContentStyle = useAnimatedStyle(() => ({
@@ -663,7 +633,7 @@ export default function DriverProfileSetup({
   const handleInputChange = (field: keyof DriverProfileData, value: string) => {
     // Vérifier si le dossier peut être modifié
     if (!isEditable) {
-      Alert.alert(
+      showAppAlert(
         t("profile.cannotEdit"),
         t("profile.submittedProfileLocked"),
       );
@@ -672,12 +642,59 @@ export default function DriverProfileSetup({
 
     setFormData((prev) => ({ ...prev, [field]: value }));
 
+    const linkedDocType = FORM_EXPIRY_TO_DOC[field];
+    if (linkedDocType && driverId) {
+      const ymd = value.trim().slice(0, 10);
+      if (
+        hasDocumentFile(linkedDocType, documents, documentMeta) &&
+        ymd.length >= 10
+      ) {
+        setDocumentMeta((prev) => ({
+          ...prev,
+          [linkedDocType]: {
+            ...prev[linkedDocType],
+            expiryDate: ymd,
+          },
+        }));
+        scheduleFormExpirySync(() => {
+          void persistDocumentExpiryIfNeeded(t, {
+            driverId,
+            documentType: linkedDocType,
+            expiryDate: ymd,
+            hasDocument: true,
+          });
+        });
+      }
+    }
+
     // Log la mise à jour du profil
     if (logger) {
       const section = REQUIRED_FIELDS.profil.includes(field as any)
         ? "profil"
         : "professionnel";
       logProfileUpdate(section, field as string, completionPercentage);
+    }
+  };
+
+  const handleDocumentExpiryChange = (
+    documentType: string,
+    expiryDate: string,
+  ) => {
+    const key = documentType as DocumentTypeKey;
+    const ymd = expiryDate.trim().slice(0, 10);
+    setDocumentMeta((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        expiryDate: ymd || null,
+      },
+    }));
+    const formField = getFormExpiryFieldForDocument(documentType);
+    if (formField) {
+      setFormData((prev) => ({
+        ...prev,
+        [formField]: ymd,
+      }));
     }
   };
 
@@ -690,7 +707,7 @@ export default function DriverProfileSetup({
     const canReplaceRejected =
       canEditDocuments && documentMeta[key]?.status === "rejected";
     if (!isEditable && !canEditDocuments && !canReplaceRejected) {
-      Alert.alert(
+      showAppAlert(
         t("profile.cannotEdit"),
         t("profile.submittedProfileLocked"),
       );
@@ -709,6 +726,15 @@ export default function DriverProfileSetup({
         expiryDate: expiryDate ?? prev[key]?.expiryDate ?? null,
       },
     }));
+    if (expiryDate) {
+      const formField = getFormExpiryFieldForDocument(documentType);
+      if (formField) {
+        setFormData((prev) => ({
+          ...prev,
+          [formField]: expiryDate.slice(0, 10),
+        }));
+      }
+    }
     void (async () => {
       await syncDossierStateWithBackend();
       await loadDriverDocuments();
@@ -756,7 +782,7 @@ export default function DriverProfileSetup({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        Alert.alert(t("common.error"), t("auth.userNotFound"));
+        showAppAlert(t("common.error"), t("auth.userNotFound"));
         return false;
       }
 
@@ -791,11 +817,12 @@ export default function DriverProfileSetup({
           .update(updateData)
           .eq("id", driverId);
         if (error) {
-          Alert.alert(t("common.error"), error.message);
+          showAppAlert(t("common.error"), error.message);
           return false;
         }
+        await syncUploadedDocumentExpiries(t, driverId, checklistInput);
         if (!options?.silent) {
-          Alert.alert(t("common.success"), t("profile.profileSaved"));
+          showAppAlert(t("common.success"), t("profile.profileSaved"));
         }
         return driverId;
       }
@@ -807,14 +834,14 @@ export default function DriverProfileSetup({
         .single();
 
       if (error) {
-        Alert.alert(t("common.error"), error.message);
+        showAppAlert(t("common.error"), error.message);
         return false;
       }
 
       if (newDriver) {
         setDriverId(newDriver.id);
         if (!options?.silent) {
-          Alert.alert(t("common.success"), t("profile.profileSaved"));
+          showAppAlert(t("common.success"), t("profile.profileSaved"));
         }
         return newDriver.id;
       }
@@ -823,20 +850,20 @@ export default function DriverProfileSetup({
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : t("common.error");
-      Alert.alert(t("common.error"), message);
+      showAppAlert(t("common.error"), message);
       return false;
     }
   };
 
-  const saveVehicle = async (): Promise<boolean> => {
-    if (!isFieldEditable()) return true;
+  const saveVehicle = async (options?: { force?: boolean }): Promise<boolean> => {
+    if (!options?.force && !isFieldEditable()) return true;
     const result = await upsertOwnPrimaryVehicle(vehicleForm);
     if (!result.success) {
       const message =
         result.error === "license_plate_taken"
           ? t("profile.licensePlateTaken")
           : (result.error ?? t("profile.vehicleSaveFailed"));
-      Alert.alert(t("common.error"), message);
+      showAppAlert(t("common.error"), message);
       return false;
     }
     return true;
@@ -845,7 +872,7 @@ export default function DriverProfileSetup({
   const finishSuccessfulSubmit = async (normalizedStatus: string) => {
     if (isApprovedLikeStatus(normalizedStatus)) {
       completeSubmission(true);
-      Alert.alert(t("profile.success"), t("profile.profileSubmitted"));
+      showAppAlert(t("profile.success"), t("profile.profileSubmitted"));
       if (logger) {
         await logSubmissionComplete("submitting", "validated", {
           validation_result: "approved",
@@ -857,9 +884,9 @@ export default function DriverProfileSetup({
 
     if (isPendingLikeStatus(normalizedStatus)) {
       completeSubmission(true);
-      Alert.alert(
-        t("profile.pendingReview"),
-        t("profile.waitingForValidation"),
+      showAppAlert(
+        t("profile.submissionPendingTitle"),
+        t("profile.submissionPendingMessage"),
       );
       if (logger) {
         await logSubmissionComplete("submitting", "submitted", {
@@ -874,7 +901,7 @@ export default function DriverProfileSetup({
     const missing = missingForSubmit?.length
       ? `\n\n• ${missingForSubmit.slice(0, 8).join("\n• ")}`
       : "";
-    Alert.alert(
+    showAppAlert(
       t("profile.incomplete"),
       `${t("profile.completeAllFields")}${missing}`,
     );
@@ -882,7 +909,7 @@ export default function DriverProfileSetup({
 
   const handleSubmit = async () => {
     if (!isEditable) {
-      Alert.alert(
+      showAppAlert(
         t("profile.alreadySubmitted"),
         t("profile.cannotModifySubmitted"),
       );
@@ -894,7 +921,7 @@ export default function DriverProfileSetup({
     try {
       const savedDriverId = await handleSave({ silent: true });
       if (!savedDriverId) return;
-      const vehicleSaved = await saveVehicle();
+      const vehicleSaved = await saveVehicle({ force: true });
       if (!vehicleSaved) return;
 
       const syncedState = await syncDossierStateWithBackend();
@@ -934,7 +961,7 @@ export default function DriverProfileSetup({
 
       setStatus("draft");
       completeSubmission(false, message);
-      Alert.alert(t("common.error"), message);
+      showAppAlert(t("common.error"), message);
     } finally {
       setSubmitting(false);
     }
@@ -946,7 +973,7 @@ export default function DriverProfileSetup({
     try {
       const result = await cancelDossierReview(driverId, userId);
       if (!result.success) {
-        Alert.alert(
+        showAppAlert(
           t("common.error"),
           result.message || t("profile.cannotCancelSubmission"),
         );
@@ -954,10 +981,10 @@ export default function DriverProfileSetup({
       }
 
       await syncDossierStateWithBackend();
-      Alert.alert(t("common.success"), t("profile.submissionCancelled"));
+      showAppAlert(t("common.success"), t("profile.submissionCancelled"));
     } catch (e) {
       console.error("handleCancelSubmission exception", e);
-      Alert.alert(t("common.error"), t("profile.cannotCancelSubmission"));
+      showAppAlert(t("common.error"), t("profile.cannotCancelSubmission"));
     }
   };
 
@@ -1085,19 +1112,19 @@ export default function DriverProfileSetup({
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert(t("documents.error"), t("documents.pickFailed"));
+        showAppAlert(t("documents.error"), t("documents.pickFailed"));
         return;
       }
 
       let activeDriverId = driverId;
       if (!activeDriverId) {
         if (!userId) {
-          Alert.alert(t("common.error"), t("auth.userNotFound"));
+          showAppAlert(t("common.error"), t("auth.userNotFound"));
           return;
         }
         const ensured = await ensureDriverProfile(userId);
         if (!ensured.id) {
-          Alert.alert(
+          showAppAlert(
             t("documents.error"),
             ensured.error ?? t("profile.draftSaveFailed"),
           );
@@ -1136,7 +1163,7 @@ export default function DriverProfileSetup({
         });
       if (upErr) {
         setAvatarPreviewUri(previousPreview);
-        Alert.alert(t("documents.error"), upErr.message);
+        showAppAlert(t("documents.error"), upErr.message);
         return;
       }
       const { error: updErr } = await supabase
@@ -1145,14 +1172,14 @@ export default function DriverProfileSetup({
         .eq("id", activeDriverId);
       if (updErr) {
         setAvatarPreviewUri(previousPreview);
-        Alert.alert(t("documents.error"), updErr.message);
+        showAppAlert(t("documents.error"), updErr.message);
         return;
       }
       setAvatarUrl(path);
       await syncDossierStateWithBackend();
     } catch (e) {
       setAvatarPreviewUri(previousPreview);
-      Alert.alert(
+      showAppAlert(
         t("documents.error"),
         e instanceof Error ? e.message : t("documents.failedToUpload"),
       );
@@ -1659,7 +1686,7 @@ export default function DriverProfileSetup({
                     entering={FadeInDown.duration(400).delay(index * 150 + 25)}
                     className="text-sm text-white font-medium"
                   >
-                    {t(`documents.${docType}`) || DOC_LABELS[docType]}
+                    {translateDocumentType(t, docType)}
                   </Animated.Text>
                   {isRejected ? (
                     <Text className="text-xs text-rose-400 font-medium">
@@ -1685,6 +1712,9 @@ export default function DriverProfileSetup({
                     onUploadComplete={(fileUrl, expiry) =>
                       handleDocumentUpload(docType, fileUrl, expiry)
                     }
+                    onExpiryDateChange={(expiry) =>
+                      handleDocumentExpiryChange(docType, expiry)
+                    }
                     driverId={driverId ?? undefined}
                     currentUrl={documents[docType] || undefined}
                     currentExpiry={meta?.expiryDate}
@@ -1708,47 +1738,17 @@ export default function DriverProfileSetup({
             className="space-y-4"
           >
             <Animated.View
-              entering={BounceIn.duration(600).delay(200)}
-              className="bg-white/10 rounded-lg px-3 py-2.5 border border-white/20"
+              entering={FadeIn.duration(300).delay(100)}
+              className="bg-white/10 rounded-lg px-3 py-2.5 border border-white/20 mb-4"
             >
               <View className="flex-row items-center gap-3">
-                <View className="flex-1 bg-white/20 rounded-full h-2 overflow-hidden relative">
+                <View className="flex-1 bg-white/15 rounded-full h-1.5 overflow-hidden">
                   <EmeraldProgressFill
                     animatedStyle={animatedCompletionStyle}
-                    height={8}
+                    height={6}
                   />
-                  <Animated.View
-                    style={[
-                      shimmerStyle,
-                      {
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: "rgba(255, 255, 255, 0.3)",
-                        width: "100%",
-                      },
-                    ]}
-                  />
-                  {isProfileComplete && (
-                    <Animated.View
-                      style={[
-                        particleStyle,
-                        {
-                          position: "absolute",
-                          top: -2,
-                          right: -2,
-                          width: 6,
-                          height: 6,
-                          backgroundColor: "#fbbf24",
-                          borderRadius: 3,
-                        },
-                      ]}
-                    />
-                  )}
                 </View>
-                <Text className="text-xs text-slate-300 font-medium min-w-[72px] text-right">
+                <Text className="text-xs text-slate-300 font-medium min-w-[72px] text-right tabular-nums">
                   {Math.round(completionPercentage)}% {t("common.complete")}
                 </Text>
               </View>
@@ -1766,7 +1766,7 @@ export default function DriverProfileSetup({
                 <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
                   <Pressable
                     onPress={async () => {
-                      Alert.alert(
+                      showAppAlert(
                         t("common.confirm"),
                         t("profile.confirmCancelSubmission") ||
                           "Annuler la soumission ?",
@@ -1804,7 +1804,7 @@ export default function DriverProfileSetup({
                         if (!savedDriverId) return;
                         await saveVehicle();
                         await syncDossierStateWithBackend();
-                        Alert.alert(
+                        showAppAlert(
                           t("common.success"),
                           t("profile.profileSaved"),
                         );
@@ -1929,43 +1929,11 @@ export default function DriverProfileSetup({
 
                 {/* Banner de statut du dossier */}
                 <DriverFolderStatusBanner />
-                <View className="bg-white/20 rounded-full h-1 mt-2 relative overflow-hidden">
+                <View className="bg-white/15 rounded-full h-1 mt-2 overflow-hidden">
                   <EmeraldProgressFill
                     animatedStyle={animatedProgressStyle}
                     height={4}
                   />
-                  {/* Effet shimmer */}
-                  <Animated.View
-                    style={[
-                      shimmerStyle,
-                      {
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: "rgba(255, 255, 255, 0.3)",
-                        width: "100%",
-                      },
-                    ]}
-                  />
-                  {/* Particules de validation */}
-                  {isProfileComplete && (
-                    <Animated.View
-                      style={[
-                        particleStyle,
-                        {
-                          position: "absolute",
-                          top: -2,
-                          right: -2,
-                          width: 8,
-                          height: 8,
-                          backgroundColor: "#fbbf24",
-                          borderRadius: 4,
-                        },
-                      ]}
-                    />
-                  )}
                 </View>
               </View>
             </Animated.View>

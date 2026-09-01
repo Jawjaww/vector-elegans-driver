@@ -1944,6 +1944,14 @@ export type Database = {
         Args: { driver_id: string }
         Returns: string
       }
+      update_own_driver_document_expiry: {
+        Args: {
+          p_document_type: string
+          p_driver_id: string
+          p_expiry_date: string
+        }
+        Returns: Json
+      }
       update_ride_nav_progress: {
         Args: {
           p_eta_minutes: number

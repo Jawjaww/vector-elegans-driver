@@ -35,6 +35,51 @@ export interface DossierSubmissionResult {
   message: string;
 }
 
+function parseRpcBoolean(value: unknown): boolean {
+  if (value === true || value === 'true' || value === 't' || value === 1 || value === '1') {
+    return true;
+  }
+  return false;
+}
+
+function parseSubmissionResult(data: unknown): DossierSubmissionResult {
+  const row = firstRpcRow(data);
+  if (!row) {
+    return {
+      success: false,
+      new_status: 'error',
+      message: 'Réponse vide du serveur',
+    };
+  }
+
+  return {
+    success: parseRpcBoolean(row.success),
+    new_status:
+      typeof row.new_status === 'string' && row.new_status
+        ? row.new_status
+        : 'error',
+    message:
+      typeof row.message === 'string' && row.message.trim()
+        ? row.message
+        : 'Erreur lors de la soumission du dossier',
+  };
+}
+
+function formatDossierRpcError(message: string): string {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('schema cache') ||
+    lower.includes('could not find the function') ||
+    lower.includes('could not find the')
+  ) {
+    return 'Le serveur doit être mis à jour (schéma Supabase). Réessayez dans quelques minutes ou contactez le support.';
+  }
+  if (lower.includes('invalid input syntax for type json')) {
+    return 'Erreur serveur lors de l’enregistrement du dossier. Réessayez ou contactez le support.';
+  }
+  return message;
+}
+
 function firstRpcRow(data: unknown): Record<string, unknown> | null {
   if (Array.isArray(data)) {
     const row = data[0];
@@ -286,22 +331,21 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
       return {
         success: false,
         new_status: 'error',
-        message: error.message || 'Erreur lors de la soumission du dossier',
+        message: formatDossierRpcError(
+          error.message || 'Erreur lors de la soumission du dossier',
+        ),
       };
     }
 
-    const row = firstRpcRow(data) as DossierSubmissionResult | null;
-    return row || {
-      success: false,
-      new_status: 'error',
-      message: 'Réponse vide',
-    };
+    return parseSubmissionResult(data);
   } catch (error) {
     console.error('[dossierService] submitDossier - exception:', error);
     return {
       success: false,
       new_status: 'error',
-      message: error instanceof Error ? error.message : 'Erreur inattendue',
+      message: formatDossierRpcError(
+        error instanceof Error ? error.message : 'Erreur inattendue',
+      ),
     };
   }
 }
@@ -324,21 +368,18 @@ export async function validateDossier(
       return {
         success: false,
         new_status: 'error',
-        message: error.message || 'Erreur validation',
+        message: formatDossierRpcError(error.message || 'Erreur validation'),
       };
     }
 
-    const row = firstRpcRow(data) as DossierSubmissionResult | null;
-    return row || {
-      success: false,
-      new_status: 'error',
-      message: 'Réponse vide',
-    };
+    return parseSubmissionResult(data);
   } catch (error) {
     return {
       success: false,
       new_status: 'error',
-      message: error instanceof Error ? error.message : 'Erreur inattendue',
+      message: formatDossierRpcError(
+        error instanceof Error ? error.message : 'Erreur inattendue',
+      ),
     };
   }
 }
@@ -360,21 +401,20 @@ export async function cancelDossierReview(
       return {
         success: false,
         new_status: 'error',
-        message: error.message || "Erreur lors de l'annulation",
+        message: formatDossierRpcError(
+          error.message || "Erreur lors de l'annulation",
+        ),
       };
     }
 
-    const row = firstRpcRow(data) as DossierSubmissionResult | null;
-    return row || {
-      success: false,
-      new_status: 'error',
-      message: 'Réponse vide',
-    };
+    return parseSubmissionResult(data);
   } catch (error) {
     return {
       success: false,
       new_status: 'error',
-      message: error instanceof Error ? error.message : 'Erreur inattendue',
+      message: formatDossierRpcError(
+        error instanceof Error ? error.message : 'Erreur inattendue',
+      ),
     };
   }
 }

@@ -39,6 +39,9 @@ import {
   resolveDossierBanner,
   type ExpiringDocument,
 } from "../../src/lib/services/dossierService";
+import { translateDocumentType } from "../../src/lib/documentTypeLabels";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   formatRideDistanceKm,
   formatRideDurationMin,
@@ -1192,23 +1195,30 @@ function OnlineStatusRow({
 
 type BannerIcon = "alert-triangle" | "file-text" | "clock" | "check-circle";
 
-function buildBannerCopy(input: {
+function buildBannerCopy(
+  t: TFunction,
+  input: {
   kind: NonNullable<ReturnType<typeof resolveDossierBanner>["kind"]>;
   expiring?: ExpiringDocument;
   expiredTypes: string[];
   rejectedDocs: Array<{ rejection_reason: string | null }>;
-}): { title: string; subtitle: string; accent: string; icon: BannerIcon } {
+},
+): { title: string; subtitle: string; accent: string; icon: BannerIcon } {
   switch (input.kind) {
-    case "expired":
+    case "expired": {
+      const labels = input.expiredTypes.map((type) =>
+        translateDocumentType(t, type),
+      );
       return {
         title:
-          input.expiredTypes.length > 1
+          labels.length > 1
             ? "Documents expirés"
             : "Document expiré",
-        subtitle: `Remplacez : ${input.expiredTypes.join(", ")}`,
+        subtitle: `Remplacez : ${labels.join(", ")}`,
         accent: "#fb7185",
         icon: "file-text",
       };
+    }
     case "expiring": {
       const days = input.expiring?.days_remaining ?? 0;
       let title = "Rappel de validité";
@@ -1219,9 +1229,13 @@ function buildBannerCopy(input: {
       } else if (days <= 30) {
         title = "À renouveler bientôt";
       }
+      const docLabel = translateDocumentType(
+        t,
+        input.expiring?.document_type ?? null,
+      );
       return {
         title,
-        subtitle: `${input.expiring?.document_type ?? "Document"} expire dans ${days} jour(s) (${input.expiring?.expiry_date ?? ""})`,
+        subtitle: `${docLabel} expire dans ${days} jour(s) (${input.expiring?.expiry_date ?? ""})`,
         accent,
         icon: "clock",
       };
@@ -1285,6 +1299,7 @@ function DriverStatusBanner({
   onOpenProfile: () => void;
   onDismissValidated: () => void;
 }>) {
+  const { t } = useTranslation();
   const banner = resolveDossierBanner({
     expiredTypes,
     expiring: expiringDocs,
@@ -1296,7 +1311,7 @@ function DriverStatusBanner({
 
   if (!banner.kind) return null;
 
-  const { title, subtitle, accent, icon } = buildBannerCopy({
+  const { title, subtitle, accent, icon } = buildBannerCopy(t, {
     kind: banner.kind,
     expiring: banner.expiring,
     expiredTypes,

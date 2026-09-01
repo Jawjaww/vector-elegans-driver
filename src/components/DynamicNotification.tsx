@@ -133,24 +133,24 @@ export const DriverFolderStatusBanner: React.FC = () => {
       case 'submitted':
         return {
           icon: 'clock' as const,
-          title: 'Profil en cours de validation',
-          message: 'Votre dossier a été soumis et est en cours de vérification par notre équipe.',
-          color: 'bg-yellow-500'
+          title: t('profile.folderStatus.pendingReviewTitle'),
+          message: t('profile.folderStatus.pendingReviewMessage'),
+          color: 'bg-amber-500/20 border border-amber-400/30'
         };
       case 'active':
       case 'validated':
         return {
           icon: 'check-circle' as const,
-          title: 'Profil validé',
-          message: 'Félicitations ! Votre dossier a été validé. Vous pouvez maintenant accepter des courses.',
-          color: 'bg-green-500'
+          title: t('profile.folderStatus.validatedTitle'),
+          message: t('profile.folderStatus.validatedMessage'),
+          color: 'bg-emerald-500/20 border border-emerald-400/30'
         };
       case 'rejected':
         return {
           icon: 'x-circle' as const,
-          title: 'Profil rejeté',
-          message: rejectionReason || 'Votre dossier a été rejeté. Veuillez corriger les éléments mentionnés.',
-          color: 'bg-red-500'
+          title: t('profile.folderStatus.rejectedTitle'),
+          message: rejectionReason || t('profile.folderStatus.rejectedMessage'),
+          color: 'bg-rose-500/20 border border-rose-400/30'
         };
       default:
         return null;
@@ -161,7 +161,7 @@ export const DriverFolderStatusBanner: React.FC = () => {
   if (!config) return null;
 
   return (
-    <View className={`${config.color} rounded-lg p-4 mb-4`}>
+    <View className={`${config.color} rounded-xl p-4 mb-4`}>
       <View className="flex-row items-center">
         <Feather name={config.icon} size={20} color="white" className="mr-3" />
         <View className="flex-1">

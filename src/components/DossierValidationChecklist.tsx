@@ -5,7 +5,6 @@ import {
   buildDocumentChecklistItems,
   buildProfileChecklistItems,
   computeWizardCompletion,
-  filterRpcGapsForChecklist,
   type DossierChecklistInput,
 } from '../lib/dossierChecklist';
 import {
@@ -22,7 +21,6 @@ export const DossierValidationChecklist: React.FC<
 > = ({ input }) => {
   const { t } = useTranslation();
   const documentItems = buildDocumentChecklistItems(input);
-  const rpcGaps = filterRpcGapsForChecklist(input.missingForSubmit, documentItems);
   const profileMissing = buildProfileChecklistItems(input).filter(
     (item) => item.status !== 'provided',
   );
@@ -33,33 +31,26 @@ export const DossierValidationChecklist: React.FC<
       item.status === 'expiry_missing',
   );
   const progress = computeWizardCompletion(input);
+  const isComplete = progress.missing.length === 0;
 
   return (
     <View>
-      <Text className="text-xs text-slate-400 mb-3">{t('profile.checklistHint')}</Text>
-      <MissingChecklistCard
-        title={t('profile.checklist.fieldsSection')}
-        items={profileMissing}
-        missingBadge={t('profile.missingFields')}
-      />
-      <DriverDocumentsStatusList items={documentMissing} />
-      {rpcGaps.length > 0 ? (
-        <View className="rounded-xl border border-white/15 bg-white/5 p-4 mb-2">
-          <Text className="text-sm font-semibold text-white mb-3">
-            {t('profile.missingFields')}
+      {!isComplete ? (
+        <>
+          <MissingChecklistCard
+            title={t('profile.checklist.fieldsSection')}
+            items={profileMissing}
+          />
+          <DriverDocumentsStatusList items={documentMissing} />
+          <Text className="text-sm text-slate-400 mt-2 leading-5">
+            {t('profile.checklist.completeToSubmit')}
           </Text>
-          {rpcGaps.map((label) => (
-            <Text key={label} className="text-sm text-slate-400 mb-1">
-              {label}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-      {progress.missing.length === 0 && rpcGaps.length === 0 ? (
-        <Text className="text-sm text-emerald-300/90">
+        </>
+      ) : (
+        <Text className="text-sm text-emerald-300/90 leading-5">
           {t('profile.checklist.allReady')}
         </Text>
-      ) : null}
+      )}
     </View>
   );
 };

@@ -14,6 +14,9 @@ import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import type { User } from "@supabase/supabase-js";
+import type { Router } from "expo-router";
 import { supabase, getSupabaseBackendLabel } from "../../src/lib/supabase";
 import { isUserDriver } from "../../src/lib/utils/auth-helpers";
 
@@ -61,6 +64,90 @@ function AuthFieldShell({
   );
 }
 
+const LOGIN_TIMEOUT_MS = 10_000;
+
+const DRIVER_HOME_STATUSES = new Set([
+  "active",
+  "draft",
+  "incomplete",
+  "pending_validation",
+  "pending_review",
+  "rejected",
+]);
+
+function isLocalSeedEmail(email: string): boolean {
+  return /@elegance-mobilite\.local$/i.test(email.trim());
+}
+
+function alertLoginError(
+  t: TFunction,
+  backendLabel: ReturnType<typeof getSupabaseBackendLabel>,
+  email: string,
+  message: string,
+): void {
+  const invalidCreds = /invalid login credentials/i.test(message);
+  if (invalidCreds && backendLabel === "cloud" && isLocalSeedEmail(email)) {
+    Alert.alert(t("common.error"), t("auth.cloudLocalSeedHint"));
+    return;
+  }
+  if (invalidCreds) {
+    Alert.alert(t("common.error"), t("auth.invalidCredentials"));
+    return;
+  }
+  Alert.alert(t("common.error"), message);
+}
+
+async function signInWithTimeout(email: string, password: string) {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(
+      () =>
+        reject(
+          new Error("Connection timed out. Please check your network."),
+        ),
+      LOGIN_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([
+    supabase.auth.signInWithPassword({ email, password }),
+    timeoutPromise,
+  ]);
+}
+
+async function routeAuthenticatedDriver(router: Router, userId: string) {
+  const { data: driver, error: driverError } = await supabase
+    .from("drivers")
+    .select("status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (driverError) {
+    console.error("Driver fetch error:", driverError);
+    router.replace("/(auth)/profile-setup");
+    return;
+  }
+
+  if (!driver || DRIVER_HOME_STATUSES.has(driver.status)) {
+    router.replace(driver ? "/(tabs)" : "/(auth)/profile-setup");
+    return;
+  }
+
+  console.log("Driver status:", driver.status);
+  router.replace("/(tabs)");
+}
+
+async function handleAuthenticatedUser(
+  router: Router,
+  user: User,
+  t: TFunction,
+): Promise<void> {
+  if (!isUserDriver(user)) {
+    await supabase.auth.signOut();
+    Alert.alert(t("common.error"), t("auth.driverOnly"));
+    return;
+  }
+  await routeAuthenticatedDriver(router, user.id);
+}
+
 export default function LoginScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -91,86 +178,20 @@ export default function LoginScreen() {
     console.log("Supabase URL:", process.env.EXPO_PUBLIC_SUPABASE_URL);
 
     try {
-      // Add a timeout to prevent infinite loading state
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error("Connection timed out. Please check your network."),
-            ),
-          10000,
-        ),
-      );
-
-      const loginPromise = supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      const result = (await Promise.race([
-        loginPromise,
-        timeoutPromise,
-      ])) as any;
-      const { data, error } = result;
-
+      const { data, error } = await signInWithTimeout(email, password);
       if (error) {
         console.error("Login error:", error);
-        const invalidCreds = /invalid login credentials/i.test(error.message);
-        const localSeedEmail = /@elegance-mobilite\.local$/i.test(email.trim());
-        if (invalidCreds && backendLabel === "cloud" && localSeedEmail) {
-          Alert.alert(t("common.error"), t("auth.cloudLocalSeedHint"));
-        } else if (invalidCreds) {
-          Alert.alert(t("common.error"), t("auth.invalidCredentials"));
-        } else {
-          Alert.alert(t("common.error"), error.message);
-        }
+        alertLoginError(t, backendLabel, email, error.message);
         return;
       }
-
       if (data.user) {
-        console.log("User authenticated, checking role...");
-        if (!isUserDriver(data.user)) {
-          console.log("User is not a driver");
-          await supabase.auth.signOut();
-          Alert.alert(t("common.error"), t("auth.driverOnly"));
-          return;
-        }
-
-        console.log("Fetching driver profile...");
-        const { data: driver, error: driverError } = await supabase
-          .from("drivers")
-          .select("status")
-          .eq("user_id", data.user.id)
-          .maybeSingle();
-
-        // PGRST116 / null = no driver row yet (new account) → profile setup
-        if (driverError) {
-          console.error("Driver fetch error:", driverError);
-          router.replace("/(auth)/profile-setup");
-          return;
-        }
-
-        if (!driver) {
-          router.replace("/(auth)/profile-setup");
-        } else if (
-          [
-            "active",
-            "draft",
-            "incomplete",
-            "pending_validation",
-            "pending_review",
-            "rejected",
-          ].includes(driver.status)
-        ) {
-          router.replace("/(tabs)");
-        } else {
-          console.log("Driver status:", driver.status);
-          router.replace("/(tabs)");
-        }
+        await handleAuthenticatedUser(router, data.user, t);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Login exception:", error);
-      Alert.alert(t("common.error"), error.message || t("common.error"));
+      const message =
+        error instanceof Error ? error.message : t("common.error");
+      Alert.alert(t("common.error"), message);
     } finally {
       if (mounted.current) {
         setLoading(false);
