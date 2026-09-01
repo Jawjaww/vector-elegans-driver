@@ -22,6 +22,9 @@
     "signOut": "Sign Out",
     "forgotPassword": "Forgot Password?",
     "invalidCredentials": "Invalid email or password",
+    "cloudLocalSeedHint": "Accounts @elegance-mobilite.local (e.g. marie.martin, password password123) only exist on local Supabase. For Expo Go locally: ./scripts/sync-local-supabase-env.sh then npx expo start -c. On cloud, use a driver account created in Supabase.",
+    "backendCloud": "Backend: cloud (production Supabase)",
+    "backendLocal": "Backend: local (Docker LAN)",
     "driverOnly": "Access reserved for drivers",
     "sessionExpired": "Session expired. Please sign in again."
   },

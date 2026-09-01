@@ -15,7 +15,6 @@ import { openDocumentPreview } from "../lib/documentPreview";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { NativeDateField } from "./NativeDateField";
-import { DocumentImageAdjustModal } from "./DocumentImageAdjustModal";
 import { isValidDocumentExpiry } from "../lib/dossierChecklist";
 
 const decodeBase64 = (base64: string) => {
@@ -282,6 +281,13 @@ async function uploadDriverDocument(
   params.onUploadComplete?.(previewUrl, params.expiry);
 }
 
+const GLASS_BUTTON =
+  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-white/10 border border-white/20";
+const GLASS_BUTTON_ACCENT =
+  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40";
+const PRIMARY_BUTTON =
+  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-emerald-600 border border-emerald-500/50";
+
 const DocumentActionRow: React.FC<
   Readonly<{
     hasDocument: boolean;
@@ -301,7 +307,7 @@ const DocumentActionRow: React.FC<
             t("profile.submittedProfileLocked"),
           )
         }
-        className="flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-slate-800/80 border border-slate-600"
+        className={`${GLASS_BUTTON} opacity-80`}
       >
         <Feather name="lock" size={16} color="#94a3b8" />
         <Text className="text-slate-400 text-sm ml-2">
@@ -317,14 +323,14 @@ const DocumentActionRow: React.FC<
         <Pressable
           onPress={onView}
           disabled={viewing}
-          className="flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-slate-700/80"
+          className={GLASS_BUTTON}
         >
           {viewing ? (
             <ActivityIndicator size="small" color="#e2e8f0" />
           ) : (
             <>
               <Feather name="eye" size={16} color="#e2e8f0" />
-              <Text className="text-slate-200 text-sm font-medium ml-2">
+              <Text className="text-white text-sm font-medium ml-2">
                 {t("documents.viewDocument")}
               </Text>
             </>
@@ -333,16 +339,18 @@ const DocumentActionRow: React.FC<
       ) : null}
       <Pressable
         onPress={onPick}
-        className={`flex-1 flex-row items-center justify-center py-2.5 rounded-lg ${
-          hasDocument ? "bg-slate-600/80" : "bg-emerald-600/90"
-        }`}
+        className={hasDocument ? GLASS_BUTTON_ACCENT : PRIMARY_BUTTON}
       >
         <Feather
           name={hasDocument ? "refresh-cw" : "upload"}
           size={16}
-          color="#fff"
+          color={hasDocument ? "#34d399" : "#fff"}
         />
-        <Text className="text-white text-sm font-medium ml-2">
+        <Text
+          className={`text-sm font-medium ml-2 ${
+            hasDocument ? "text-emerald-300" : "text-white"
+          }`}
+        >
           {hasDocument
             ? t("documents.replaceDocument")
             : t("documents.tapToUpload")}
@@ -371,8 +379,9 @@ async function pickDocumentImage(
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: false,
-      quality: 1,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.9,
     });
     if (result.canceled) return null;
 
@@ -420,10 +429,6 @@ export const DriverDocumentUploader: React.FC<
   const [expiryDate, setExpiryDate] = useState(
     currentExpiry?.slice(0, 10) ?? "",
   );
-  const [pendingAsset, setPendingAsset] = useState<{
-    uri: string;
-    fileName: string;
-  } | null>(null);
 
   useEffect(() => {
     if (currentExpiry) {
@@ -443,21 +448,20 @@ export const DriverDocumentUploader: React.FC<
 
   const handlePick = async () => {
     const asset = await pickDocumentImage(t, canReplace, expiryDate);
-    if (asset) setPendingAsset(asset);
-  };
-
-  const handleConfirmAdjusted = (uri: string) => {
-    const fileName = pendingAsset?.fileName || "document.jpg";
-    setPendingAsset(null);
+    if (!asset) return;
     setUploading(true);
-    void uploadDriverDocument(t, {
-      uri,
-      fileName,
-      expiry: expiryDate.trim(),
-      documentType,
-      driverId,
-      onUploadComplete,
-    }).finally(() => setUploading(false));
+    try {
+      await uploadDriverDocument(t, {
+        uri: asset.uri,
+        fileName: asset.fileName,
+        expiry: expiryDate.trim(),
+        documentType,
+        driverId,
+        onUploadComplete,
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleView = async () => {
@@ -549,12 +553,6 @@ export const DriverDocumentUploader: React.FC<
           </View>
         )}
       </View>
-      <DocumentImageAdjustModal
-        visible={pendingAsset !== null}
-        uri={pendingAsset?.uri ?? null}
-        onCancel={() => setPendingAsset(null)}
-        onConfirm={handleConfirmAdjusted}
-      />
     </View>
   );
 };

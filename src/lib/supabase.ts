@@ -64,6 +64,14 @@ function resolveSupabaseAnonKey(): string {
 const supabaseUrl = resolveSupabaseUrl();
 const supabaseAnonKey = resolveSupabaseAnonKey();
 
+export function isCloudSupabaseBackend(): boolean {
+  return isCloudSupabaseUrl(supabaseUrl);
+}
+
+export function getSupabaseBackendLabel(): "cloud" | "local" {
+  return isCloudSupabaseBackend() ? "cloud" : "local";
+}
+
 if (__DEV__) {
   console.log("Supabase URL resolved to:", supabaseUrl);
 }

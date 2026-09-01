@@ -1009,6 +1009,24 @@ export default function DriverProfileSetup({
     setCurrentSection(newSection);
   };
 
+  const navigateToSection = (targetIndex: number) => {
+    if (targetIndex < 0 || targetIndex >= SECTIONS.length) return;
+    if (targetIndex === currentSection) return;
+
+    const goingForward = targetIndex > currentSection;
+    const exitX = goingForward ? -100 : 100;
+
+    buttonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withTiming(1, { duration: 100 }),
+    );
+
+    contentTranslateX.value = withTiming(exitX, { duration: 200 }, () => {
+      scheduleOnRN(changeSection, targetIndex);
+      contentTranslateX.value = withTiming(0, { duration: 200 });
+    });
+  };
+
   const nextSection = async () => {
     if (currentSection >= SECTIONS.length - 1) {
       return;
@@ -1687,71 +1705,53 @@ export default function DriverProfileSetup({
             entering={FadeInRight.duration(300)}
             exiting={FadeOutLeft.duration(300)}
             style={animatedContentStyle}
-            className="space-y-6"
+            className="space-y-4"
           >
-            <Animated.Text
-              entering={FadeInDown.duration(400).delay(100)}
-              className="text-xl font-bold text-white mb-4"
-            >
-              {t("profile.validation")}
-            </Animated.Text>
-
             <Animated.View
               entering={BounceIn.duration(600).delay(200)}
-              className="bg-white/10 rounded-lg p-4 border border-white/20"
+              className="bg-white/10 rounded-lg px-3 py-2.5 border border-white/20"
             >
-              <Animated.Text
-                entering={FadeInDown.duration(300).delay(300)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.completion")}
-              </Animated.Text>
-              <View className="bg-white/20 rounded-full h-3 mb-2 overflow-hidden relative">
-                <EmeraldProgressFill
-                  animatedStyle={animatedCompletionStyle}
-                  height={12}
-                />
-                {/* Effet shimmer sur la barre de progression */}
-                <Animated.View
-                  style={[
-                    shimmerStyle,
-                    {
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: "rgba(255, 255, 255, 0.3)",
-                      width: "100%",
-                    },
-                  ]}
-                />
-                {/* Particules de validation */}
-                {isProfileComplete && (
+              <View className="flex-row items-center gap-3">
+                <View className="flex-1 bg-white/20 rounded-full h-2 overflow-hidden relative">
+                  <EmeraldProgressFill
+                    animatedStyle={animatedCompletionStyle}
+                    height={8}
+                  />
                   <Animated.View
                     style={[
-                      particleStyle,
+                      shimmerStyle,
                       {
                         position: "absolute",
-                        top: -2,
-                        right: -2,
-                        width: 8,
-                        height: 8,
-                        backgroundColor: "#fbbf24",
-                        borderRadius: 4,
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: "rgba(255, 255, 255, 0.3)",
+                        width: "100%",
                       },
                     ]}
                   />
-                )}
-              </View>
-              <Animated.View
-                entering={FadeIn.duration(300).delay(400)}
-                className="flex-row justify-between items-center mt-2"
-              >
-                <Text className="text-xs text-slate-400">
+                  {isProfileComplete && (
+                    <Animated.View
+                      style={[
+                        particleStyle,
+                        {
+                          position: "absolute",
+                          top: -2,
+                          right: -2,
+                          width: 6,
+                          height: 6,
+                          backgroundColor: "#fbbf24",
+                          borderRadius: 3,
+                        },
+                      ]}
+                    />
+                  )}
+                </View>
+                <Text className="text-xs text-slate-300 font-medium min-w-[72px] text-right">
                   {Math.round(completionPercentage)}% {t("common.complete")}
                 </Text>
-              </Animated.View>
+              </View>
             </Animated.View>
 
             <Animated.View entering={FadeInUp.duration(500).delay(500)}>
@@ -1760,16 +1760,12 @@ export default function DriverProfileSetup({
 
             <Animated.View
               entering={FadeInUp.duration(500).delay(900)}
-              className="flex-row space-x-3 pt-4"
+              className="gap-2.5 pt-2"
             >
               {status === "pending_review" || status === "submitted" ? (
-                <Animated.View
-                  className="flex-1"
-                  entering={FlipInEasyX.duration(600).delay(1000)}
-                >
+                <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
                   <Pressable
                     onPress={async () => {
-                      // Annuler la soumission pour permettre modification
                       Alert.alert(
                         t("common.confirm"),
                         t("profile.confirmCancelSubmission") ||
@@ -1783,7 +1779,7 @@ export default function DriverProfileSetup({
                         ],
                       );
                     }}
-                    className="overflow-hidden rounded-lg py-3 px-4 items-center shadow"
+                    className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
                   >
                     <LinearGradient
                       colors={["#f97316", "#ef4444"]}
@@ -1793,7 +1789,7 @@ export default function DriverProfileSetup({
                     />
                     <Animated.Text
                       entering={FadeIn.duration(300).delay(1100)}
-                      className="text-white font-semibold"
+                      className="text-white text-sm font-semibold"
                     >
                       {t("profile.cancelSubmission")}
                     </Animated.Text>
@@ -1801,10 +1797,7 @@ export default function DriverProfileSetup({
                 </Animated.View>
               ) : (
                 <>
-                  <Animated.View
-                    className="flex-1"
-                    entering={FlipInEasyX.duration(600).delay(1000)}
-                  >
+                  <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
                     <Pressable
                       onPress={async () => {
                         const savedDriverId = await handleSave({ silent: true });
@@ -1816,7 +1809,7 @@ export default function DriverProfileSetup({
                           t("profile.profileSaved"),
                         );
                       }}
-                      className="overflow-hidden rounded-lg py-3 px-4 items-center shadow"
+                      className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
                     >
                       <LinearGradient
                         colors={["#374151", "#4b5563"]}
@@ -1826,21 +1819,18 @@ export default function DriverProfileSetup({
                       />
                       <Animated.Text
                         entering={FadeIn.duration(300).delay(1100)}
-                        className="text-white font-semibold"
+                        className="text-white text-sm font-semibold"
                       >
                         {t("profile.saveProgress")}
                       </Animated.Text>
                     </Pressable>
                   </Animated.View>
 
-                  <Animated.View
-                    className="flex-1"
-                    entering={FlipInEasyX.duration(600).delay(1200)}
-                  >
+                  <Animated.View entering={FlipInEasyX.duration(600).delay(1200)}>
                     <Pressable
                       onPress={handleSubmit}
                       disabled={submitting || !isEditable}
-                      className={`overflow-hidden rounded-lg py-3 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
+                      className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
                     >
                       <LinearGradient
                         colors={["#10b981", "#059669"]}
@@ -1850,7 +1840,7 @@ export default function DriverProfileSetup({
                       />
                       <Animated.Text
                         entering={FadeIn.duration(300).delay(1300)}
-                        className="text-white font-semibold"
+                        className="text-white text-sm font-semibold"
                       >
                         {submitting
                           ? t("profile.submitting")
@@ -1903,26 +1893,38 @@ export default function DriverProfileSetup({
               {/* Barre de progression animée */}
               <View className="w-full mt-6">
                 <View className="flex-row justify-between mb-2">
-                  {SECTIONS.map((section, index) => (
-                    <View key={section.id} className="items-center flex-1">
-                      <View
-                        className={`w-8 h-8 rounded-full items-center justify-center ${
-                          index <= currentSection
-                            ? "bg-emerald-500"
-                            : "bg-white/20"
-                        }`}
+                  {SECTIONS.map((section, index) => {
+                    const isActive = index === currentSection;
+                    const isReached = index <= currentSection;
+                    return (
+                      <Pressable
+                        key={section.id}
+                        onPress={() => navigateToSection(index)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
+                        className="items-center flex-1"
                       >
-                        <Feather
-                          name={section.icon as any}
-                          size={16}
-                          color={index <= currentSection ? "white" : "#9ca3af"}
-                        />
-                      </View>
-                      <Text className="text-xs text-slate-400 mt-1 text-center">
-                        {section.label}
-                      </Text>
-                    </View>
-                  ))}
+                        <View
+                          className={`w-8 h-8 rounded-full items-center justify-center ${
+                            isReached ? "bg-emerald-500" : "bg-white/20"
+                          } ${isActive ? "border-2 border-white/50" : ""}`}
+                        >
+                          <Feather
+                            name={section.icon as keyof typeof Feather.glyphMap}
+                            size={16}
+                            color={isReached ? "white" : "#9ca3af"}
+                          />
+                        </View>
+                        <Text
+                          className={`text-xs mt-1 text-center ${
+                            isActive ? "text-white font-semibold" : "text-slate-400"
+                          }`}
+                        >
+                          {section.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
 
                 {/* Banner de statut du dossier */}

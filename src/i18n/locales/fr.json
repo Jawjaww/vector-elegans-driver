@@ -26,6 +26,9 @@
     "signOut": "Se déconnecter",
     "forgotPassword": "Mot de passe oublié ?",
     "invalidCredentials": "Email ou mot de passe invalide",
+    "cloudLocalSeedHint": "Les comptes @elegance-mobilite.local (ex. marie.martin, mot de passe password123) n'existent que sur Supabase local. Pour Expo Go en local : ./scripts/sync-local-supabase-env.sh puis npx expo start -c. Sur le cloud, utilisez un compte chauffeur créé dans Supabase.",
+    "backendCloud": "Backend : cloud (Supabase production)",
+    "backendLocal": "Backend : local (Docker LAN)",
     "driverOnly": "Accès réservé aux chauffeurs",
     "sessionExpired": "Session expirée. Veuillez vous reconnecter.",
     "userNotFound": "Utilisateur non trouvé"

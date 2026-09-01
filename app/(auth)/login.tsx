@@ -13,7 +13,8 @@ import {
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-import { supabase } from "../../src/lib/supabase";
+import { useTranslation } from "react-i18next";
+import { supabase, getSupabaseBackendLabel } from "../../src/lib/supabase";
 import { isUserDriver } from "../../src/lib/utils/auth-helpers";
 
 /** Match signup glass fields: soft emerald → frosted white film. */
@@ -62,6 +63,8 @@ function AuthFieldShell({
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const backendLabel = getSupabaseBackendLabel();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,7 +82,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Error", "Please enter email and password");
+      Alert.alert(t("common.error"), t("auth.invalidCredentials"));
       return;
     }
 
@@ -112,7 +115,15 @@ export default function LoginScreen() {
 
       if (error) {
         console.error("Login error:", error);
-        Alert.alert("Error", error.message);
+        const invalidCreds = /invalid login credentials/i.test(error.message);
+        const localSeedEmail = /@elegance-mobilite\.local$/i.test(email.trim());
+        if (invalidCreds && backendLabel === "cloud" && localSeedEmail) {
+          Alert.alert(t("common.error"), t("auth.cloudLocalSeedHint"));
+        } else if (invalidCreds) {
+          Alert.alert(t("common.error"), t("auth.invalidCredentials"));
+        } else {
+          Alert.alert(t("common.error"), error.message);
+        }
         return;
       }
 
@@ -121,7 +132,7 @@ export default function LoginScreen() {
         if (!isUserDriver(data.user)) {
           console.log("User is not a driver");
           await supabase.auth.signOut();
-          Alert.alert("Access Denied", "This app is for drivers only");
+          Alert.alert(t("common.error"), t("auth.driverOnly"));
           return;
         }
 
@@ -159,7 +170,7 @@ export default function LoginScreen() {
       }
     } catch (error: any) {
       console.error("Login exception:", error);
-      Alert.alert("Error", error.message || "An unexpected error occurred");
+      Alert.alert(t("common.error"), error.message || t("common.error"));
     } finally {
       if (mounted.current) {
         setLoading(false);
@@ -214,6 +225,13 @@ export default function LoginScreen() {
               <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
                 Pour les chauffeur
               </Text>
+              {__DEV__ ? (
+                <Text className="text-xs text-amber-300/90 mt-3 text-center px-4">
+                  {backendLabel === "cloud"
+                    ? t("auth.backendCloud")
+                    : t("auth.backendLocal")}
+                </Text>
+              ) : null}
             </View>
 
             {/* Form Container */}
