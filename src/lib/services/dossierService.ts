@@ -135,6 +135,18 @@ async function getDossierStatusFromCompleteness(
   const comp = firstRpcRow(compData);
   if (!comp) return null;
 
+  const missingFields = asStringArray(comp.missing_fields);
+  const missingForSubmit = asStringArray(comp.missing_for_submit);
+  if (
+    missingFields.includes('not authorized') ||
+    missingForSubmit.includes('not authorized')
+  ) {
+    console.error(
+      '[dossierService] completeness fallback - not authorized',
+    );
+    return null;
+  }
+
   const status = normalizeFolderStatus(
     typeof driver.status === 'string' ? driver.status : 'draft',
   );
@@ -155,9 +167,9 @@ async function getDossierStatusFromCompleteness(
     rejected_document_types: [],
     expired_document_types: [],
     expiring_documents: [],
-    missing_for_submit: asStringArray(comp.missing_for_submit),
+    missing_for_submit: missingForSubmit,
     is_complete: Boolean(comp.is_complete),
-    missing_fields: asStringArray(comp.missing_fields),
+    missing_fields: missingFields,
   };
 }
 

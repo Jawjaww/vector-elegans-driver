@@ -142,6 +142,40 @@ describe('dossierService', () => {
     ]);
   });
 
+  it('getDossierStatus completeness fallback treats not authorized as failure', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Could not find the function' },
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            is_complete: false,
+            can_submit: false,
+            completion_percentage: 0,
+            missing_for_submit: ['not authorized'],
+            missing_fields: ['not authorized'],
+          },
+        ],
+        error: null,
+      });
+
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: 'driver-1', status: 'draft', user_id: 'user-1' },
+            error: null,
+          }),
+        }),
+      }),
+    });
+
+    const status = await getDossierStatus('driver-1', 'user-1');
+    expect(status).toBeNull();
+  });
+
   it('canEditDossier returns RPC boolean', async () => {
     mockRpc.mockResolvedValue({ data: true, error: null });
     await expect(canEditDossier('d1', 'u1')).resolves.toBe(true);
