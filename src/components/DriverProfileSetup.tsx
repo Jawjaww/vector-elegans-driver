@@ -402,7 +402,7 @@ export default function DriverProfileSetup({
       setAvatarPreviewUri(null);
       return;
     }
-    void resolveAvatarPreviewUrl(avatarUrl).then((url) => {
+    void resolveAvatarPreviewUrl(avatarUrl).then((url: string | null) => {
       if (!cancelled && url) setAvatarPreviewUri(url);
     });
     return () => {
