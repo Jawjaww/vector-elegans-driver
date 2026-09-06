@@ -9,6 +9,8 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { APP_CHROME } from '../lib/theme';
+import { AppChromeBackground } from './AppChromeBackground';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -80,6 +82,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
 
   return (
     <View style={styles.overlay} pointerEvents="auto" accessibilityLabel="Chargement">
+      <AppChromeBackground />
       <View style={styles.mark}>
         <Svg
           width="100%"
@@ -156,7 +159,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
     elevation: 30,
-    backgroundColor: '#090d16',
+    backgroundColor: APP_CHROME.fallback,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
@@ -168,7 +171,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   caption: {
-    color: '#94a3b8',
+    color: 'rgba(255,255,255,0.45)',
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 1,

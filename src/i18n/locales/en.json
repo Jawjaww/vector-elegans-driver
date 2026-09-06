@@ -12,7 +12,8 @@
     "next": "Next",
     "submit": "Submit",
     "success": "Success",
-    "offline": "You are offline"
+    "offline": "You are offline",
+    "info": "Info"
   },
   "auth": {
     "title": "Vector Elegans",
@@ -40,7 +41,13 @@
     "todayEarnings": "Today's Earnings",
     "todayRides": "Today's Rides",
     "rating": "Rating",
-    "noRides": "No rides available"
+    "noRides": "No rides available",
+    "available": "Available",
+    "receivingRides": "You are receiving rides",
+    "offlineNoOffers": "Offline — no new offers",
+    "onTrip": "On a trip",
+    "stayAvailableAfter": "GPS on — you will stay available after",
+    "offlineAfterTrip": "Offline after this trip — no new offers"
   },
   "ride": {
     "pickup": "Pickup",
@@ -58,6 +65,7 @@
     "countdown": "Respond in {{seconds}}s",
     "newRide": "New Ride Request!",
     "rideAccepted": "Ride Accepted",
+    "noLongerAvailable": "This ride is no longer available.",
     "rideCompleted": "Ride Completed",
     "rideCancelled": "Ride Cancelled",
     "loadingRoutes": "Loading routes...",

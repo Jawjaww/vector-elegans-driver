@@ -20,9 +20,9 @@ export const theme = {
     error: '#ef4444',
     info: '#3b82f6',
     
-    // Dark theme
-    background: '#171717',
-    backgroundMid: '#262626',
+    // Dark theme — charcoal chrome (tabs, sheet, loader)
+    background: '#161616',
+    backgroundMid: '#1c1c1c',
     surface: 'rgba(255, 255, 255, 0.02)',
     surfaceMid: 'rgba(255, 255, 255, 0.06)',
     surfaceHeavy: 'rgba(255, 255, 255, 0.12)',
@@ -69,7 +69,7 @@ export const theme = {
   
   gradients: {
     surface: 'linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01))',
-    background: 'linear-gradient(180deg, #171717 0%, #000000 100%)',
+    background: 'linear-gradient(180deg, #161616 0%, #1c1c1c 100%)',
     card: 'linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.008))',
     accent: 'linear-gradient(90deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.06))',
     inputLight: 'linear-gradient(90deg, rgba(16, 185, 129, 0.1), rgba(255, 255, 255, 0.2))',
@@ -82,6 +82,15 @@ export const theme = {
     slow: 300,
     spring: 'cubic-bezier(0.16, 1, 0.3, 1)',
   },
+};
+
+/** Shared charcoal wash for tabs, loader, and bottomsheet (expo-linear-gradient). */
+export const APP_CHROME = {
+  base: ['#161616', '#1c1c1c'] as const,
+  veil: ['rgba(255,255,255,0.028)', 'rgba(255,255,255,0.07)'] as const,
+  start: { x: 0.5, y: 0 } as const,
+  end: { x: 0.5, y: 1 } as const,
+  fallback: '#161616',
 };
 
 export const glassStyle = {

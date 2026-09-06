@@ -13,7 +13,8 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { LinearGradient } from 'expo-linear-gradient';
+import { APP_CHROME } from '../lib/theme';
+import { AppChromeBackground } from './AppChromeBackground';
 
 const WINDOW_H = Dimensions.get('window').height;
 
@@ -250,12 +251,7 @@ export const BottomSheet = ({
     <View style={styles.sceneFill} pointerEvents="box-none" onLayout={onLayout}>
       <GestureDetector gesture={sheetPan}>
         <Animated.View style={[styles.sheet, rBottomSheetStyle]}>
-          <LinearGradient
-            colors={['#171717', '#1f1f1f']}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          <AppChromeBackground />
           <View style={styles.handleContainer}>
             <View style={styles.line} />
           </View>
@@ -290,13 +286,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: -BOTTOM_EXTENSION,
     width: '100%',
-    backgroundColor: '#171717',
+    backgroundColor: APP_CHROME.fallback,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.14)',
+    borderTopColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },

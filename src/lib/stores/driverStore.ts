@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { gpsMovedEnough } from '../utils/gpsThrottle';
 import { isRideStillOfferable } from '../utils/ridePickup';
 import { OFFER_STACK_VISIBLE_MAX } from '../utils/offerCarousel';
 import {
@@ -168,6 +169,7 @@ export const useDriverStore = create<DriverState>()(
                 deferredRides: [],
                 declinedOfferIds: [],
                 suppressedRideIds: [],
+                // Keep activeRide — going offline never abandons the current trip.
               },
         ),
       activeRide: null,
@@ -356,10 +358,25 @@ export const useDriverStore = create<DriverState>()(
               todayEarnings: state.stats.todayEarnings + earnings,
               todayRides: state.stats.todayRides + 1,
             },
+            // isOnline unchanged — offline-after-trip stays offline.
           };
         }),
       currentLocation: null,
-      setCurrentLocation: (location) => set({ currentLocation: location }),
+      setCurrentLocation: (location) =>
+        set((state) => {
+          if (location == null) {
+            return state.currentLocation == null
+              ? state
+              : { currentLocation: null };
+          }
+          if (
+            state.currentLocation &&
+            !gpsMovedEnough(state.currentLocation, location)
+          ) {
+            return state;
+          }
+          return { currentLocation: location };
+        }),
     }),
     {
       name: 'driver-storage',

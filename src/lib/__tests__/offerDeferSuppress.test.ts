@@ -247,6 +247,25 @@ describe('driverStore defer / suppress / promote', () => {
     expect(state.deferredRides).toHaveLength(0);
   });
 
+  it('going offline does not clear an active trip', () => {
+    const ride = baseRide('trip-1');
+    useDriverStore.setState({
+      isOnline: true,
+      activeRide: ride,
+    });
+    useDriverStore.getState().setIsOnline(false);
+    expect(useDriverStore.getState().isOnline).toBe(false);
+    expect(useDriverStore.getState().activeRide?.id).toBe('trip-1');
+  });
+
+  it('completeRide keeps isOnline so matching can resume', () => {
+    const ride = baseRide('done-1');
+    useDriverStore.setState({ isOnline: true, activeRide: ride });
+    useDriverStore.getState().completeRide(ride);
+    expect(useDriverStore.getState().activeRide).toBeNull();
+    expect(useDriverStore.getState().isOnline).toBe(true);
+  });
+
   it('seedDeferredRides fills bottomsheet without touching available offer', () => {
     const active = baseRide('seed-active');
     const a = baseRide('seed-a');

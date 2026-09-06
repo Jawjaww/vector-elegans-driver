@@ -228,6 +228,19 @@ class RideService {
     };
   }
 
+  async fetchAssignedRide(driverId: string): Promise<Ride | null> {
+    const { data, error } = await supabase
+      .from('rides')
+      .select('*')
+      .eq('driver_id', driverId)
+      .in('status', ['scheduled', 'in-progress'])
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as Ride;
+  }
+
   private mapToPendingRide(ride: Ride): PendingRide {
     return {
       id: ride.id,

@@ -1,5 +1,30 @@
 import { Tabs } from 'expo-router';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
+
+type TabBarIconProps = Readonly<{ color: string; focused?: boolean; size?: number }>;
+
+function TabIcon({
+  icon,
+  color,
+}: Readonly<{ icon: string; color: string }>) {
+  return <Text style={{ fontSize: 20, color }}>{icon}</Text>;
+}
+
+function HomeTabIcon({ color }: TabBarIconProps) {
+  return <TabIcon icon="🏠" color={color} />;
+}
+
+function RidesTabIcon({ color }: TabBarIconProps) {
+  return <TabIcon icon="🚗" color={color} />;
+}
+
+function EarningsTabIcon({ color }: TabBarIconProps) {
+  return <TabIcon icon="💰" color={color} />;
+}
+
+function ProfileTabIcon({ color }: TabBarIconProps) {
+  return <TabIcon icon="👤" color={color} />;
+}
 
 export default function TabsLayout() {
   return (
@@ -8,7 +33,7 @@ export default function TabsLayout() {
         headerShown: false,
         sceneStyle: { backgroundColor: 'transparent' },
         tabBarStyle: {
-          backgroundColor: '#171717',
+          backgroundColor: '#161616',
           borderTopColor: 'rgba(255,255,255,0.06)',
           borderTopWidth: 1,
           height: 80,
@@ -27,34 +52,30 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <TabIcon icon="🏠" color={color} />,
+          tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="rides"
         options={{
           title: 'Rides',
-          tabBarIcon: ({ color }) => <TabIcon icon="🚗" color={color} />,
+          tabBarIcon: RidesTabIcon,
         }}
       />
       <Tabs.Screen
         name="earnings"
         options={{
           title: 'Earnings',
-          tabBarIcon: ({ color }) => <TabIcon icon="💰" color={color} />,
+          tabBarIcon: EarningsTabIcon,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <TabIcon icon="👤" color={color} />,
+          tabBarIcon: ProfileTabIcon,
         }}
       />
     </Tabs>
   );
-}
-
-function TabIcon({ icon, color }: { icon: string; color: string }) {
-  return <Text style={{ fontSize: 20 }}>{icon}</Text>;
 }

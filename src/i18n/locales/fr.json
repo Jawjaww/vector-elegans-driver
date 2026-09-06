@@ -16,7 +16,8 @@
     "success": "Succès",
     "offline": "Vous êtes hors ligne",
     "saving": "Enregistrement...",
-    "complete": "Complet"
+    "complete": "Complet",
+    "info": "Info"
   },
   "auth": {
     "title": "Vector Elegans",
@@ -45,7 +46,13 @@
     "todayEarnings": "Gains du jour",
     "todayRides": "Courses du jour",
     "rating": "Note",
-    "noRides": "Aucune course disponible"
+    "noRides": "Aucune course disponible",
+    "available": "Disponible",
+    "receivingRides": "Vous recevez des courses",
+    "offlineNoOffers": "Hors ligne — pas de nouvelles offres",
+    "onTrip": "En course",
+    "stayAvailableAfter": "GPS actif — vous resterez disponible après",
+    "offlineAfterTrip": "Hors ligne après cette course — pas de nouvelles offres"
   },
   "ride": {
     "pickup": "Prise en charge",
@@ -63,6 +70,7 @@
     "countdown": "Répondre dans {{seconds}}s",
     "newRide": "Nouvelle demande de course !",
     "rideAccepted": "Course acceptée",
+    "noLongerAvailable": "Cette course n'est plus disponible.",
     "rideCompleted": "Course terminée",
     "rideCancelled": "Course annulée",
     "loadingRoutes": "Chargement des tracés...",

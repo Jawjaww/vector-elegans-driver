@@ -19,6 +19,7 @@ import * as Location from 'expo-location';
 import type { MapProps, LatLng, DriverMarker, MapBounds, MapViewportCrop } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
+import { gpsMovedEnough, haversineMeters } from '../lib/utils/gpsThrottle';
 
 type PrefetchMode = 'normal' | 'aggressive' | 'disabled';
 
@@ -36,16 +37,6 @@ interface MapMessage {
 const DEFAULT_IDLE_RECENTER_MS = 8000;
 /** Tight follow zoom when a trip is active (not offer overview). */
 const NAV_FOLLOW_ZOOM = 18;
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = Math.PI / 180;
-  const dLat = (lat2 - lat1) * toRad;
-  const dLng = (lng2 - lng1) * toRad;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function readMapMessageString(msg: MapMessage, key: string): string {
   const value = msg[key];
@@ -274,6 +265,13 @@ export function WebViewMap({
   );
   const lastPrefetchCenterRef = useRef<{ lat: number; lng: number } | null>(null);
   const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onLocationUpdateRef = useRef(onLocationUpdate);
+  const onUserMapInteractRef = useRef(onUserMapInteract);
+  const onFollowPausedChangeRef = useRef(onFollowPausedChange);
+
+  onLocationUpdateRef.current = onLocationUpdate;
+  onUserMapInteractRef.current = onUserMapInteract;
+  onFollowPausedChangeRef.current = onFollowPausedChange;
 
   const SNAPSHOT_TIMEOUT_MS = 12000;
 
@@ -356,13 +354,10 @@ export function WebViewMap({
     navigationFollowRef.current = navigationFollow;
   }, [navigationFollow]);
 
-  const setPaused = useCallback(
-    (paused: boolean) => {
-      followPausedRef.current = paused;
-      onFollowPausedChange?.(paused);
-    },
-    [onFollowPausedChange],
-  );
+  const setPaused = useCallback((paused: boolean) => {
+    followPausedRef.current = paused;
+    onFollowPausedChangeRef.current?.(paused);
+  }, []);
 
   const postGpsCamera = useCallback(
     (coords: LatLng, followCamera: boolean, heading?: number) => {
@@ -420,9 +415,9 @@ export function WebViewMap({
   const handleUserMapInteract = useCallback(() => {
     if (!followUser && !navigationFollow) return;
     setPaused(true);
-    onUserMapInteract?.();
+    onUserMapInteractRef.current?.();
     scheduleIdleRecenter();
-  }, [followUser, navigationFollow, onUserMapInteract, scheduleIdleRecenter, setPaused]);
+  }, [followUser, navigationFollow, scheduleIdleRecenter, setPaused]);
 
   const handleGPSPosition = useCallback(
     (pos: Location.LocationObject) => {
@@ -431,18 +426,22 @@ export function WebViewMap({
         lng: pos.coords.longitude,
       };
 
-      startMapTransition(() => {
-        setLocation(newLoc);
-        onLocationUpdate?.(newLoc);
-      });
+      const movedForStore = gpsMovedEnough(locationRef.current, newLoc);
+      if (movedForStore) {
+        locationRef.current = newLoc;
+        startMapTransition(() => {
+          setLocation(newLoc);
+          onLocationUpdateRef.current?.(newLoc);
+        });
+      }
 
       if (isMapReadyRef.current) {
         const prev = lastPrefetchCenterRef.current;
-        const movedKm =
+        const movedM =
           prev != null
-            ? haversineKm(prev.lat, prev.lng, newLoc.lat, newLoc.lng)
+            ? haversineMeters(prev, newLoc)
             : Infinity;
-        if (prev == null || movedKm > 2) {
+        if (prev == null || movedM > 2000) {
           if (prefetchDebounceRef.current) {
             clearTimeout(prefetchDebounceRef.current);
           }
@@ -473,8 +472,13 @@ export function WebViewMap({
       // Puck always updates; camera follows in home GPS or active-trip navigation.
       postGpsCamera(newLoc, shouldFollowCamera(), heading);
     },
-    [onLocationUpdate, postGpsCamera, prefetchBounds, shouldFollowCamera, startMapTransition],
+    [postGpsCamera, prefetchBounds, shouldFollowCamera, startMapTransition],
   );
+
+  const handleGPSPositionRef = useRef(handleGPSPosition);
+  handleGPSPositionRef.current = handleGPSPosition;
+  const clearIdleTimerRef = useRef(clearIdleTimer);
+  clearIdleTimerRef.current = clearIdleTimer;
 
   useEffect(() => {
     if (!navigationFollow || !isMapReady) return;
@@ -485,6 +489,10 @@ export function WebViewMap({
   useEffect(() => {
     let watch: Location.LocationSubscription | null = null;
     let cancelled = false;
+
+    const onGpsFix = (pos: Location.LocationObject) => {
+      handleGPSPositionRef.current(pos);
+    };
 
     const setupGPSTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -501,7 +509,7 @@ export function WebViewMap({
           accuracy: Location.Accuracy.Balanced,
         });
         if (!cancelled) {
-          handleGPSPosition(current);
+          onGpsFix(current);
         }
       } catch {
         // Watch below will still deliver a fix
@@ -521,7 +529,7 @@ export function WebViewMap({
               timeInterval: 5000,
               distanceInterval: 25,
             },
-        handleGPSPosition,
+        onGpsFix,
       );
     };
 
@@ -530,13 +538,11 @@ export function WebViewMap({
     return () => {
       cancelled = true;
       watch?.remove();
-      clearIdleTimer();
+      clearIdleTimerRef.current();
     };
-  }, [
-    handleGPSPosition,
-    navigationFollow,
-    clearIdleTimer,
-  ]);
+    // Watch must not restart on GPS ticks — only High vs Balanced for trip nav.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigationFollow]);
 
   const getPrefetchModeForState = (state: AppStateStatus): PrefetchMode => {
     if (state === 'background') {

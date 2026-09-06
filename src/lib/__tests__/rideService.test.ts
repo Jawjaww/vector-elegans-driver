@@ -125,3 +125,25 @@ describe('rideService.offer + progress', () => {
     });
   });
 });
+
+describe('rideService.fetchAssignedRide', () => {
+  it('returns the latest scheduled or in-progress ride for the driver', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({
+      data: { id: 'r1', status: 'scheduled', driver_id: 'd1' },
+      error: null,
+    });
+    const limit = jest.fn(() => ({ maybeSingle }));
+    const order = jest.fn(() => ({ limit }));
+    const inFn = jest.fn(() => ({ order }));
+    const eq = jest.fn(() => ({ in: inFn }));
+    const select = jest.fn(() => ({ eq }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    const row = await rideService.fetchAssignedRide('d1');
+    expect(supabase.from).toHaveBeenCalledWith('rides');
+    expect(eq).toHaveBeenCalledWith('driver_id', 'd1');
+    expect(inFn).toHaveBeenCalledWith('status', ['scheduled', 'in-progress']);
+    expect(row).toMatchObject({ id: 'r1', status: 'scheduled' });
+  });
+});
