@@ -39,55 +39,74 @@ const SPRING = {
   overshootClamping: false,
 } as const;
 
+/** Online switch row (title + subtitle + Switch). */
+const ONLINE_BODY_H = 88;
+/** Dossier incomplete / expiry banner. */
+const NOTICES_BODY_H = 100;
+/** ActiveTripSheet (status + addresses + swipe + cancel). */
+const TRIP_BODY_H = 236;
+/** COURSES DISPONIBLES label + deferred carousel. */
+const RIDES_BODY_H = 256;
+/** JOURNÉE + COURSES day stats cards. */
+const STATS_BODY_H = 110;
+
 /**
  * Target visible heights (px from bottom of the home scene).
  *
  * peek    — handle / top edge only
  * nav     — navigation mode: handle only (max map)
- * stats   — JOURNÉE + COURSES cards
- * trip    — active trip controls (swipe + addresses fully visible)
- * rides   — ride cards fully visible
- * notices — almost full (notifications / promos), small map strip on top
+ * online  — Disponible switch
+ * notices — switch + dossier banner
+ * trip    — switch + banner slot + active trip controls
+ * rides   — + available / deferred ride cards
+ * stats   — + day earnings and ride count (last idle palier)
  */
 function buildSnapY(sceneH: number) {
   const peek = HANDLE_H + 8;
   const nav = HANDLE_H + 12;
-  const stats = HANDLE_H + 130;
-  // Fits ActiveTripSheet (status + addresses + swipe + cancel) without crop
-  const trip = HANDLE_H + 236;
-  const rides = HANDLE_H + 130 + 36 + 220;
+  const online = HANDLE_H + ONLINE_BODY_H;
+  const notices = online + NOTICES_BODY_H;
+  const trip = notices + TRIP_BODY_H;
+  const rides = notices + RIDES_BODY_H;
+  const stats = rides + STATS_BODY_H;
+  const maxVisible = Math.max(nav, sceneH - TOP_MAP_REVEAL);
+  const cap = (h: number) => Math.min(h, maxVisible);
   return {
     peek: sceneH - peek,
     nav: sceneH - nav,
-    stats: sceneH - stats,
-    trip: sceneH - trip,
-    rides: sceneH - rides,
-    notices: TOP_MAP_REVEAL,
+    online: sceneH - cap(online),
+    notices: sceneH - cap(notices),
+    trip: sceneH - cap(trip),
+    rides: sceneH - cap(rides),
+    stats: sceneH - cap(stats),
   };
 }
 
 export type SheetSnapLevel =
   | 'peek'
   | 'nav'
-  | 'stats'
+  | 'online'
+  | 'notices'
   | 'trip'
   | 'rides'
-  | 'notices';
+  | 'stats';
 
 const SNAP_ORDER: SheetSnapLevel[] = [
   'peek',
   'nav',
-  'stats',
+  'online',
+  'notices',
   'trip',
   'rides',
-  'notices',
+  'stats',
 ];
 
 /** Visible height of the nav snap (for HUD placement above the sheet). */
 export const NAV_SHEET_VISIBLE_H = HANDLE_H + 12;
 
-/** Visible height of the trip snap (for HUD placement above the sheet). */
-export const TRIP_SHEET_VISIBLE_H = HANDLE_H + 236;
+/** Visible height of the trip snap (switch + optional banner + ActiveTripSheet). */
+export const TRIP_SHEET_VISIBLE_H =
+  HANDLE_H + ONLINE_BODY_H + NOTICES_BODY_H + TRIP_BODY_H;
 
 function resolveAllowedOrder(
   allowedSnaps?: readonly SheetSnapLevel[],
@@ -111,7 +130,7 @@ export const BottomSheet = ({
   allowedSnaps,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
-  const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'notices');
+  const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
   const scrollRef = useRef<ScrollView>(null);
   const snapY = buildSnapY(sceneH);
 
@@ -132,9 +151,9 @@ export const BottomSheet = ({
   const prevAllowedKey = useRef(allowedOrder.join(','));
 
   const applySnapLevel = (level: SheetSnapLevel) => {
-    const atNotices = level === 'notices';
-    setScrollEnabled(atNotices);
-    if (!atNotices) {
+    const atStats = level === 'stats';
+    setScrollEnabled(atStats);
+    if (!atStats) {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
     }
   };

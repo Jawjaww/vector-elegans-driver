@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRideStillOfferable } from '../utils/ridePickup';
+import { OFFER_STACK_VISIBLE_MAX } from '../utils/offerCarousel';
+import {
+  appendCappedById,
+  cycleOfferStackFrontToBack,
+  DEFERRED_SHEET_MAX,
+  trimStackOverflowToDeferred,
+} from '../utils/offerQueue';
 
 export interface Ride {
   id: string;
@@ -47,16 +54,21 @@ export interface Location {
   accuracy?: number | null;
 }
 
+export type OfferGateState = {
+  suppressedRideIds: string[];
+  deferredRides: Ride[];
+  availableRides: Ride[];
+  /** Soft-refused this session — overlay must not re-present. */
+  declinedOfferIds?: string[];
+};
+
 /** Pure helper — used by presentOffer + Jest */
 export function canPresentRideOffer(
   rideId: string,
-  state: {
-    suppressedRideIds: string[];
-    deferredRides: Ride[];
-    availableRides: Ride[];
-  },
+  state: OfferGateState,
 ): boolean {
   if (state.suppressedRideIds.includes(rideId)) return false;
+  if (state.declinedOfferIds?.includes(rideId)) return false;
   if (state.deferredRides.some((r) => r.id === rideId)) return false;
   if (state.availableRides.some((r) => r.id === rideId)) return false;
   return true;
@@ -64,11 +76,7 @@ export function canPresentRideOffer(
 
 export function pickNextPendingRide(
   pending: Ride[],
-  state: {
-    suppressedRideIds: string[];
-    deferredRides: Ride[];
-    availableRides: Ride[];
-  },
+  state: OfferGateState,
 ): Ride | null {
   return (
     pending.find(
@@ -114,9 +122,11 @@ interface DriverState {
   activeRide: Ride | null;
   availableRide: Ride | null;
   availableRides: Ride[];
-  /** Timed-out offers shown in bottomsheet until promoted or suppressed */
+  /** Timed-out / soft-refused offers shown in bottomsheet until promoted */
   deferredRides: Ride[];
-  /** Declined this session — never re-present */
+  /** Soft-refused this session — not persisted; blocks overlay re-present */
+  declinedOfferIds: string[];
+  /** Hard-suppressed this session — never re-present */
   suppressedRideIds: string[];
   stats: DriverStats;
   currentLocation: Location | null;
@@ -128,6 +138,8 @@ interface DriverState {
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
   deferAvailableRide: (rideId: string) => void;
+  /** Swipe front to back of the overlay stack (does not defer). */
+  cycleAvailableRideToBack: () => void;
   /** Seed bottomsheet carousel with pending rides not currently offered */
   seedDeferredRides: (rides: Ride[]) => void;
   suppressRide: (rideId: string) => void;
@@ -154,6 +166,7 @@ export const useDriverStore = create<DriverState>()(
                 availableRide: null,
                 availableRides: [],
                 deferredRides: [],
+                declinedOfferIds: [],
                 suppressedRideIds: [],
               },
         ),
@@ -162,6 +175,7 @@ export const useDriverStore = create<DriverState>()(
       availableRide: null,
       availableRides: [],
       deferredRides: [],
+      declinedOfferIds: [],
       suppressedRideIds: [],
       setAvailableRide: (ride) =>
         set(() => ({
@@ -177,6 +191,16 @@ export const useDriverStore = create<DriverState>()(
       addAvailableRide: (ride) =>
         set((state) => {
           if (!canPresentRideOffer(ride.id, state)) return state;
+          // Stack full → overflow into bottomsheet (cap 12).
+          if (state.availableRides.length >= OFFER_STACK_VISIBLE_MAX) {
+            return {
+              deferredRides: appendCappedById(
+                state.deferredRides,
+                [ride],
+                DEFERRED_SHEET_MAX,
+              ),
+            };
+          }
           const availableRides = [...state.availableRides, ride];
           return {
             availableRides,
@@ -204,19 +228,30 @@ export const useDriverStore = create<DriverState>()(
             state.availableRides.find((r) => r.id === rideId) ??
             (state.availableRide?.id === rideId ? state.availableRide : null);
           if (!ride) return state;
-          const availableRides = state.availableRides.filter(
-            (r) => r.id !== rideId,
-          );
-          const deferredRides = state.deferredRides.some((r) => r.id === rideId)
+          const without = state.availableRides.filter((r) => r.id !== rideId);
+          const deferredBase = state.deferredRides.some((r) => r.id === rideId)
             ? state.deferredRides
-            : [...state.deferredRides, ride];
+            : appendCappedById(state.deferredRides, [ride], DEFERRED_SHEET_MAX);
+          const prevDeclined = state.declinedOfferIds ?? [];
+          const declinedOfferIds = prevDeclined.includes(rideId)
+            ? prevDeclined
+            : [...prevDeclined, rideId];
+          return {
+            availableRides: without,
+            availableRide: without[0] ?? null,
+            deferredRides: deferredBase,
+            declinedOfferIds,
+          };
+        }),
+      cycleAvailableRideToBack: () =>
+        set((state) => {
+          const availableRides = cycleOfferStackFrontToBack(
+            state.availableRides,
+          );
+          if (availableRides === state.availableRides) return state;
           return {
             availableRides,
-            availableRide:
-              state.availableRide?.id === rideId
-                ? availableRides[0] ?? null
-                : state.availableRide,
-            deferredRides,
+            availableRide: availableRides[0] ?? null,
           };
         }),
       seedDeferredRides: (rides) =>
@@ -229,7 +264,11 @@ export const useDriverStore = create<DriverState>()(
           );
           if (toAdd.length === 0) return state;
           return {
-            deferredRides: [...state.deferredRides, ...toAdd],
+            deferredRides: appendCappedById(
+              state.deferredRides,
+              toAdd,
+              DEFERRED_SHEET_MAX,
+            ),
           };
         }),
       suppressRide: (rideId) =>
@@ -253,27 +292,22 @@ export const useDriverStore = create<DriverState>()(
         set((state) => {
           const ride = state.deferredRides.find((r) => r.id === rideId);
           if (!ride) return state;
-          const deferredRides = state.deferredRides.filter(
+          const deferredWithout = state.deferredRides.filter(
             (r) => r.id !== rideId,
           );
-          if (state.availableRides.some((r) => r.id === rideId)) {
-            // Already queued — move to front as the active fullscreen offer
-            const availableRides = [
-              ride,
-              ...state.availableRides.filter((r) => r.id !== rideId),
-            ];
-            return {
-              deferredRides,
-              availableRides,
-              availableRide: ride,
-            };
-          }
-          // Clicked ride becomes the current offer (front of queue)
-          const availableRides = [ride, ...state.availableRides];
+          const stacked = state.availableRides.some((r) => r.id === rideId)
+            ? [ride, ...state.availableRides.filter((r) => r.id !== rideId)]
+            : [ride, ...state.availableRides];
+          const trimmed = trimStackOverflowToDeferred({
+            availableRides: stacked,
+            deferredRides: deferredWithout,
+            stackMax: OFFER_STACK_VISIBLE_MAX,
+            sheetMax: DEFERRED_SHEET_MAX,
+          });
           return {
-            deferredRides,
-            availableRides,
-            availableRide: ride,
+            deferredRides: trimmed.deferredRides,
+            availableRides: trimmed.availableRides,
+            availableRide: trimmed.availableRides[0] ?? null,
           };
         }),
       patchTrackedRide: (incoming) =>

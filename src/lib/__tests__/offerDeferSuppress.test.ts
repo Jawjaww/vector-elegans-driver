@@ -73,6 +73,18 @@ describe('offer present / defer / suppress helpers', () => {
     ).toBe(true);
   });
 
+  it('blocks declinedOfferIds from presentOffer even if not deferred', () => {
+    const ride = baseRide('declined-1');
+    expect(
+      canPresentRideOffer(ride.id, {
+        suppressedRideIds: [],
+        deferredRides: [],
+        availableRides: [],
+        declinedOfferIds: ['declined-1'],
+      }),
+    ).toBe(false);
+  });
+
   it('pickNextPendingRide skips suppressed and deferred', () => {
     const a = baseRide('a');
     const b = baseRide('b');
@@ -92,6 +104,7 @@ describe('driverStore defer / suppress / promote', () => {
       availableRide: null,
       availableRides: [],
       deferredRides: [],
+      declinedOfferIds: [],
       suppressedRideIds: [],
     });
   });
@@ -105,6 +118,92 @@ describe('driverStore defer / suppress / promote', () => {
     expect(state.availableRide).toBeNull();
     expect(state.deferredRides.map((r) => r.id)).toEqual(['defer-1']);
     expect(canPresentRideOffer(ride.id, state)).toBe(false);
+  });
+
+  it('cycleAvailableRideToBack rotates overlay without deferring', () => {
+    const a = baseRide('a');
+    const b = baseRide('b');
+    const c = baseRide('c');
+    useDriverStore.getState().setAvailableRides([a, b, c]);
+    useDriverStore.getState().cycleAvailableRideToBack();
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['b', 'c', 'a']);
+    expect(state.availableRide?.id).toBe('b');
+    expect(state.deferredRides).toHaveLength(0);
+  });
+
+  it('cycleAvailableRideToBack is a no-op for a single ride', () => {
+    const only = baseRide('only');
+    useDriverStore.getState().setAvailableRides([only]);
+    useDriverStore.getState().cycleAvailableRideToBack();
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['only']);
+    expect(state.availableRide?.id).toBe('only');
+  });
+
+  it('defer keeps remaining overlay and does not refill from deferred', () => {
+    const a = baseRide('a');
+    const b = baseRide('b');
+    const c = baseRide('c');
+    const d = baseRide('d');
+    const e = baseRide('e');
+    useDriverStore.getState().setAvailableRides([a, b, c, d]);
+    useDriverStore.getState().seedDeferredRides([e]);
+    useDriverStore.getState().deferAvailableRide(a.id);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['b', 'c', 'd']);
+    expect(state.availableRide?.id).toBe('b');
+    expect(state.deferredRides.map((r) => r.id)).toEqual(['e', 'a']);
+    expect(state.declinedOfferIds).toContain('a');
+    expect(canPresentRideOffer(a.id, state)).toBe(false);
+  });
+
+  it('declining the last overlay ride leaves overlay empty', () => {
+    const a = baseRide('only');
+    const e = baseRide('sheet');
+    useDriverStore.getState().setAvailableRides([a]);
+    useDriverStore.getState().seedDeferredRides([e]);
+    useDriverStore.getState().deferAvailableRide(a.id);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides).toHaveLength(0);
+    expect(state.availableRide).toBeNull();
+    expect(state.deferredRides.map((r) => r.id)).toEqual(['sheet', 'only']);
+  });
+
+  it('going offline clears declinedOfferIds', () => {
+    useDriverStore.setState({ declinedOfferIds: ['x'], isOnline: true });
+    useDriverStore.getState().setIsOnline(false);
+    expect(useDriverStore.getState().declinedOfferIds).toEqual([]);
+  });
+
+  it('addAvailableRide overflows to deferred when stack is full', () => {
+    const rides = [1, 2, 3, 4].map((n) => baseRide(`s${n}`));
+    rides.forEach((r) => useDriverStore.getState().addAvailableRide(r));
+    useDriverStore.getState().addAvailableRide(baseRide('overflow'));
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides).toHaveLength(4);
+    expect(state.deferredRides.map((r) => r.id)).toEqual(['overflow']);
+  });
+
+  it('promoteDeferredRide trims stack overflow into deferred', () => {
+    const stack = [1, 2, 3, 4].map((n) => baseRide(`p${n}`));
+    useDriverStore.getState().setAvailableRides(stack);
+    useDriverStore.getState().seedDeferredRides([baseRide('clicked')]);
+    useDriverStore.getState().promoteDeferredRide('clicked');
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual([
+      'clicked',
+      'p1',
+      'p2',
+      'p3',
+    ]);
+    expect(state.deferredRides.map((r) => r.id)).toEqual(['p4']);
   });
 
   it('suppress removes ride for the session', () => {
@@ -129,6 +228,7 @@ describe('driverStore defer / suppress / promote', () => {
     expect(state.availableRide?.id).toBe('pro-1');
     expect(state.availableRides[0]?.id).toBe('pro-1');
     expect(state.deferredRides).toHaveLength(0);
+    expect(state.declinedOfferIds).toContain('pro-1');
   });
 
   it('promoteDeferredRide puts clicked ride at front of offer queue', () => {

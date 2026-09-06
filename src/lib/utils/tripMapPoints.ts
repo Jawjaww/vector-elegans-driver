@@ -16,6 +16,9 @@ type RideCoords = {
 
 function finitePoint(lat: number, lng: number): LatLngPoint | undefined {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return undefined;
+  // Reject null island — otherwise fitBounds targets the Atlantic.
+  if (Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6) return undefined;
   return { lat, lng };
 }
 
@@ -58,9 +61,14 @@ export function resolveTripMapPoints(input: {
   }
 
   if (offerRide) {
+    const start = finitePoint(offerRide.pickup_lat, offerRide.pickup_lon);
+    const end = finitePoint(offerRide.dropoff_lat, offerRide.dropoff_lon);
+    if (!start || !end) {
+      return { start: undefined, end: undefined, approachFrom: undefined };
+    }
     return {
-      start: { lat: offerRide.pickup_lat, lng: offerRide.pickup_lon },
-      end: { lat: offerRide.dropoff_lat, lng: offerRide.dropoff_lon },
+      start,
+      end,
       approachFrom: offerApproach,
     };
   }

@@ -92,6 +92,7 @@ export const NeonSwipeButton = ({
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        .activeOffsetX([-8, 8])
         .onStart(() => {
           context.value = { x: translateX.value };
         })

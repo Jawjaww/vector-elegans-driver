@@ -64,11 +64,15 @@
     "approach": "Approach",
     "pickupLabel": "Pickup",
     "dropoffLabel": "Dropoff",
-    "swipeToAccept": "SWIPE TO ACCEPT >>>"
+    "swipeToAccept": "SWIPE TO ACCEPT >>>",
+    "offerCarousel": "Ride {{current}} of {{total}}",
+    "preparingOffer": "Preparing offer…",
+    "swipeToDecline": "Swipe to decline"
   },
   "profile": {
     "title": "Profile",
     "setup": "Profile Setup",
+    "backToHome": "Back to map",
     "personalInfo": "Personal Information",
     "avatar": "Profile photo",
     "avatarUpload": "Add a photo",

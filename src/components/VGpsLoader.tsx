@@ -13,44 +13,33 @@ import Animated, {
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /**
- * Highway “V” road:
- * left hairpin → left freeway leg → deep apex → right freeway leg →
- * one interchange on-ramp loop (bretelle) → merge exit onto the other highway.
- * viewBox 0 0 460 400 — room for wide road stroke.
+ * Tracé exact calqué sur le modèle dessiné :
+ * - Boucle / oreille à gauche
+ * - Descente en U large vers la pointe basse
+ * - Grande boucle supérieure centrale / droite
+ * - Sortie élancée vers le haut à droite
+ * viewBox 0 0 460 400
  */
-const V_GPS_PATH =
-  // Bretelle / virage d’entrée (haut gauche)
-  'M 82 82 ' +
-  'C 58 82 48 60 58 40 ' +
-  'C 68 20 96 18 110 38 ' +
-  'C 120 52 116 72 100 82 ' +
-  'C 92 88 86 86 82 82 ' +
-  // Autoroute — jambe gauche du V
-  'C 102 120 126 170 148 224 ' +
-  'C 166 268 180 316 190 354 ' +
-  // Virage en fond de vallée
-  'C 198 376 218 390 242 390 ' +
-  'C 266 390 286 374 298 346 ' +
-  // Autoroute — jambe droite (ligne principale)
-  'C 316 306 330 258 344 210 ' +
-  'C 354 176 364 142 372 118 ' +
-  // Bretelle de raccordement (UNE boucle d’échangeur, pas des tours)
-  // sortie de la voie → arc large → croise / rejoint l’autre axe
-  'C 386 88 418 78 432 108 ' +
-  'C 444 132 430 158 402 162 ' +
-  'C 384 164 372 152 370 136 ' +
-  // Fusion sur l’autre autoroute (sortie nette, direction changée)
-  'C 368 122 382 114 400 116 ' +
-  'L 428 124';
+const V_EXACT_PATH =
+  // Entrée / Boucle gauche
+  'M 120 160 ' +
+  'C 90 160, 75 100, 115 90 ' +
+  'C 135 85, 145 120, 130 150 ' +
+  // Descente vers la pointe du V
+  'C 120 175, 115 250, 170 310 ' +
+  'C 215 360, 275 360, 310 300 ' +
+  // Remontée et boucle supérieure (œil du V)
+  'C 350 230, 350 140, 280 130 ' +
+  'C 220 120, 190 180, 240 210 ' +
+  'C 280 235, 340 180, 420 60';
 
-const PATH_LENGTH = 1020;
+const PATH_LENGTH = 1150;
 
 type VGpsLoaderProps = Readonly<{
   visible: boolean;
   hint?: string;
 }>;
 
-/** Full-bleed map overlay: progressive blue GPS highway “V”. */
 export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
   const dashOffset = useSharedValue(PATH_LENGTH);
   const laneDash = useSharedValue(0);
@@ -62,7 +51,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
     dashOffset.value = withRepeat(
       withSequence(
         withTiming(0, {
-          duration: 3600,
+          duration: 3800,
           easing: Easing.bezier(0.4, 0.0, 0.2, 1),
         }),
         withTiming(0, { duration: 800 }),
@@ -90,52 +79,52 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
   if (!visible) return null;
 
   return (
-    <View
-      style={styles.overlay}
-      pointerEvents="auto"
-      accessibilityLabel="Chargement de la carte"
-    >
+    <View style={styles.overlay} pointerEvents="auto" accessibilityLabel="Chargement">
       <View style={styles.mark}>
         <Svg
           width="100%"
-          height={240}
+          height={260}
           viewBox="0 0 460 400"
           preserveAspectRatio="xMidYMid meet"
         >
           <Defs>
-            <LinearGradient id="veGpsBlue" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#93c5fd" stopOpacity="1" />
-              <Stop offset="40%" stopColor="#3b82f6" stopOpacity="1" />
-              <Stop offset="100%" stopColor="#1e3a8a" stopOpacity="1" />
+            <LinearGradient id="roadGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor="#38bdf8" stopOpacity="1" />
+              <Stop offset="50%" stopColor="#2563eb" stopOpacity="1" />
+              <Stop offset="100%" stopColor="#1d4ed8" stopOpacity="1" />
             </LinearGradient>
-            <LinearGradient id="veGpsEdge" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#1e40af" stopOpacity="0.9" />
-              <Stop offset="100%" stopColor="#172554" stopOpacity="0.95" />
+            <LinearGradient id="roadEdge" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#0f172a" stopOpacity="1" />
+              <Stop offset="100%" stopColor="#1e293b" stopOpacity="1" />
             </LinearGradient>
           </Defs>
 
+          {/* Contour / Bordure de route sombre */}
           <Path
-            d={V_GPS_PATH}
-            stroke="url(#veGpsEdge)"
-            strokeWidth={28}
+            d={V_EXACT_PATH}
+            stroke="#1e3a8a"
+            strokeWidth={24}
+            strokeOpacity={0.5}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
 
+          {/* Asphalte de la route */}
           <Path
-            d={V_GPS_PATH}
-            stroke="rgba(30, 58, 138, 0.45)"
-            strokeWidth={22}
+            d={V_EXACT_PATH}
+            stroke="url(#roadEdge)"
+            strokeWidth={16}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
 
+          {/* Animation du tracé GPS néon */}
           <AnimatedPath
-            d={V_GPS_PATH}
-            stroke="url(#veGpsBlue)"
-            strokeWidth={18}
+            d={V_EXACT_PATH}
+            stroke="url(#roadGlow)"
+            strokeWidth={11}
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -143,18 +132,20 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
             animatedProps={drawProps}
           />
 
+          {/* Marquage central en pointillés */}
           <AnimatedPath
-            d={V_GPS_PATH}
-            stroke="rgba(226, 232, 240, 0.92)"
-            strokeWidth={2.5}
+            d={V_EXACT_PATH}
+            stroke="#ffffff"
+            strokeWidth={2}
+            strokeOpacity={0.9}
             fill="none"
-            strokeLinecap="butt"
+            strokeLinecap="round"
             strokeLinejoin="round"
-            strokeDasharray={[14, 14]}
+            strokeDasharray={[10, 14]}
             animatedProps={laneProps}
           />
         </Svg>
-        <Text style={styles.caption}>{hint ?? 'Localisation…'}</Text>
+        <Text style={styles.caption}>{hint ?? 'Chargement en cours…'}</Text>
       </View>
     </View>
   );
@@ -165,7 +156,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
     elevation: 30,
-    backgroundColor: 'rgba(232, 238, 244, 0.92)',
+    backgroundColor: '#090d16',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
@@ -174,12 +165,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 20,
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 340,
   },
   caption: {
-    color: 'rgba(30, 64, 175, 0.7)',
+    color: '#94a3b8',
     fontSize: 13,
     fontWeight: '600',
-    letterSpacing: 0.6,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
 });

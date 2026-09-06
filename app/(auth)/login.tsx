@@ -220,7 +220,7 @@ export default function LoginScreen() {
             paddingHorizontal: 24,
           }}
         >
-          {/* Main Card Container - FullscreenRideModal Style */}
+          {/* Main card — glass chrome (same family as offer carousel) */}
           <View
             className="overflow-hidden rounded-xl"
             style={

@@ -15,14 +15,16 @@ import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
-import { useDriverStore, Ride, canPresentRideOffer, pickNextPendingRide, type DriverStats } from "../../src/lib/stores/driverStore";
+import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
+import { partitionOfferQueue } from "../../src/lib/utils/offerQueue";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from "../../src/components/BottomSheet";
-import { RideStackModal } from "../../src/components/RideStackModal";
+import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
 import { VTCMap } from "../../src/map";
+import type { MapControllerRef } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
@@ -30,7 +32,6 @@ import { TripArrivalHud } from "../../src/components/TripArrivalHud";
 import { VGpsLoader } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
-  optimisticEtaMinutes,
   type NavProgress,
 } from "../../src/lib/utils/navProgress";
 import { useActiveTripActions } from "../../src/hooks/useActiveTripActions";
@@ -53,8 +54,9 @@ import {
   resolveRideOfferPrice,
 } from "../../src/lib/utils/ridePickup";
 import { RidePriceBonus } from "../../src/components/RidePriceBonus";
-import { computeOfferMapFitPadding } from "../../src/lib/utils/offerMapFit";
-import { resolveTripMapPoints } from "../../src/lib/utils/tripMapPoints";
+import { useDashboardNavProgress } from "../../src/hooks/useDashboardNavProgress";
+import { useDashboardOfferMap } from "../../src/hooks/useDashboardOfferMap";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const REVIEW_STATUSES = new Set([
   "pending_review",
@@ -133,14 +135,13 @@ function resolveDriverHomeSnapLevel(input: {
   } = input;
 
   if (!activeRide && availableRidesCount > 0) return "nav";
-  // Dossier banner sits at the top of the sheet — stats is enough; notices is almost fullscreen.
-  if (hasDossierAlert) return "stats";
   if (activeRide) {
     const waitingAtPickup =
       activeRide.status === "scheduled" &&
       Boolean(activeRide.driver_arrived_at);
     return waitingAtPickup ? "trip" : "nav";
   }
+  if (hasDossierAlert) return "notices";
   if (availableRide || offerableDeferredCount > 0) return "rides";
   return "peek";
 }
@@ -332,30 +333,24 @@ function handlePendingRideRealtimeUpdate(
 
 function usePendingRideChannel({
   canReceiveOffers,
-  isOnline,
   presentOffer,
   removeAvailableRide,
-  setAvailableRide,
+  clearAvailableRide,
   patchTrackedRide,
   getOfferGateState,
 }: {
   canReceiveOffers: boolean;
-  isOnline: boolean;
   presentOffer: (ride: Ride) => Promise<void>;
   removeAvailableRide: (rideId: string) => void;
-  setAvailableRide: (ride: Ride | null) => void;
+  clearAvailableRide: () => void;
   patchTrackedRide: (ride: Ride) => void;
-  getOfferGateState: () => {
-    suppressedRideIds: string[];
-    deferredRides: Ride[];
-    availableRides: Ride[];
-  };
+  getOfferGateState: () => OfferGateState;
 }) {
   useEffect(() => {
     let channel: RealtimeChannel | undefined;
 
     if (!canReceiveOffers) {
-      if (!isOnline) setAvailableRide(null);
+      clearAvailableRide();
       return;
     }
 
@@ -364,6 +359,8 @@ function usePendingRideChannel({
         availableRide: currentOffer,
         activeRide: currentActive,
         availableRides: queued,
+        setAvailableRides,
+        seedDeferredRides,
       } = useDriverStore.getState();
       if (currentOffer || currentActive || queued.length > 0) return;
 
@@ -379,19 +376,18 @@ function usePendingRideChannel({
       if (error || !data?.length) return;
       const pending = data as Ride[];
       const gate = getOfferGateState();
-      const next = pickNextPendingRide(pending, gate);
-      if (next) await presentOffer(next);
-
-      const gateAfter = getOfferGateState();
-      const rest = pending.filter(
+      const eligible = pending.filter(
         (ride) =>
-          ride.id !== next?.id &&
-          isRideStillOfferable(ride) &&
-          canPresentRideOffer(ride.id, gateAfter),
+          isRideStillOfferable(ride) && canPresentRideOffer(ride.id, gate),
       );
-      if (rest.length > 0) {
-        useDriverStore.getState().seedDeferredRides(rest);
+      const { stack, sheet } = partitionOfferQueue(eligible);
+      if (stack.length === 0) return;
+
+      setAvailableRides(stack);
+      if (sheet.length > 0) {
+        seedDeferredRides(sheet);
       }
+      await Promise.all(stack.map((ride) => rideService.recordOffer(ride.id)));
     };
 
     void fetchExistingRide();
@@ -433,10 +429,9 @@ function usePendingRideChannel({
     };
   }, [
     canReceiveOffers,
-    isOnline,
+    clearAvailableRide,
     presentOffer,
     removeAvailableRide,
-    setAvailableRide,
     patchTrackedRide,
     getOfferGateState,
   ]);
@@ -489,10 +484,21 @@ async function acceptTrackedRide(args: {
 function resolveBottomSheetAllowedSnaps(
   activeRide: Ride | null,
   availableRidesCount: number,
+  hasDossierAlert: boolean,
 ): readonly SheetSnapLevel[] {
-  if (!activeRide && availableRidesCount > 0) return ["nav"];
-  if (activeRide) return ["nav", "trip", "notices"];
-  return ["peek", "stats", "rides", "notices"];
+  const withNotices = (
+    snaps: SheetSnapLevel[],
+  ): readonly SheetSnapLevel[] =>
+    hasDossierAlert ? snaps : snaps.filter((s) => s !== "notices");
+
+  if (activeRide) {
+    return withNotices(["nav", "notices", "trip"]);
+  }
+  // Overlay cards: keep default snap at `nav` but still allow drag to sheet sections.
+  if (availableRidesCount > 0) {
+    return withNotices(["nav", "online", "notices", "rides", "stats"]);
+  }
+  return withNotices(["peek", "online", "notices", "rides", "stats"]);
 }
 
 function resolveMapRecenterBottomOffset(activeRide: Ride | null): number {
@@ -520,133 +526,12 @@ function toggleDriverOnlineState(args: {
   if (next) args.setJustValidated(false);
 }
 
-export default function DashboardScreen() {
-  const router = useRouter();
+function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
   const [loading, setLoading] = useState(true);
   const [driverStatus, setDriverStatus] = useState<string | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [justValidated, setJustValidated] = useState(false);
   const driverStatusRef = useRef<string | null>(null);
-
-  const {
-    isOnline,
-    setIsOnline,
-    stats,
-    availableRide,
-    availableRides,
-    deferredRides,
-    setAvailableRide,
-    addAvailableRide,
-    removeAvailableRide,
-    deferAvailableRide,
-    suppressRide,
-    promoteDeferredRide,
-    patchTrackedRide,
-    activeRide,
-    setActiveRide,
-  } = useDriverStore();
-  const currentLocation = useDriverStore((s) => s.currentLocation);
-  useDriverLocation(isOnline || Boolean(activeRide));
-
-  const tripActions = useActiveTripActions();
-  const [navProgress, setNavProgress] = useState<NavProgress | null>(null);
-  const lastNavRpcAt = useRef(0);
-  const [mapReady, setMapReady] = useState(false);
-  const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
-  const [mapFollowPaused, setMapFollowPaused] = useState(false);
-  const resumeMapFollowRef = useRef<(() => void) | null>(null);
-  const { mapBoot, hasGpsFix, setHasGpsFix } = useMapBootSeed(currentLocation);
-
-  const pushNavProgress = useCallback(
-    (progress: NavProgress) => {
-      setNavProgress(progress);
-      const rideId = useDriverStore.getState().activeRide?.id;
-      if (!rideId) return;
-      const now = Date.now();
-      if (now - lastNavRpcAt.current < 12_000) return;
-      lastNavRpcAt.current = now;
-      const eta = optimisticEtaMinutes(
-        progress.durationSeconds,
-        progress.distanceMeters,
-      );
-      void supabase.rpc("update_ride_nav_progress", {
-        p_ride_id: rideId,
-        p_eta_minutes: eta,
-        p_remaining_m: Math.round(progress.distanceMeters),
-      });
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!activeRide) {
-      setNavProgress(null);
-      lastNavRpcAt.current = 0;
-    }
-  }, [activeRide?.id]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setMapLoaderTimedOut(true), 12_000);
-    return () => clearTimeout(t);
-  }, []);
-
-  const showMapLoader = !mapLoaderTimedOut && (!mapBoot || !mapReady);
-
-  const canReceiveOffers = isOnline && driverStatus === "active" && !activeRide;
-
-  const getOfferGateState = useCallback(
-    () => ({
-      suppressedRideIds: useDriverStore.getState().suppressedRideIds,
-      deferredRides: useDriverStore.getState().deferredRides,
-      availableRides: useDriverStore.getState().availableRides,
-    }),
-    [],
-  );
-
-  const presentOffer = useCallback(
-    async (ride: Ride) => {
-      if (!canReceiveOffers) return;
-      if (!isRideStillOfferable(ride)) return;
-      const gate = getOfferGateState();
-      if (!canPresentRideOffer(ride.id, gate)) return;
-      addAvailableRide(ride);
-      await rideService.recordOffer(ride.id);
-    },
-    [addAvailableRide, canReceiveOffers, getOfferGateState],
-  );
-
-  usePendingRideChannel({
-    canReceiveOffers,
-    isOnline,
-    presentOffer,
-    removeAvailableRide,
-    setAvailableRide,
-    patchTrackedRide,
-    getOfferGateState,
-  });
-
-  const handleAcceptRide = async (rideId: string) => {
-    await acceptTrackedRide({
-      rideId,
-      driverStatus,
-      availableRides,
-      deferredRides,
-      availableRide,
-      setActiveRide,
-      removeAvailableRide,
-      suppressRide,
-    });
-  };
-
-  const handleDeclineRide = async (
-    rideId: string,
-    reason: "declined" | "timeout" = "declined",
-  ) => {
-    // Soft refuse / timeout: back to bottomsheet queue; next available becomes offer
-    deferAvailableRide(rideId);
-    await rideService.respondOffer(rideId, reason);
-  };
-
   const setFolderStatus = useDriverFolderStore((s) => s.setStatus);
   const addNotification = useDriverFolderStore((s) => s.addNotification);
   const [rejectedDocs, setRejectedDocs] = useState<
@@ -741,7 +626,6 @@ export default function DashboardScreen() {
     }, [fetchDriverStatus]),
   );
 
-  // Live updates when admin validates / rejects / cancels the dossier.
   useEffect(() => {
     if (!driverId) return;
 
@@ -768,6 +652,143 @@ export default function DashboardScreen() {
     };
   }, [driverId, applyDriverStatus]);
 
+  return {
+    loading,
+    driverStatus,
+    justValidated,
+    setJustValidated,
+    rejectedDocs,
+    expiredTypes,
+    expiringDocs,
+    dossierIsComplete,
+  };
+}
+
+export default function DashboardScreen() {
+  const router = useRouter();
+  const {
+    loading,
+    driverStatus,
+    justValidated,
+    setJustValidated,
+    rejectedDocs,
+    expiredTypes,
+    expiringDocs,
+    dossierIsComplete,
+  } = useDriverDashboardBoot(router);
+
+  const {
+    isOnline,
+    setIsOnline,
+    stats,
+    availableRide,
+    availableRides,
+    deferredRides,
+    addAvailableRide,
+    removeAvailableRide,
+    deferAvailableRide,
+    suppressRide,
+    promoteDeferredRide,
+    patchTrackedRide,
+    clearAvailableRide,
+    activeRide,
+    setActiveRide,
+  } = useDriverStore();
+  const currentLocation = useDriverStore((s) => s.currentLocation);
+  useDriverLocation(isOnline || Boolean(activeRide));
+
+  const tripActions = useActiveTripActions();
+  const { navProgress, pushNavProgress } = useDashboardNavProgress(activeRide?.id);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
+  const [mapFollowPaused, setMapFollowPaused] = useState(false);
+  const resumeMapFollowRef = useRef<(() => void) | null>(null);
+  const mapControllerRef = useRef<MapControllerRef | null>(null);
+  const mapHostViewRef = useRef<View>(null);
+  const insets = useSafeAreaInsets();
+  const { mapBoot, hasGpsFix, setHasGpsFix } = useMapBootSeed(currentLocation);
+  const [offerOverlayBand, setOfferOverlayBand] = useState(280);
+
+  const canReceiveOffers = isOnline && driverStatus === "active" && !activeRide;
+
+  const {
+    setActiveOfferIndex,
+    showOfferCarousel,
+    mapRouteRide,
+    mapInOfferMode,
+    mapShowRoute,
+    offerFitPadding,
+    tripMapPoints,
+  } = useDashboardOfferMap({
+    activeRide,
+    canReceiveOffers,
+    availableRides,
+    currentLocation,
+    insets,
+    offerOverlayBand,
+    mapControllerRef,
+  });
+
+  useEffect(() => {
+    const t = setTimeout(() => setMapLoaderTimedOut(true), 12_000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const showMapLoader = !mapLoaderTimedOut && (!mapBoot || !mapReady);
+
+  const getOfferGateState = useCallback((): OfferGateState => {
+    const state = useDriverStore.getState();
+    return {
+      suppressedRideIds: state.suppressedRideIds,
+      deferredRides: state.deferredRides,
+      availableRides: state.availableRides,
+      declinedOfferIds: state.declinedOfferIds,
+    };
+  }, []);
+
+  const presentOffer = useCallback(
+    async (ride: Ride) => {
+      if (!canReceiveOffers) return;
+      if (!isRideStillOfferable(ride)) return;
+      const gate = getOfferGateState();
+      if (!canPresentRideOffer(ride.id, gate)) return;
+      addAvailableRide(ride);
+      await rideService.recordOffer(ride.id);
+    },
+    [addAvailableRide, canReceiveOffers, getOfferGateState],
+  );
+
+  usePendingRideChannel({
+    canReceiveOffers,
+    presentOffer,
+    removeAvailableRide,
+    clearAvailableRide,
+    patchTrackedRide,
+    getOfferGateState,
+  });
+
+  const handleAcceptRide = async (rideId: string) => {
+    await acceptTrackedRide({
+      rideId,
+      driverStatus,
+      availableRides,
+      deferredRides,
+      availableRide,
+      setActiveRide,
+      removeAvailableRide,
+      suppressRide,
+    });
+  };
+
+  const handleDeclineRide = async (
+    rideId: string,
+    reason: "declined" | "timeout" = "declined",
+  ) => {
+    // Soft refuse / timeout (Refuser button or countdown) — not swipe
+    deferAvailableRide(rideId);
+    await rideService.respondOffer(rideId, reason);
+  };
+
   const handleToggleOnline = () => {
     toggleDriverOnlineState({
       driverStatus,
@@ -776,6 +797,15 @@ export default function DashboardScreen() {
       setJustValidated,
     });
   };
+
+  const hasDossierAlert = hasDriverDossierAlert({
+    justValidated,
+    expiredTypes,
+    expiringDocs,
+    rejectedDocs,
+    driverStatus,
+    dossierIsComplete,
+  });
 
   const bottomSheetSnapLevel = useMemo(() => {
     const offerableDeferred = deferredRides.filter((r) =>
@@ -786,108 +816,30 @@ export default function DashboardScreen() {
       availableRidesCount: availableRides.length,
       availableRide,
       offerableDeferredCount: offerableDeferred.length,
-      hasDossierAlert: hasDriverDossierAlert({
-        justValidated,
-        expiredTypes,
-        expiringDocs,
-        rejectedDocs,
-        driverStatus,
-        dossierIsComplete,
-      }),
+      hasDossierAlert,
     });
   }, [
-    driverStatus,
-    dossierIsComplete,
-    justValidated,
+    hasDossierAlert,
     availableRide,
     availableRides.length,
     deferredRides,
     activeRide,
-    rejectedDocs,
-    expiredTypes,
-    expiringDocs,
   ]);
 
   const bottomSheetAllowedSnaps = useMemo(
-    () => resolveBottomSheetAllowedSnaps(activeRide, availableRides.length),
-    [activeRide, availableRides.length],
+    () =>
+      resolveBottomSheetAllowedSnaps(
+        activeRide,
+        availableRides.length,
+        hasDossierAlert,
+      ),
+    [activeRide, availableRides.length, hasDossierAlert],
   );
 
   const mapRecenterBottomOffset = useMemo(
     () => resolveMapRecenterBottomOffset(activeRide),
     [activeRide, activeRide?.status, activeRide?.driver_arrived_at],
   );
-
-  // Fullscreen offer uses the home map (no second WebView)
-  const offerRide = !activeRide && availableRides.length > 0
-    ? availableRides[0]
-    : null;
-
-  const [offerApproach, setOfferApproach] = useState<
-    { lat: number; lng: number } | undefined
-  >();
-  const [offerChromeVisible, setOfferChromeVisible] = useState(false);
-  const offerChromeRevealedRef = useRef(false);
-  const [offerFitPadding, setOfferFitPadding] = useState<{
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-  } | null>(null);
-
-  const onOfferMapViewportLayout = useCallback(
-    (hole: { x: number; y: number; w: number; h: number }) => {
-      const { width: sw, height: sh } = Dimensions.get("window");
-      setOfferFitPadding(computeOfferMapFitPadding(hole, { width: sw, height: sh }));
-    },
-    [],
-  );
-
-  const revealOfferChrome = useCallback(() => {
-    if (offerChromeRevealedRef.current) return;
-    offerChromeRevealedRef.current = true;
-    setOfferChromeVisible(true);
-  }, []);
-
-  useEffect(() => {
-    if (!offerRide?.id) {
-      setOfferApproach(undefined);
-      setOfferChromeVisible(false);
-      offerChromeRevealedRef.current = false;
-      setOfferFitPadding(null);
-      return;
-    }
-    offerChromeRevealedRef.current = false;
-    setOfferChromeVisible(false);
-    setOfferFitPadding(null);
-    const loc = useDriverStore.getState().currentLocation;
-    setOfferApproach(
-      loc
-        ? {
-            lat: Math.round(loc.lat * 2e3) / 2e3,
-            lng: Math.round(loc.lng * 2e3) / 2e3,
-          }
-        : undefined,
-    );
-    const fallback = setTimeout(revealOfferChrome, 2800);
-    return () => clearTimeout(fallback);
-  }, [offerRide?.id, revealOfferChrome]);
-
-  const tripMapPoints = useMemo(
-    () =>
-      resolveTripMapPoints({
-        activeRide,
-        offerRide,
-        currentLocation,
-        offerApproach,
-      }),
-    [activeRide, currentLocation, offerRide, offerApproach],
-  );
-
-  const mapInOfferMode = Boolean(offerRide);
-  const mapShowRoute =
-    Boolean(tripMapPoints.start && tripMapPoints.end) &&
-    (Boolean(activeRide) || (mapInOfferMode && offerFitPadding != null));
 
   if (loading) {
     return (
@@ -902,19 +854,10 @@ export default function DashboardScreen() {
 
   return (
     <AnimatedPage>
-      <RideStackModal
-        rides={availableRides}
-        chromeVisible={offerChromeVisible}
-        onMapViewportLayout={onOfferMapViewportLayout}
-        onAcceptRide={(rideId) => {
-          void handleAcceptRide(rideId);
-        }}
-        onDeclineRide={(rideId, reason) => {
-          void handleDeclineRide(rideId, reason ?? "declined");
-        }}
-      />
-
-      <View style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}>
+      <View
+        ref={mapHostViewRef}
+        style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}
+      >
         {/* Single warm VTCMap — also used for offer overview + route */}
         <VTCMap
             style={{ zIndex: 0 }}
@@ -926,15 +869,20 @@ export default function DashboardScreen() {
             drivers={[]}
             showRoute={mapShowRoute}
             presentation={mapInOfferMode ? "offer" : "default"}
-            offerOverview={mapInOfferMode}
-            followUser={!mapInOfferMode}
+            driverMarker={
+              mapInOfferMode && currentLocation
+                ? { lat: currentLocation.lat, lng: currentLocation.lng }
+                : undefined
+            }
+            followUser={!activeRide && !mapRouteRide}
             navigationFollow={!!activeRide}
             idleRecenterMs={8000}
             onFollowPausedChange={setMapFollowPaused}
             resumeFollowRef={resumeMapFollowRef}
+            mapControllerRef={mapControllerRef}
             routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
             routeFitPadding={
-              mapInOfferMode ? offerFitPadding ?? undefined : undefined
+              mapInOfferMode ? offerFitPadding : undefined
             }
             onLocationUpdate={(coords) => {
               setHasGpsFix(true);
@@ -958,7 +906,6 @@ export default function DashboardScreen() {
                   : null,
               });
             }}
-            onRoutePresented={revealOfferChrome}
             onMapReady={() => {
               setMapReady(true);
             }}
@@ -983,11 +930,27 @@ export default function DashboardScreen() {
           </>
         ) : null}
 
-        {/* Content Overlay */}
+        {showOfferCarousel ? (
+          <OfferRideCarousel
+            rides={availableRides}
+            chromeVisible
+            onActiveIndexChange={setActiveOfferIndex}
+            onOverlayHeightChange={setOfferOverlayBand}
+            onAcceptRide={(rideId) => {
+              void handleAcceptRide(rideId);
+            }}
+            onDeclineRide={(rideId, reason) => {
+              void handleDeclineRide(rideId, reason ?? "declined");
+            }}
+          />
+        ) : null}
+
+        {/* Content Overlay — zIndex 40, above offer stack (30) when raised */}
         <BottomSheet
           snapLevel={bottomSheetSnapLevel}
           allowedSnaps={bottomSheetAllowedSnaps}
         >
+          <OnlineStatusRow isOnline={isOnline} onToggle={handleToggleOnline} />
           <DriverStatusBanner
             driverStatus={driverStatus}
             isComplete={dossierIsComplete}
@@ -1004,8 +967,6 @@ export default function DashboardScreen() {
             deferredRides={deferredRides}
             stats={stats}
             tripActions={tripActions}
-            isOnline={isOnline}
-            onToggleOnline={handleToggleOnline}
             onOpenActiveRide={() => router.push("/(tabs)/rides")}
             onPromoteDeferred={promoteDeferredRide}
           />
@@ -1021,8 +982,6 @@ function DriverHomeSheetBody({
   deferredRides,
   stats,
   tripActions,
-  isOnline,
-  onToggleOnline,
   onOpenActiveRide,
   onPromoteDeferred,
 }: Readonly<{
@@ -1031,8 +990,6 @@ function DriverHomeSheetBody({
   deferredRides: Ride[];
   stats: DriverStats;
   tripActions: ReturnType<typeof useActiveTripActions>;
-  isOnline: boolean;
-  onToggleOnline: () => void;
   onOpenActiveRide: () => void;
   onPromoteDeferred: (rideId: string) => void;
 }>) {
@@ -1042,7 +999,6 @@ function DriverHomeSheetBody({
 
   return (
     <>
-      {!activeRide ? <DriverDayStatsRow stats={stats} /> : null}
       <View className="mb-5">
         {!activeRide ? (
           <Text
@@ -1079,7 +1035,7 @@ function DriverHomeSheetBody({
           />
         )}
       </View>
-      <OnlineStatusRow isOnline={isOnline} onToggle={onToggleOnline} />
+      {!activeRide ? <DriverDayStatsRow stats={stats} /> : null}
     </>
   );
 }
@@ -1105,7 +1061,7 @@ function DriverDayStatsRow({ stats }: Readonly<{ stats: DriverStats }>) {
           JOURNÉE
         </Text>
         <Text className="text-2xl font-black mt-1" style={{ color: "#fff" }}>
-          €{stats.todayEarnings}
+          €{Number(stats.todayEarnings).toFixed(2)}
         </Text>
       </View>
       <View
@@ -1143,10 +1099,10 @@ function OnlineStatusRow({
   return (
     <View
       style={{
-        marginTop: 20,
-        paddingTop: 16,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: "rgba(255,255,255,0.1)",
+        marginBottom: 12,
+        paddingBottom: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "rgba(255,255,255,0.1)",
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
@@ -1321,7 +1277,7 @@ function DriverStatusBanner({
     banner.kind === "validated" ? onDismissValidated : onOpenProfile;
 
   return (
-    <View className="px-6 mb-2">
+    <View className="mb-2">
       <Pressable onPress={onPress}>
         <View style={{ padding: 16 }}>
           <View className="flex-row items-center gap-3">

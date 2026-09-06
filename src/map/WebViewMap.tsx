@@ -16,8 +16,9 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import type { MapProps, LatLng, DriverMarker } from './types';
+import type { MapProps, LatLng, DriverMarker, MapBounds, MapViewportCrop } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
+import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 
 type PrefetchMode = 'normal' | 'aggressive' | 'disabled';
 
@@ -33,6 +34,182 @@ interface MapMessage {
 }
 
 const DEFAULT_IDLE_RECENTER_MS = 8000;
+/** Tight follow zoom when a trip is active (not offer overview). */
+const NAV_FOLLOW_ZOOM = 18;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLng = (lng2 - lng1) * toRad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function readMapMessageString(msg: MapMessage, key: string): string {
+  const value = msg[key];
+  return typeof value === 'string' ? value : '';
+}
+
+type SnapshotWaiter = {
+  resolve: (uri: string | null) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+function resolveSnapshotWaiter(
+  waiters: Map<string, SnapshotWaiter>,
+  rideId: string,
+  dataUrl: string | null,
+) {
+  const waiter = waiters.get(rideId);
+  if (!waiter) return;
+  clearTimeout(waiter.timeout);
+  waiters.delete(rideId);
+  waiter.resolve(dataUrl);
+}
+
+function handleMapConsoleMessage(msg: MapMessage) {
+  const args = msg.args as unknown[] | undefined;
+  if (msg.level === 'error') {
+    console.error('[Map]', ...(args ?? []));
+    return;
+  }
+  if (msg.level === 'warn') {
+    console.warn('[Map]', ...(args ?? []));
+    return;
+  }
+  console.log('[Map]', ...(args ?? []));
+}
+
+function handleMapRouteInfoMessage(
+  msg: MapMessage,
+  onRouteReady: MapProps['onRouteReady'],
+) {
+  const distanceMeters = Number(
+    msg.distanceMeters ?? (Number(msg.distance) || 0) * 1000,
+  );
+  const durationSeconds = Number(
+    msg.durationSeconds ?? (Number(msg.duration) || 0) * 60,
+  );
+  const next = msg.nextManeuver as
+    | {
+        type?: string;
+        modifier?: string | null;
+        distanceMeters?: number;
+        name?: string;
+      }
+    | null
+    | undefined;
+
+  onRouteReady?.(
+    distanceMeters,
+    durationSeconds,
+    next?.type
+      ? {
+          type: String(next.type),
+          modifier: next.modifier ?? null,
+          distanceMeters: Number(next.distanceMeters) || 0,
+          name: typeof next.name === 'string' ? next.name : '',
+        }
+      : null,
+  );
+}
+
+type WebViewMapMessageContext = {
+  isMapReadyRef: { current: boolean };
+  locationRef: { current: LatLng };
+  routePresentedSentRef: { current: boolean };
+  snapshotWaitersRef: { current: Map<string, SnapshotWaiter> };
+  startMapTransition: (fn: () => void) => void;
+  setIsMapReady: (ready: boolean) => void;
+  onMapReady?: () => void;
+  shouldFollowCamera: () => boolean;
+  postGpsCamera: (coords: LatLng, follow: boolean, heading?: number) => void;
+  handleUserMapInteract: () => void;
+  onRouteReady?: NonNullable<MapProps['onRouteReady']>;
+  onRoutePresented?: () => void;
+  onOfferRouteFramed?: (rideId: string) => void;
+  onOfferRouteCaptureReady?: (rideId: string) => void;
+  onOfferRouteCaptureFailed?: (rideId: string, error?: string) => void;
+  onMapSnapshot?: (rideId: string, dataUrl: string) => void;
+  onMapSnapshotError?: (rideId: string, error?: string) => void;
+};
+
+function dispatchWebViewMapMessage(
+  msg: MapMessage,
+  ctx: WebViewMapMessageContext,
+): void {
+  switch (msg.type) {
+    case 'mapError':
+      console.error('[WebView] mapError', msg.error);
+      break;
+    case 'console':
+      handleMapConsoleMessage(msg);
+      break;
+    case 'mapReady':
+      ctx.isMapReadyRef.current = true;
+      ctx.startMapTransition(() => {
+        ctx.setIsMapReady(true);
+      });
+      ctx.onMapReady?.();
+      if (ctx.shouldFollowCamera()) {
+        ctx.postGpsCamera(ctx.locationRef.current, true);
+      } else if (ctx.locationRef.current) {
+        ctx.postGpsCamera(ctx.locationRef.current, false);
+      }
+      break;
+    case 'userMapInteract':
+      ctx.handleUserMapInteract();
+      break;
+    case 'routeInfo':
+      handleMapRouteInfoMessage(msg, ctx.onRouteReady);
+      break;
+    case 'routePresented':
+      if (!ctx.routePresentedSentRef.current) {
+        ctx.routePresentedSentRef.current = true;
+        ctx.onRoutePresented?.();
+      }
+      break;
+    case 'offerRouteFramed': {
+      const rideId = readMapMessageString(msg, 'rideId');
+      if (rideId) ctx.onOfferRouteFramed?.(rideId);
+      break;
+    }
+    case 'offerRouteCaptureReady': {
+      const rideId = readMapMessageString(msg, 'rideId');
+      if (rideId) ctx.onOfferRouteCaptureReady?.(rideId);
+      break;
+    }
+    case 'offerRouteCaptureFailed': {
+      const rideId = readMapMessageString(msg, 'rideId');
+      if (rideId) {
+        ctx.onOfferRouteCaptureFailed?.(
+          rideId,
+          readMapMessageString(msg, 'error'),
+        );
+      }
+      break;
+    }
+    case 'mapSnapshot': {
+      const rideId = readMapMessageString(msg, 'rideId');
+      const dataUrl = readMapMessageString(msg, 'dataUrl');
+      resolveSnapshotWaiter(ctx.snapshotWaitersRef.current, rideId, dataUrl || null);
+      if (rideId && dataUrl) {
+        ctx.onMapSnapshot?.(rideId, dataUrl);
+      }
+      break;
+    }
+    case 'mapSnapshotError': {
+      const rideId = readMapMessageString(msg, 'rideId');
+      resolveSnapshotWaiter(ctx.snapshotWaitersRef.current, rideId, null);
+      ctx.onMapSnapshotError?.(rideId, readMapMessageString(msg, 'error'));
+      break;
+    }
+    default:
+      break;
+  }
+}
 
 export function WebViewMap({
   initialCenter,
@@ -46,6 +223,10 @@ export function WebViewMap({
   showRoute = true,
   presentation = 'default',
   offerOverview = false,
+  offerSnapshotMode = false,
+  driverMarker,
+  offerSnapshotRideId,
+  offerSnapshotAttempt = 0,
   mapInstanceKey,
   routeFitPaddingBottom = 48,
   routeFitPadding,
@@ -54,10 +235,16 @@ export function WebViewMap({
   onMapReady,
   onRouteReady,
   onRoutePresented,
+  onOfferRouteFramed,
+  onOfferRouteCaptureReady,
+  onOfferRouteCaptureFailed,
   onLocationUpdate,
   onUserMapInteract,
   onFollowPausedChange,
   resumeFollowRef,
+  mapControllerRef,
+  onMapSnapshot,
+  onMapSnapshotError,
   prefetchConfig = {
     enabled: true,
     aggressiveMode: false,
@@ -82,6 +269,13 @@ export function WebViewMap({
   const lastHeadingRef = useRef<number | undefined>(undefined);
   const routePresentedSentRef = useRef(false);
   const lastRouteKey = useRef<string>('');
+  const snapshotWaitersRef = useRef(
+    new Map<string, { resolve: (uri: string | null) => void; timeout: ReturnType<typeof setTimeout> }>(),
+  );
+  const lastPrefetchCenterRef = useRef<{ lat: number; lng: number } | null>(null);
+  const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const SNAPSHOT_TIMEOUT_MS = 12000;
 
   const [, startMapTransition] = useTransition();
 
@@ -111,6 +305,49 @@ export function WebViewMap({
     );
   }, []);
 
+  const requestSnapshot = useCallback(
+    (rideId: string, crop?: MapViewportCrop): Promise<string | null> => {
+      return new Promise((resolve) => {
+        const existing = snapshotWaitersRef.current.get(rideId);
+        if (existing) {
+          clearTimeout(existing.timeout);
+        }
+        const timeout = setTimeout(() => {
+          snapshotWaitersRef.current.delete(rideId);
+          resolve(null);
+        }, SNAPSHOT_TIMEOUT_MS);
+        snapshotWaitersRef.current.set(rideId, { resolve, timeout });
+        postToMap({ type: 'captureSnapshot', rideId, crop: crop ?? null });
+      });
+    },
+    [postToMap],
+  );
+
+  const prefetchBounds = useCallback(
+    (bounds: MapBounds, zoomLevels: number[] = [10, 11, 12]) => {
+      postToMap({ type: 'prefetchBounds', bounds, zoomLevels });
+    },
+    [postToMap],
+  );
+
+  const clearRouteOnMap = useCallback(() => {
+    lastRouteKey.current = '';
+    routePresentedSentRef.current = false;
+    postToMap({ type: 'clearRoute' });
+  }, [postToMap]);
+
+  useEffect(() => {
+    if (!mapControllerRef) return;
+    mapControllerRef.current = {
+      requestSnapshot,
+      prefetchBounds,
+      clearRoute: clearRouteOnMap,
+    };
+    return () => {
+      mapControllerRef.current = null;
+    };
+  }, [mapControllerRef, requestSnapshot, prefetchBounds, clearRouteOnMap]);
+
   useEffect(() => {
     locationRef.current = location;
   }, [location]);
@@ -132,18 +369,23 @@ export function WebViewMap({
       if (typeof heading === 'number') {
         lastHeadingRef.current = heading;
       }
+      const nav = navigationFollowRef.current;
       postToMap({
         type: 'gpsUpdate',
         coords: [coords.lng, coords.lat],
-        zoom: navigationFollowRef.current ? 17.5 : 16,
+        zoom: nav ? NAV_FOLLOW_ZOOM : 16,
         heading: heading ?? lastHeadingRef.current,
-        pitch: navigationFollowRef.current ? 50 : 0,
-        duration: navigationFollowRef.current ? 400 : 800,
+        pitch: nav ? 50 : 0,
+        duration: nav ? 400 : 800,
         followCamera,
       });
     },
     [postToMap],
   );
+
+  const shouldFollowCamera = useCallback(() => {
+    return (followUser || navigationFollow) && !followPausedRef.current;
+  }, [followUser, navigationFollow]);
 
   const clearIdleTimer = useCallback(() => {
     if (idleTimerRef.current) {
@@ -176,11 +418,11 @@ export function WebViewMap({
   }, [clearIdleTimer, idleRecenterMs, resumeFollow]);
 
   const handleUserMapInteract = useCallback(() => {
-    if (!followUser) return;
+    if (!followUser && !navigationFollow) return;
     setPaused(true);
     onUserMapInteract?.();
     scheduleIdleRecenter();
-  }, [followUser, onUserMapInteract, scheduleIdleRecenter, setPaused]);
+  }, [followUser, navigationFollow, onUserMapInteract, scheduleIdleRecenter, setPaused]);
 
   const handleGPSPosition = useCallback(
     (pos: Location.LocationObject) => {
@@ -194,7 +436,32 @@ export function WebViewMap({
         onLocationUpdate?.(newLoc);
       });
 
-      if (!followUser || !isMapReadyRef.current) return;
+      if (isMapReadyRef.current) {
+        const prev = lastPrefetchCenterRef.current;
+        const movedKm =
+          prev != null
+            ? haversineKm(prev.lat, prev.lng, newLoc.lat, newLoc.lng)
+            : Infinity;
+        if (prev == null || movedKm > 2) {
+          if (prefetchDebounceRef.current) {
+            clearTimeout(prefetchDebounceRef.current);
+          }
+          prefetchDebounceRef.current = setTimeout(() => {
+            prefetchDebounceRef.current = null;
+            lastPrefetchCenterRef.current = newLoc;
+            const pad = 0.08;
+            prefetchBounds(
+              [
+                [newLoc.lng - pad, newLoc.lat - pad],
+                [newLoc.lng + pad, newLoc.lat + pad],
+              ],
+              [10, 11, 12],
+            );
+          }, prev == null ? 0 : 30000);
+        }
+      }
+
+      if (!isMapReadyRef.current) return;
 
       const heading =
         typeof pos.coords.heading === 'number' &&
@@ -203,15 +470,19 @@ export function WebViewMap({
           ? pos.coords.heading
           : undefined;
 
-      // Marker always updates; camera only when follow is active
-      postGpsCamera(newLoc, !followPausedRef.current, heading);
+      // Puck always updates; camera follows in home GPS or active-trip navigation.
+      postGpsCamera(newLoc, shouldFollowCamera(), heading);
     },
-    [followUser, onLocationUpdate, postGpsCamera, startMapTransition],
+    [onLocationUpdate, postGpsCamera, prefetchBounds, shouldFollowCamera, startMapTransition],
   );
 
   useEffect(() => {
-    if (!followUser) return;
+    if (!navigationFollow || !isMapReady) return;
+    setPaused(false);
+    postGpsCamera(locationRef.current, true, lastHeadingRef.current);
+  }, [navigationFollow, isMapReady, postGpsCamera, setPaused]);
 
+  useEffect(() => {
     let watch: Location.LocationSubscription | null = null;
     let cancelled = false;
 
@@ -263,7 +534,6 @@ export function WebViewMap({
     };
   }, [
     handleGPSPosition,
-    followUser,
     navigationFollow,
     clearIdleTimer,
   ]);
@@ -312,12 +582,6 @@ export function WebViewMap({
       return;
     }
 
-    const endKey = [end.lat.toFixed(5), end.lng.toFixed(5)].join('|');
-
-    const startKey = navigationFollow
-      ? [start.lat.toFixed(4), start.lng.toFixed(4)].join('|')
-      : [start.lat.toFixed(5), start.lng.toFixed(5)].join('|');
-
     const padKey = routeFitPadding
       ? [
           routeFitPadding.top,
@@ -333,19 +597,22 @@ export function WebViewMap({
       offerOverview &&
       !routePresentedSentRef.current;
 
-    const key = [
-      startKey,
-      endKey,
-      approachFrom?.lat?.toFixed(4) ?? '',
-      approachFrom?.lng?.toFixed(4) ?? '',
+    const key = buildOfferRouteUpdateKey({
+      start,
+      end,
+      approachFrom,
       padKey,
-      navigationFollow ? 'nav' : 'fit',
+      navigationFollow,
       presentation,
-      useOfferOverview ? 'ov' : '',
-    ].join('|');
+      offerOverview: useOfferOverview,
+      offerSnapshotMode,
+      offerSnapshotRideId,
+      snapshotAttempt: offerSnapshotAttempt,
+    });
 
     if (key === lastRouteKey.current) return;
     lastRouteKey.current = key;
+    routePresentedSentRef.current = false;
 
     const shouldFitBounds = !navigationFollow;
 
@@ -356,11 +623,16 @@ export function WebViewMap({
       approachFrom: approachFrom
         ? [approachFrom.lng, approachFrom.lat]
         : null,
+      driverMarker: driverMarker
+        ? [driverMarker.lng, driverMarker.lat]
+        : null,
       fitPadding: routeFitPadding ?? null,
       fitPaddingBottom: routeFitPaddingBottom,
       fitBounds: shouldFitBounds,
       presentation,
       offerOverview: useOfferOverview,
+      offerSnapshotMode,
+      snapshotRideId: offerSnapshotRideId ?? null,
     });
   }, [
     isMapReady,
@@ -379,6 +651,9 @@ export function WebViewMap({
     navigationFollow,
     presentation,
     offerOverview,
+    offerSnapshotMode,
+    offerSnapshotRideId,
+    offerSnapshotAttempt,
     postToMap,
   ]);
 
@@ -392,89 +667,41 @@ export function WebViewMap({
       try {
         const msg: MapMessage = JSON.parse(event.nativeEvent.data);
         if (!msg?.type) return;
-
-        switch (msg.type) {
-          case 'mapError':
-            console.error('[WebView] mapError', msg.error);
-            break;
-
-          case 'console':
-            if (msg.level === 'error') {
-              console.error('[Map]', ...(msg.args as unknown[]));
-            } else if (msg.level === 'warn') {
-              console.warn('[Map]', ...(msg.args as unknown[]));
-            } else {
-              console.log('[Map]', ...(msg.args as unknown[]));
-            }
-            break;
-
-          case 'mapReady':
-            isMapReadyRef.current = true;
-            startMapTransition(() => {
-              setIsMapReady(true);
-            });
-            onMapReady?.();
-            if (followUser && !followPausedRef.current) {
-              postGpsCamera(locationRef.current, true);
-            }
-            break;
-
-          case 'userMapInteract':
-            handleUserMapInteract();
-            break;
-
-          case 'routeInfo': {
-            const distanceMeters = Number(
-              msg.distanceMeters ?? (Number(msg.distance) || 0) * 1000,
-            );
-            const durationSeconds = Number(
-              msg.durationSeconds ?? (Number(msg.duration) || 0) * 60,
-            );
-            const next = msg.nextManeuver as
-              | {
-                  type?: string;
-                  modifier?: string | null;
-                  distanceMeters?: number;
-                  name?: string;
-                }
-              | null
-              | undefined;
-            onRouteReady?.(
-              distanceMeters,
-              durationSeconds,
-              next?.type
-                ? {
-                    type: String(next.type),
-                    modifier: next.modifier ?? null,
-                    distanceMeters: Number(next.distanceMeters) || 0,
-                    name: next.name || '',
-                  }
-                : null,
-            );
-            break;
-          }
-
-          case 'routePresented':
-            if (!routePresentedSentRef.current) {
-              routePresentedSentRef.current = true;
-              onRoutePresented?.();
-            }
-            break;
-
-          default:
-            break;
-        }
+        dispatchWebViewMapMessage(msg, {
+          isMapReadyRef,
+          locationRef,
+          routePresentedSentRef,
+          snapshotWaitersRef,
+          startMapTransition,
+          setIsMapReady,
+          onMapReady,
+          shouldFollowCamera,
+          postGpsCamera,
+          handleUserMapInteract,
+          onRouteReady,
+          onRoutePresented,
+          onOfferRouteFramed,
+          onOfferRouteCaptureReady,
+          onOfferRouteCaptureFailed,
+          onMapSnapshot,
+          onMapSnapshotError,
+        });
       } catch (e) {
         console.error('WebView message error:', e);
       }
     },
     [
-      followUser,
       handleUserMapInteract,
       onMapReady,
       onRouteReady,
       onRoutePresented,
+      onOfferRouteFramed,
+      onOfferRouteCaptureReady,
+      onOfferRouteCaptureFailed,
+      onMapSnapshot,
+      onMapSnapshotError,
       postGpsCamera,
+      shouldFollowCamera,
       startMapTransition,
     ],
   );

@@ -299,10 +299,13 @@ const SECTIONS = [
 
 interface DriverProfileSetupProps {
   onComplete?: () => void;
+  /** Leave setup and return to the main map / bottom sheet. */
+  onExitToHome?: () => void;
 }
 
 export default function DriverProfileSetup({
   onComplete,
+  onExitToHome,
 }: Readonly<DriverProfileSetupProps>) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -1858,6 +1861,20 @@ export default function DriverProfileSetup({
 
   return (
     <View className="flex-1 bg-black">
+      {onExitToHome ? (
+        <Pressable
+          onPress={onExitToHome}
+          accessibilityRole="button"
+          accessibilityLabel={t("profile.backToHome")}
+          className="absolute z-20 flex-row items-center rounded-full border border-white/20 bg-white/10 px-3 py-2"
+          style={{ top: insets.top + 8, left: 16 }}
+        >
+          <Feather name="map" size={16} color="#34d399" />
+          <Text className="text-white text-xs font-semibold ml-2">
+            {t("profile.backToHome")}
+          </Text>
+        </Pressable>
+      ) : null}
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : "height"}

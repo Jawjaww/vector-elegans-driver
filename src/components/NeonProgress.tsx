@@ -1,17 +1,35 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   Easing,
-  runOnJS,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
+
+/** Pill-shaped inset groove (semicircle caps) — glass chrome, no black scrim. */
+export const INSET_PROGRESS_HEIGHT = 6;
+export const INSET_PROGRESS_RADIUS = INSET_PROGRESS_HEIGHT / 2;
+
+export const NEON_PROGRESS_INSET_GROOVE = {
+  height: INSET_PROGRESS_HEIGHT,
+  borderRadius: INSET_PROGRESS_RADIUS,
+  backgroundColor: 'rgba(255,255,255,0.07)',
+  borderWidth: 1,
+  borderTopColor: 'rgba(0,0,0,0.12)',
+  borderBottomColor: 'rgba(255,255,255,0.14)',
+  borderLeftColor: 'rgba(0,0,0,0.08)',
+  borderRightColor: 'rgba(255,255,255,0.1)',
+  overflow: 'hidden' as const,
+} as const;
 
 interface NeonProgressProps {
   durationMs: number;
   startKey: number;
   onExpire?: () => void;
+  /** inset = pill groove; band = flush underline under the price row. */
+  variant?: 'default' | 'inset' | 'band';
 }
 
 // Worklet function must be defined outside or with 'worklet' directive
@@ -22,9 +40,18 @@ function getProgressColor(p: number) {
   return '#f43f5e';
 }
 
-export function NeonProgress({ durationMs, startKey, onExpire }: NeonProgressProps) {
+export function NeonProgress({
+  durationMs,
+  startKey,
+  onExpire,
+  variant = 'default',
+}: Readonly<NeonProgressProps>) {
+  const inset = variant === 'inset';
+  const band = variant === 'band';
   const progress = useSharedValue(1);
   const colorProgress = useSharedValue(0);
+  const onExpireRef = useRef(onExpire);
+  onExpireRef.current = onExpire;
 
   useEffect(() => {
     progress.value = 1;
@@ -34,8 +61,8 @@ export function NeonProgress({ durationMs, startKey, onExpire }: NeonProgressPro
       duration: durationMs,
       easing: Easing.linear,
     }, (finished) => {
-      if (finished && onExpire) {
-        runOnJS(onExpire)();
+      if (finished && onExpireRef.current) {
+        scheduleOnRN(onExpireRef.current);
       }
     });
 
@@ -60,9 +87,27 @@ export function NeonProgress({ durationMs, startKey, onExpire }: NeonProgressPro
   });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.track}>
-        <Animated.View style={[styles.progress, progressStyle]}>
+    <View
+      style={[
+        styles.container,
+        inset || band ? styles.containerInset : null,
+      ]}
+    >
+      <View
+        style={[
+          styles.track,
+          inset ? styles.trackInset : null,
+          band ? styles.trackBand : null,
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.progress,
+            inset ? styles.progressInset : null,
+            band ? styles.progressBand : null,
+            progressStyle,
+          ]}
+        >
           <Animated.View style={[styles.shimmer, shimmerStyle]} />
         </Animated.View>
       </View>
@@ -77,17 +122,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
+  containerInset: {
+    height: undefined,
+    paddingHorizontal: 0,
+  },
   track: {
     height: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 3,
     overflow: 'hidden',
   },
+  trackInset: {
+    ...NEON_PROGRESS_INSET_GROOVE,
+  },
+  trackBand: {
+    height: 3,
+    borderRadius: 0,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
   progress: {
     height: '100%',
     borderRadius: 3,
     position: 'relative',
     overflow: 'hidden',
+  },
+  progressInset: {
+    borderRadius: INSET_PROGRESS_RADIUS,
+  },
+  progressBand: {
+    borderRadius: 0,
   },
   shimmer: {
     ...StyleSheet.absoluteFillObject,

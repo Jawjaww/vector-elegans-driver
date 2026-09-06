@@ -70,12 +70,16 @@
     "pickupLabel": "Départ",
     "dropoffLabel": "Destination",
     "swipeToAccept": "GLISSER POUR ACCEPTER >>>",
-    "loading": "Chargement..."
+    "loading": "Chargement...",
+    "offerCarousel": "Course {{current}} sur {{total}}",
+    "preparingOffer": "Préparation de l'offre…",
+    "swipeToDecline": "Glisser pour refuser"
   },
   "profile": {
     "title": "Profil",
     "setup": "Configuration du profil",
     "setupTitle": "Configuration du chauffeur",
+    "backToHome": "Retour à la carte",
     "personalInfo": "Informations personnelles",
     "avatar": "Photo de profil",
     "avatarUpload": "Ajouter une photo",

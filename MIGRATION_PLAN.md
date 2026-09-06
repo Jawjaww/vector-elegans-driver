@@ -777,7 +777,11 @@ export function isUserAdmin(user: User | null): boolean {
 - Online/Offline toggle
 - Bottom sheet with tabs
 
-### 7.3 FullscreenRideModal
+### 7.3 OfferRideCarousel (was FullscreenRideModal)
+
+Live Expo surface: `OfferRideCarousel` + `OfferRideCard` (countdown, price, map hole, swipe-to-accept). Decline is currently a button; pan helpers live in `useOfferDismissGesture` / `useOfferCardDismissGesture` for a later swipe-to-decline.
+
+The Next.js driver portal still uses `elegance-mobilite/.../FullscreenRideModal.tsx` — do not delete that file.
 
 - 20-second countdown
 - Ride details (price, distance, duration)

@@ -1,9 +1,7 @@
-export type MapViewportHole = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+import {
+  OFFER_MAP_EDGE_INSET,
+  OFFER_MAP_FIT_DEZOOM_INSET,
+} from './offerCardLayout';
 
 export type FitPadding = {
   top: number;
@@ -12,29 +10,27 @@ export type FitPadding = {
   left: number;
 };
 
-/** Inset so markers (≈36px) stay inside the offer map hole. */
-export const OFFER_MAP_FIT_INSET = 44;
-/** Room for address / time pills overlaid at the bottom of the hole. */
-export const OFFER_MAP_ADDRESS_BAND = 118;
-
 /**
- * Asymmetric fitBounds padding so the home WebView (fullscreen) frames the
- * route inside the modal map viewport hole — not the full device screen.
+ * fitBounds padding so the offer route sits in the map band above the overlay card.
+ * `bottomSheetBand` is the measured stack height (card + peek + sheet clearance).
  */
-export function computeOfferMapFitPadding(
-  hole: MapViewportHole,
+export function computeFullscreenOfferFitPadding(
   screen: { width: number; height: number },
-  opts?: { inset?: number; addressBand?: number },
+  opts?: {
+    edgeInset?: number;
+    topInset?: number;
+    bottomSheetBand?: number;
+  },
 ): FitPadding {
-  const inset = opts?.inset ?? OFFER_MAP_FIT_INSET;
-  const addressBand = opts?.addressBand ?? OFFER_MAP_ADDRESS_BAND;
+  const edge = opts?.edgeInset ?? OFFER_MAP_EDGE_INSET;
+  const topInset = opts?.topInset ?? edge + 48;
+  const bottomSheet = opts?.bottomSheetBand ?? 280;
+  const dezoom = OFFER_MAP_FIT_DEZOOM_INSET;
+
   return {
-    top: Math.max(8, Math.round(hole.y + inset)),
-    left: Math.max(8, Math.round(hole.x + inset)),
-    right: Math.max(8, Math.round(screen.width - hole.x - hole.w + inset)),
-    bottom: Math.max(
-      8,
-      Math.round(screen.height - hole.y - hole.h + inset + addressBand),
-    ),
+    top: Math.max(8, Math.round(topInset + dezoom)),
+    left: Math.max(8, Math.round(edge + dezoom)),
+    right: Math.max(8, Math.round(edge + dezoom)),
+    bottom: Math.max(8, Math.round(bottomSheet + edge + dezoom)),
   };
 }
