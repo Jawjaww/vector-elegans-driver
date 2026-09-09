@@ -9,8 +9,6 @@ describe('buildOfferRouteUpdateKey', () => {
     navigationFollow: false,
     presentation: 'offer',
     offerOverview: false,
-    offerSnapshotMode: true,
-    offerSnapshotRideId: 'ride-1',
   };
 
   it('stays stable when only the GPS / driver marker would have moved', () => {
@@ -26,12 +24,6 @@ describe('buildOfferRouteUpdateKey', () => {
       ...base,
       end: { lat: 44.2, lng: 0.4 },
     });
-    expect(a).not.toBe(b);
-  });
-
-  it('changes when the snapshot attempt is bumped (OSRM / capture retry)', () => {
-    const a = buildOfferRouteUpdateKey(base);
-    const b = buildOfferRouteUpdateKey({ ...base, snapshotAttempt: 1 });
     expect(a).not.toBe(b);
   });
 

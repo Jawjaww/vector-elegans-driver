@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import type { MapProps, LatLng, DriverMarker, MapBounds, MapViewportCrop } from './types';
+import type { MapProps, LatLng, DriverMarker, MapBounds } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 import { gpsMovedEnough, haversineMeters } from '../lib/utils/gpsThrottle';
@@ -37,28 +37,6 @@ interface MapMessage {
 const DEFAULT_IDLE_RECENTER_MS = 8000;
 /** Tight follow zoom when a trip is active (not offer overview). */
 const NAV_FOLLOW_ZOOM = 18;
-
-function readMapMessageString(msg: MapMessage, key: string): string {
-  const value = msg[key];
-  return typeof value === 'string' ? value : '';
-}
-
-type SnapshotWaiter = {
-  resolve: (uri: string | null) => void;
-  timeout: ReturnType<typeof setTimeout>;
-};
-
-function resolveSnapshotWaiter(
-  waiters: Map<string, SnapshotWaiter>,
-  rideId: string,
-  dataUrl: string | null,
-) {
-  const waiter = waiters.get(rideId);
-  if (!waiter) return;
-  clearTimeout(waiter.timeout);
-  waiters.delete(rideId);
-  waiter.resolve(dataUrl);
-}
 
 function handleMapConsoleMessage(msg: MapMessage) {
   const args = msg.args as unknown[] | undefined;
@@ -111,7 +89,6 @@ type WebViewMapMessageContext = {
   isMapReadyRef: { current: boolean };
   locationRef: { current: LatLng };
   routePresentedSentRef: { current: boolean };
-  snapshotWaitersRef: { current: Map<string, SnapshotWaiter> };
   startMapTransition: (fn: () => void) => void;
   setIsMapReady: (ready: boolean) => void;
   onMapReady?: () => void;
@@ -120,11 +97,6 @@ type WebViewMapMessageContext = {
   handleUserMapInteract: () => void;
   onRouteReady?: NonNullable<MapProps['onRouteReady']>;
   onRoutePresented?: () => void;
-  onOfferRouteFramed?: (rideId: string) => void;
-  onOfferRouteCaptureReady?: (rideId: string) => void;
-  onOfferRouteCaptureFailed?: (rideId: string, error?: string) => void;
-  onMapSnapshot?: (rideId: string, dataUrl: string) => void;
-  onMapSnapshotError?: (rideId: string, error?: string) => void;
 };
 
 function dispatchWebViewMapMessage(
@@ -162,41 +134,6 @@ function dispatchWebViewMapMessage(
         ctx.onRoutePresented?.();
       }
       break;
-    case 'offerRouteFramed': {
-      const rideId = readMapMessageString(msg, 'rideId');
-      if (rideId) ctx.onOfferRouteFramed?.(rideId);
-      break;
-    }
-    case 'offerRouteCaptureReady': {
-      const rideId = readMapMessageString(msg, 'rideId');
-      if (rideId) ctx.onOfferRouteCaptureReady?.(rideId);
-      break;
-    }
-    case 'offerRouteCaptureFailed': {
-      const rideId = readMapMessageString(msg, 'rideId');
-      if (rideId) {
-        ctx.onOfferRouteCaptureFailed?.(
-          rideId,
-          readMapMessageString(msg, 'error'),
-        );
-      }
-      break;
-    }
-    case 'mapSnapshot': {
-      const rideId = readMapMessageString(msg, 'rideId');
-      const dataUrl = readMapMessageString(msg, 'dataUrl');
-      resolveSnapshotWaiter(ctx.snapshotWaitersRef.current, rideId, dataUrl || null);
-      if (rideId && dataUrl) {
-        ctx.onMapSnapshot?.(rideId, dataUrl);
-      }
-      break;
-    }
-    case 'mapSnapshotError': {
-      const rideId = readMapMessageString(msg, 'rideId');
-      resolveSnapshotWaiter(ctx.snapshotWaitersRef.current, rideId, null);
-      ctx.onMapSnapshotError?.(rideId, readMapMessageString(msg, 'error'));
-      break;
-    }
     default:
       break;
   }
@@ -214,10 +151,7 @@ export function WebViewMap({
   showRoute = true,
   presentation = 'default',
   offerOverview = false,
-  offerSnapshotMode = false,
   driverMarker,
-  offerSnapshotRideId,
-  offerSnapshotAttempt = 0,
   mapInstanceKey,
   routeFitPaddingBottom = 48,
   routeFitPadding,
@@ -226,16 +160,11 @@ export function WebViewMap({
   onMapReady,
   onRouteReady,
   onRoutePresented,
-  onOfferRouteFramed,
-  onOfferRouteCaptureReady,
-  onOfferRouteCaptureFailed,
   onLocationUpdate,
   onUserMapInteract,
   onFollowPausedChange,
   resumeFollowRef,
   mapControllerRef,
-  onMapSnapshot,
-  onMapSnapshotError,
   prefetchConfig = {
     enabled: true,
     aggressiveMode: false,
@@ -260,9 +189,6 @@ export function WebViewMap({
   const lastHeadingRef = useRef<number | undefined>(undefined);
   const routePresentedSentRef = useRef(false);
   const lastRouteKey = useRef<string>('');
-  const snapshotWaitersRef = useRef(
-    new Map<string, { resolve: (uri: string | null) => void; timeout: ReturnType<typeof setTimeout> }>(),
-  );
   const lastPrefetchCenterRef = useRef<{ lat: number; lng: number } | null>(null);
   const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onLocationUpdateRef = useRef(onLocationUpdate);
@@ -272,8 +198,6 @@ export function WebViewMap({
   onLocationUpdateRef.current = onLocationUpdate;
   onUserMapInteractRef.current = onUserMapInteract;
   onFollowPausedChangeRef.current = onFollowPausedChange;
-
-  const SNAPSHOT_TIMEOUT_MS = 12000;
 
   const [, startMapTransition] = useTransition();
 
@@ -303,24 +227,6 @@ export function WebViewMap({
     );
   }, []);
 
-  const requestSnapshot = useCallback(
-    (rideId: string, crop?: MapViewportCrop): Promise<string | null> => {
-      return new Promise((resolve) => {
-        const existing = snapshotWaitersRef.current.get(rideId);
-        if (existing) {
-          clearTimeout(existing.timeout);
-        }
-        const timeout = setTimeout(() => {
-          snapshotWaitersRef.current.delete(rideId);
-          resolve(null);
-        }, SNAPSHOT_TIMEOUT_MS);
-        snapshotWaitersRef.current.set(rideId, { resolve, timeout });
-        postToMap({ type: 'captureSnapshot', rideId, crop: crop ?? null });
-      });
-    },
-    [postToMap],
-  );
-
   const prefetchBounds = useCallback(
     (bounds: MapBounds, zoomLevels: number[] = [10, 11, 12]) => {
       postToMap({ type: 'prefetchBounds', bounds, zoomLevels });
@@ -337,14 +243,13 @@ export function WebViewMap({
   useEffect(() => {
     if (!mapControllerRef) return;
     mapControllerRef.current = {
-      requestSnapshot,
       prefetchBounds,
       clearRoute: clearRouteOnMap,
     };
     return () => {
       mapControllerRef.current = null;
     };
-  }, [mapControllerRef, requestSnapshot, prefetchBounds, clearRouteOnMap]);
+  }, [mapControllerRef, prefetchBounds, clearRouteOnMap]);
 
   useEffect(() => {
     locationRef.current = location;
@@ -611,9 +516,6 @@ export function WebViewMap({
       navigationFollow,
       presentation,
       offerOverview: useOfferOverview,
-      offerSnapshotMode,
-      offerSnapshotRideId,
-      snapshotAttempt: offerSnapshotAttempt,
     });
 
     if (key === lastRouteKey.current) return;
@@ -637,8 +539,6 @@ export function WebViewMap({
       fitBounds: shouldFitBounds,
       presentation,
       offerOverview: useOfferOverview,
-      offerSnapshotMode,
-      snapshotRideId: offerSnapshotRideId ?? null,
     });
   }, [
     isMapReady,
@@ -657,9 +557,6 @@ export function WebViewMap({
     navigationFollow,
     presentation,
     offerOverview,
-    offerSnapshotMode,
-    offerSnapshotRideId,
-    offerSnapshotAttempt,
     postToMap,
   ]);
 
@@ -677,7 +574,6 @@ export function WebViewMap({
           isMapReadyRef,
           locationRef,
           routePresentedSentRef,
-          snapshotWaitersRef,
           startMapTransition,
           setIsMapReady,
           onMapReady,
@@ -686,11 +582,6 @@ export function WebViewMap({
           handleUserMapInteract,
           onRouteReady,
           onRoutePresented,
-          onOfferRouteFramed,
-          onOfferRouteCaptureReady,
-          onOfferRouteCaptureFailed,
-          onMapSnapshot,
-          onMapSnapshotError,
         });
       } catch (e) {
         console.error('WebView message error:', e);
@@ -701,11 +592,6 @@ export function WebViewMap({
       onMapReady,
       onRouteReady,
       onRoutePresented,
-      onOfferRouteFramed,
-      onOfferRouteCaptureReady,
-      onOfferRouteCaptureFailed,
-      onMapSnapshot,
-      onMapSnapshotError,
       postGpsCamera,
       shouldFollowCamera,
       startMapTransition,

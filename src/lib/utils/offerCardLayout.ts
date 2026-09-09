@@ -10,12 +10,6 @@ export const OFFER_MAP_EDGE_INSET = 26;
 /** Max MapLibre zoom for offer live framing (short trips). */
 export const OFFER_MAP_ZOOM_CAP = 11;
 
-/**
- * Geographic bounds expansion before fitBounds (legacy snapshot HTML path).
- * Kept so MapLibre offer framing can still dezoom slightly if snapshot mode is on.
- */
-export const OFFER_MAP_ROUTE_BOUNDS_EXPAND = 1.22;
-
 /** Slight dezoom on live offer framing (route + approach in the top map band). */
 export const OFFER_MAP_LIVE_BOUNDS_EXPAND = 1.14;
 

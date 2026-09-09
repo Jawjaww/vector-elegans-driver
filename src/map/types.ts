@@ -44,7 +44,7 @@ export interface MapProps {
   /** Extra bottom padding when fitting route (overlay height in px) */
   routeFitPaddingBottom?: number;
   /**
-   * Full fitBounds padding (e.g. offer modal viewport hole on a fullscreen map).
+   * Full fitBounds padding (offer overlay band on the home map).
    * When set, overrides the uniform defaults / routeFitPaddingBottom.
    */
   routeFitPadding?: {
@@ -57,22 +57,8 @@ export interface MapProps {
    * before fetching the route.
    */
   offerOverview?: boolean;
-  /**
-   * Snapshot pipeline: thinner route, WebGL endpoint markers, extra fitBounds dezoom.
-   */
-  offerSnapshotMode?: boolean;
-  /** Driver GPS dot for offer snapshot (separate from approachFrom polyline). */
+  /** Driver GPS for the offer puck (separate from approachFrom polyline). */
   driverMarker?: LatLng;
-  /** Ride id for offer snapshot pipeline signals from the WebView. */
-  offerSnapshotRideId?: string;
-  /** Incremented to re-post updateRoute after a failed OSRM / dark capture. */
-  offerSnapshotAttempt?: number;
-  /** OSRM route drawn + final fitBounds idle — open live hole. */
-  onOfferRouteFramed?: (rideId: string) => void;
-  /** Stable frame ready — trigger JPEG capture. */
-  onOfferRouteCaptureReady?: (rideId: string) => void;
-  /** OSRM / tiles never became capture-ready — do not store a sucette JPEG. */
-  onOfferRouteCaptureFailed?: (rideId: string, error?: string) => void;
   /**
    * After the user pans/zooms, wait this long then recenter on GPS
    * (idle and navigation). Default 8000.
@@ -97,28 +83,13 @@ export interface MapProps {
   onMapReady?: () => void;
   /** Fired when the user drags/zooms/rotates the map (not programmatic camera). */
   onUserMapInteract?: () => void;
-  /** Snapshot capture + tile prefetch + clearRoute for offer pipeline. */
+  /** Tile prefetch + clearRoute for the home map. */
   mapControllerRef?: RefObject<MapControllerRef | null>;
-  /** Fired when a map snapshot JPEG data URL is ready. */
-  onMapSnapshot?: (rideId: string, dataUrl: string) => void;
-  /** Fired when snapshot capture fails for a ride. */
-  onMapSnapshotError?: (rideId: string, error?: string) => void;
 }
 
 export type MapBounds = [[number, number], [number, number]];
 
-export type MapViewportCrop = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
-
 export type MapControllerRef = {
-  requestSnapshot: (
-    rideId: string,
-    crop?: MapViewportCrop,
-  ) => Promise<string | null>;
   prefetchBounds: (bounds: MapBounds, zoomLevels?: number[]) => void;
   clearRoute: () => void;
 };

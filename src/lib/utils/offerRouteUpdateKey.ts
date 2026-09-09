@@ -6,10 +6,6 @@ export type OfferRouteUpdateKeyInput = {
   navigationFollow: boolean;
   presentation: string;
   offerOverview: boolean;
-  offerSnapshotMode: boolean;
-  offerSnapshotRideId?: string | null;
-  /** Bumped when OSRM / capture must be retried without changing the trip. */
-  snapshotAttempt?: number;
 };
 
 /**
@@ -32,8 +28,5 @@ export function buildOfferRouteUpdateKey(input: OfferRouteUpdateKeyInput): strin
     input.navigationFollow ? 'nav' : 'fit',
     input.presentation,
     input.offerOverview ? 'ov' : '',
-    input.offerSnapshotMode ? 'snap' : '',
-    input.offerSnapshotRideId ?? '',
-    String(input.snapshotAttempt ?? 0),
   ].join('|');
 }

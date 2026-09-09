@@ -1,6 +1,5 @@
 import type { LatLng } from "./types";
 import {
-  OFFER_MAP_ROUTE_BOUNDS_EXPAND,
   OFFER_MAP_LIVE_BOUNDS_EXPAND,
   OFFER_MAP_ZOOM_CAP,
 } from "../lib/utils/offerCardLayout";
@@ -8,10 +7,6 @@ import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_GPS_MIN_SEPARATION_PX,
 } from "../lib/utils/markerDeclutter";
-import {
-  OFFER_OSRM_TIMEOUT_MS,
-  OFFER_SNAPSHOT_DARK_LUMA,
-} from "../lib/utils/offerSnapshotReadiness";
 
 interface PrefetchConfig {
   enabled: boolean;
@@ -211,8 +206,6 @@ export function buildMapHtmlTemplate(
       maxZoom: 18,
       renderWorldCopies: false,
       attributionControl: false,
-      // Required for canvas.toDataURL snapshot capture in offer cards.
-      preserveDrawingBuffer: true,
       antialias: false,
       optimizeForTerrain: false,
     });
@@ -367,173 +360,6 @@ export function buildMapHtmlTemplate(
       setTimeout(function () {
         prefetchTilesAround();
       }, 2000);
-    }
-
-    function captureMapSnapshot(rideId, crop) {
-      const requestId = rideId || "unknown";
-      var captureAttempts = 0;
-      var capturePosted = false;
-      window.__veSnapshotCaptureToken = (window.__veSnapshotCaptureToken || 0) + 1;
-      const captureToken = window.__veSnapshotCaptureToken;
-
-      function postResult(payload) {
-        if (
-          capturePosted &&
-          (payload.type === "mapSnapshot" || payload.type === "mapSnapshotError")
-        ) {
-          return;
-        }
-        if (
-          payload.type === "mapSnapshot" ||
-          payload.type === "mapSnapshotError"
-        ) {
-          capturePosted = true;
-        }
-        try {
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify(payload));
-          }
-        } catch (_) {}
-      }
-
-      function resolveCaptureRect(canvas) {
-        const dpr = window.devicePixelRatio || 1;
-        var cw = canvas.width;
-        var ch = canvas.height;
-        if (crop && Number(crop.w) > 8 && Number(crop.h) > 8) {
-          var sx = Math.round(Number(crop.x) * dpr);
-          var sy = Math.round(Number(crop.y) * dpr);
-          var sw = Math.round(Number(crop.w) * dpr);
-          var sh = Math.round(Number(crop.h) * dpr);
-          if (sx < 0) { sw += sx; sx = 0; }
-          if (sy < 0) { sh += sy; sy = 0; }
-          sw = Math.max(1, Math.min(sw, cw - sx));
-          sh = Math.max(1, Math.min(sh, ch - sy));
-          if (sx >= cw || sy >= ch || sw < 8 || sh < 8) {
-            return { sx: 0, sy: 0, sw: cw, sh: ch };
-          }
-          return { sx: sx, sy: sy, sw: sw, sh: sh };
-        }
-        return { sx: 0, sy: 0, sw: cw, sh: ch };
-      }
-
-      function sampleCanvasLuma(src, sx, sy, sw, sh) {
-        try {
-          var probe = document.createElement("canvas");
-          probe.width = 24;
-          probe.height = 24;
-          var pctx = probe.getContext("2d");
-          if (!pctx) return 255;
-          pctx.drawImage(src, sx, sy, sw, sh, 0, 0, 24, 24);
-          var data = pctx.getImageData(0, 0, 24, 24).data;
-          var sum = 0;
-          var n = 0;
-          for (var i = 0; i < data.length; i += 4) {
-            sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-            n += 1;
-          }
-          return n ? sum / n : 255;
-        } catch (_) {
-          return 255;
-        }
-      }
-
-      function readCanvasDataUrl(canvas) {
-        const rect = resolveCaptureRect(canvas);
-        if (rect.sx === 0 && rect.sy === 0 && rect.sw === canvas.width && rect.sh === canvas.height) {
-          return canvas.toDataURL("image/jpeg", 0.92);
-        }
-        const off = document.createElement("canvas");
-        off.width = rect.sw;
-        off.height = rect.sh;
-        const ctx = off.getContext("2d");
-        if (!ctx) return canvas.toDataURL("image/jpeg", 0.92);
-        ctx.drawImage(canvas, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
-        return off.toDataURL("image/jpeg", 0.92);
-      }
-
-      function tryCaptureCanvas() {
-        if (captureToken !== window.__veSnapshotCaptureToken) return;
-        captureAttempts += 1;
-        try {
-          map.triggerRepaint();
-          const canvas = map.getCanvas();
-          const rect = resolveCaptureRect(canvas);
-          const luma = sampleCanvasLuma(canvas, rect.sx, rect.sy, rect.sw, rect.sh);
-          if (luma < ${OFFER_SNAPSHOT_DARK_LUMA} && captureAttempts < 6) {
-            setTimeout(function () {
-              if (captureToken !== window.__veSnapshotCaptureToken) return;
-              map.once("idle", tryCaptureCanvas);
-              map.triggerRepaint();
-            }, 250);
-            return;
-          }
-          if (luma < ${OFFER_SNAPSHOT_DARK_LUMA}) {
-            postResult({ type: "mapSnapshotError", rideId: requestId, error: "too-dark" });
-            return;
-          }
-          const dataUrl = readCanvasDataUrl(canvas);
-          if ((!dataUrl || dataUrl.length < 128) && captureAttempts < 3) {
-            setTimeout(function () {
-              if (captureToken !== window.__veSnapshotCaptureToken) return;
-              map.once("idle", tryCaptureCanvas);
-              map.triggerRepaint();
-            }, 400);
-            return;
-          }
-          if (!dataUrl || dataUrl.length < 32) {
-            postResult({ type: "mapSnapshotError", rideId: requestId, error: "empty" });
-            return;
-          }
-          postResult({ type: "mapSnapshot", rideId: requestId, dataUrl: dataUrl });
-        } catch (err) {
-          if (captureAttempts < 3) {
-            setTimeout(function () {
-              if (captureToken !== window.__veSnapshotCaptureToken) return;
-              map.once("idle", tryCaptureCanvas);
-              map.triggerRepaint();
-            }, 400);
-            return;
-          }
-          postResult({
-            type: "mapSnapshotError",
-            rideId: requestId,
-            error: err && err.message ? err.message : String(err),
-          });
-        }
-      }
-
-      function scheduleCaptureAfterCamera() {
-        function runAfterIdle() {
-          if (captureToken !== window.__veSnapshotCaptureToken) return;
-          map.once("idle", tryCaptureCanvas);
-          map.triggerRepaint();
-        }
-        try {
-          if (typeof map.isMoving === "function" && map.isMoving()) {
-            map.once("moveend", runAfterIdle);
-          } else {
-            runAfterIdle();
-          }
-        } catch (_) {
-          runAfterIdle();
-        }
-        map.triggerRepaint();
-      }
-
-      try {
-        if (map.loaded()) {
-          scheduleCaptureAfterCamera();
-        } else {
-          map.once("load", scheduleCaptureAfterCamera);
-        }
-      } catch (err) {
-        postResult({
-          type: "mapSnapshotError",
-          rideId: requestId,
-          error: err && err.message ? err.message : String(err),
-        });
-      }
     }
 
     function setOverviewWestEurope(durationMs, fitPadding) {
@@ -728,9 +554,7 @@ export function buildMapHtmlTemplate(
             msg.fitBounds !== false,
             msg.presentation === "offer" ? "offer" : "default",
             msg.offerOverview === true,
-            msg.offerSnapshotMode === true,
-            msg.driverMarker || null,
-            msg.snapshotRideId || null
+            msg.driverMarker || null
           );
         } else if (msg.type === "setOverview") {
           setOverviewWestEurope(
@@ -749,8 +573,6 @@ export function buildMapHtmlTemplate(
           } else if (msg.mode === 'disabled') {
             console.log('[Prefetch] Mode → DISABLED');
           }
-        } else if (msg.type === "captureSnapshot") {
-          captureMapSnapshot(msg.rideId || "unknown", msg.crop || null);
         } else if (msg.type === "prefetchBounds" && Array.isArray(msg.bounds)) {
           prefetchBounds(msg.bounds, msg.zoomLevels || [10, 11, 12]);
         }
@@ -1246,21 +1068,7 @@ export function buildMapHtmlTemplate(
       loadSvg("gps-chevron", GPS_ARROW_SVG);
     }
 
-    function routeLineStyle(isOfferSnapshot) {
-      if (isOfferSnapshot) {
-        return {
-          casing: {
-            "line-color": "#064e3b",
-            "line-width": 5,
-            "line-opacity": 0.4,
-          },
-          line: {
-            "line-color": "#10b981",
-            "line-width": 3,
-            "line-opacity": 0.95,
-          },
-        };
-      }
+    function routeLineStyle() {
       return {
         casing: {
           "line-color": "#064e3b",
@@ -1288,8 +1096,7 @@ export function buildMapHtmlTemplate(
       };
     }
 
-    // Multiplies trip bounding box before fitBounds (offerSnapshotMode only).
-    // ↑ ratio (e.g. 1.20) = dezoom | ↓ (e.g. 1.08) = zoom in. Does not move the hole rect.
+    // Slight geographic dezoom before fitBounds on live offer framing.
     function expandBounds(bounds, ratio) {
       if (!ratio || ratio <= 1) return bounds;
       var sw = bounds.getSouthWest();
@@ -1302,83 +1109,6 @@ export function buildMapHtmlTemplate(
         [centerLng - halfLng, centerLat - halfLat],
         [centerLng + halfLng, centerLat + halfLat]
       );
-    }
-
-    function upsertEndpointLayers(start, end, driverLngLat) {
-      removeLayerSafe("endpoint-pickup");
-      removeLayerSafe("endpoint-dropoff");
-      removeLayerSafe("endpoint-driver");
-      removeSourceSafe("endpoints");
-
-      if (window.__vePickupMarker) {
-        window.__vePickupMarker.remove();
-        window.__vePickupMarker = null;
-      }
-      if (window.__veDropoffMarker) {
-        window.__veDropoffMarker.remove();
-        window.__veDropoffMarker = null;
-      }
-      if (window.__veDriverMarker) {
-        window.__veDriverMarker.remove();
-        window.__veDriverMarker = null;
-      }
-
-      var features = [
-        {
-          type: "Feature",
-          properties: { kind: "pickup" },
-          geometry: { type: "Point", coordinates: start },
-        },
-        {
-          type: "Feature",
-          properties: { kind: "dropoff" },
-          geometry: { type: "Point", coordinates: end },
-        },
-      ];
-
-      map.addSource("endpoints", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: features },
-      });
-
-      function paintLayers() {
-        if (!map.getSource("endpoints")) return;
-        if (!map.getLayer("endpoint-pickup")) {
-          map.addLayer({
-            id: "endpoint-pickup",
-            type: "symbol",
-            source: "endpoints",
-            filter: ["==", ["get", "kind"], "pickup"],
-            layout: {
-              "icon-image": "pickup-depart",
-              "icon-size": 1.15,
-              "icon-anchor": "bottom",
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-            },
-          });
-        }
-        if (!map.getLayer("endpoint-dropoff")) {
-          map.addLayer({
-            id: "endpoint-dropoff",
-            type: "symbol",
-            source: "endpoints",
-            filter: ["==", ["get", "kind"], "dropoff"],
-            layout: {
-              "icon-image": "dropoff-flag",
-              "icon-size": 1.18, // marker scale only — does not affect map zoom/framing
-              "icon-anchor": "bottom-left",
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-            },
-          });
-        }
-      }
-
-      ensureOfferMarkerImages(map, function () {
-        paintLayers();
-        syncOfferPickupVisibility();
-      });
     }
 
     function setOrAddLine(sourceId, casingId, lineId, feature, style) {
@@ -1404,12 +1134,7 @@ export function buildMapHtmlTemplate(
       });
     }
 
-    function upsertEndpoints(start, end, approachFrom, driverMarker, useWebgl) {
-      if (useWebgl) {
-        upsertEndpointLayers(start, end, driverMarker || null);
-        return;
-      }
-
+    function upsertEndpoints(start, end, approachFrom, driverMarker) {
       removeLayerSafe("endpoint-pickup");
       removeLayerSafe("endpoint-dropoff");
       removeLayerSafe("endpoint-driver");
@@ -1518,81 +1243,12 @@ export function buildMapHtmlTemplate(
       } catch (_) {}
     }
 
-    function notifyOfferRouteFramed(rideId) {
-      try {
-        if (window.ReactNativeWebView && rideId) {
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({ type: "offerRouteFramed", rideId: rideId })
-          );
-        }
-      } catch (_) {}
-    }
-
-    function notifyOfferRouteCaptureReady(rideId) {
-      try {
-        if (window.ReactNativeWebView && rideId) {
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({ type: "offerRouteCaptureReady", rideId: rideId })
-          );
-        }
-      } catch (_) {}
-    }
-
-    function notifyOfferRouteCaptureFailed(rideId, error) {
-      try {
-        if (window.ReactNativeWebView && rideId) {
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({
-              type: "offerRouteCaptureFailed",
-              rideId: rideId,
-              error: error || "unready",
-            })
-          );
-        }
-      } catch (_) {}
-    }
-
-    function routeLayerReady() {
-      try {
-        return Boolean(map.getLayer("route-line") && map.getSource("route"));
-      } catch (_) {
-        return false;
-      }
-    }
-
-    function mapTilesLoaded() {
-      try {
-        if (typeof map.areTilesLoaded === "function") {
-          return map.areTilesLoaded();
-        }
-      } catch (_) {}
-      return true;
-    }
-
-    function cameraIsMoving() {
-      try {
-        if (typeof map.isMoving === "function") return map.isMoving();
-      } catch (_) {}
-      return false;
-    }
-
-    function canCaptureOfferSnapshotNow() {
-      return Boolean(
-        window.__veOsrmTripReady &&
-          routeLayerReady() &&
-          mapTilesLoaded() &&
-          !cameraIsMoving()
-      );
-    }
-
-    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, offerSnapshotMode, driverMarker, snapshotRideId) {
+    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker) {
       const isOffer = presentation === "offer";
-      const useWebglMarkers = Boolean(isOffer && offerSnapshotMode);
-      const tripStyle = routeLineStyle(useWebglMarkers);
+      const tripStyle = routeLineStyle();
       window.__veOfferPickup = start;
       window.__veOfferDropoff = end;
       window.__veUseCanvasGpsPuck = Boolean(isOffer);
-      window.__veOsrmTripReady = false;
       syncGpsPuck(window.__veLastGpsCoords || driverMarker || null);
 
       if (routeAbortController) routeAbortController.abort();
@@ -1651,9 +1307,9 @@ export function buildMapHtmlTemplate(
         paintApproachStraight();
       }
 
-      // Live hole: dotted approach + pins immediately. Do not wait for the long trip OSRM.
+      // Dotted approach + pins immediately. Do not wait for the long trip OSRM.
       paintApproachStraight();
-      upsertEndpoints(start, end, approachFrom, driverMarker, useWebglMarkers);
+      upsertEndpoints(start, end, approachFrom, driverMarker);
 
       function scheduleOfferRoutePresented() {
         var notified = false;
@@ -1668,65 +1324,10 @@ export function buildMapHtmlTemplate(
             map.once("idle", notifyOnce);
           });
           map.triggerRepaint();
-          if (!offerSnapshotMode) {
-            setTimeout(notifyOnce, isOffer ? 1200 : 800);
-          }
+          setTimeout(notifyOnce, isOffer ? 1200 : 800);
         } catch (_) {
           notifyOnce();
         }
-      }
-
-      function scheduleOfferSnapshotPipeline(rideId) {
-        var framed = false;
-        var captureReady = false;
-        var attempts = 0;
-        var maxAttempts = 40;
-
-        function emitFramedIfPossible() {
-          if (framed || routePresentToken !== window.__veOfferPresentToken) return;
-          if (!window.__veOsrmTripReady || !routeLayerReady()) return;
-          framed = true;
-          notifyOfferRouteFramed(rideId);
-        }
-
-        function tick() {
-          if (captureReady || routePresentToken !== window.__veOfferPresentToken) return;
-          attempts += 1;
-          emitFramedIfPossible();
-          if (!canCaptureOfferSnapshotNow()) {
-            if (attempts >= maxAttempts) {
-              notifyOfferRouteCaptureFailed(rideId, "unready");
-              return;
-            }
-            setTimeout(tick, 80);
-            return;
-          }
-          map.triggerRepaint();
-          map.once("idle", function () {
-            if (captureReady || routePresentToken !== window.__veOfferPresentToken) return;
-            if (!canCaptureOfferSnapshotNow()) {
-              setTimeout(tick, 80);
-              return;
-            }
-            captureReady = true;
-            notifyOfferRouteCaptureReady(rideId);
-          });
-        }
-
-        try {
-          map.triggerRepaint();
-          setTimeout(tick, 0);
-        } catch (_) {
-          notifyOfferRouteCaptureFailed(rideId, "unready");
-        }
-      }
-
-      function scheduleOfferPresentation(rideId) {
-        if (offerSnapshotMode && rideId) {
-          scheduleOfferSnapshotPipeline(rideId);
-          return;
-        }
-        scheduleOfferRoutePresented();
       }
 
       let presented = false;
@@ -1737,30 +1338,24 @@ export function buildMapHtmlTemplate(
       function presentOnce(coordLists, fitCoordLists) {
         if (presented) return;
         presented = true;
-        // Max zoom after fitBounds for offer cards. Shared by live hole and JPEG snapshot.
         const zoomCap = isOffer ? ${OFFER_MAP_ZOOM_CAP} : 15;
-        const boundsExpand = offerSnapshotMode
-          ? ${OFFER_MAP_ROUTE_BOUNDS_EXPAND}
-          : isOffer
-            ? ${OFFER_MAP_LIVE_BOUNDS_EXPAND}
-            : 1;
+        const boundsExpand = isOffer ? ${OFFER_MAP_LIVE_BOUNDS_EXPAND} : 1;
         const listsForFit =
           isOffer && fitCoordLists && fitCoordLists.length
             ? fitCoordLists
             : coordLists;
-        // tripFitLists = OSRM polyline only (not approach). Live + snapshot must use same listsForFit.
         if (isOffer && offerRoutePresented) {
           if (shouldFitBounds || isOffer) {
             fitRouteBounds(
               listsForFit,
               fitPadding,
               fitPaddingBottom,
-              offerSnapshotMode ? 0 : 450, // 0 = same frame as snapshot capture (no extra animation)
+              450,
               zoomCap,
               boundsExpand,
             );
           }
-          scheduleOfferPresentation(snapshotRideId);
+          scheduleOfferRoutePresented();
           return;
         }
         if (shouldFitBounds || isOffer) {
@@ -1768,26 +1363,19 @@ export function buildMapHtmlTemplate(
             listsForFit,
             fitPadding,
             fitPaddingBottom,
-            // First fit when OSRM returns. Snapshot mode uses 0 so live hole matches JPEG.
-            isOffer ? (offerSnapshotMode ? 0 : 700) : 500,
+            isOffer ? 700 : 500,
             zoomCap,
             boundsExpand,
           );
         }
         if (isOffer) {
           offerRoutePresented = true;
-          scheduleOfferPresentation(snapshotRideId);
+          scheduleOfferRoutePresented();
         }
       }
 
       function paintStraightFallback() {
-        upsertEndpoints(
-          start,
-          end,
-          approachFrom,
-          driverMarker,
-          useWebglMarkers,
-        );
+        upsertEndpoints(start, end, approachFrom, driverMarker);
         setOrAddLine(
           "route",
           "route-casing",
@@ -1796,15 +1384,6 @@ export function buildMapHtmlTemplate(
           tripStyle,
         );
         paintApproachStraight();
-      }
-
-      function failSnapshotOsrm(reason) {
-        window.__veOsrmTripReady = false;
-        if (offerSnapshotMode && snapshotRideId) {
-          notifyOfferRouteCaptureFailed(snapshotRideId, reason);
-          return true;
-        }
-        return false;
       }
 
       function applyTripGeometry(trip) {
@@ -1846,26 +1425,16 @@ export function buildMapHtmlTemplate(
           syncGpsPuck(window.__veLastGpsCoords || driverMarker);
         }
 
-        window.__veOsrmTripReady = Boolean(drewTrip && tripCoords.length > 2);
-        if (!window.__veOsrmTripReady) {
-          failSnapshotOsrm(drewTrip ? "osrm-too-short" : "osrm-missing");
-          if (!offerSnapshotMode) {
-            paintStraightFallback();
-            presentOnce(
-              [approachFrom ? [approachFrom, start] : [], tripCoords],
-              tripFitLists(tripCoords),
-            );
-          }
+        if (!(drewTrip && tripCoords.length > 2)) {
+          paintStraightFallback();
+          presentOnce(
+            [approachFrom ? [approachFrom, start] : [], tripCoords],
+            tripFitLists(tripCoords),
+          );
           return;
         }
 
-        upsertEndpoints(
-          start,
-          end,
-          approachFrom,
-          driverMarker,
-          useWebglMarkers,
-        );
+        upsertEndpoints(start, end, approachFrom, driverMarker);
         const approachCoords =
           window.__veApproachLine && window.__veApproachLine.length
             ? window.__veApproachLine
@@ -1878,18 +1447,13 @@ export function buildMapHtmlTemplate(
 
       const offerTimeout = isOffer
         ? setTimeout(function () {
-            if (offerSnapshotMode && snapshotRideId) {
-              try { routeAbortController.abort(); } catch (_) {}
-              notifyOfferRouteCaptureFailed(snapshotRideId, "osrm-timeout");
-              return;
-            }
             paintStraightFallback();
             const tripOnly = [[start, end]];
             presentOnce(
               approachFrom ? [[approachFrom, start, end]] : tripOnly,
               tripOnly,
             );
-          }, offerSnapshotMode ? ${OFFER_OSRM_TIMEOUT_MS} : 2500)
+          }, 2500)
         : null;
 
       fetchOsrmGeometry(start, end, tripSignal)
@@ -1902,16 +1466,6 @@ export function buildMapHtmlTemplate(
           if (offerTimeout) clearTimeout(offerTimeout);
           if (err && err.name === "AbortError") return;
           console.error("Route error:", err);
-          if (failSnapshotOsrm("osrm-error")) {
-            try {
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(
-                  JSON.stringify({ type: "routeError", error: String(err) })
-                );
-              }
-            } catch {}
-            return;
-          }
           paintStraightFallback();
           const tripOnly = [[start, end]];
           presentOnce(
