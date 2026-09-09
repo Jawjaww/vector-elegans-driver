@@ -47,7 +47,7 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 
 - Clés anon : `EXPO_PUBLIC_SUPABASE_ANON_KEY` dans `.env`
 - Carte : **MapLibre WebView** (`src/map/VTCMap` → `WebViewMap`) — pas Google Maps
-- Offres : card compacte bas + map live en haut — voir `vector-elegans-docs/mobile/OFFER_MAP_SNAPSHOTS.md`
+- Offres : card compacte bas + map live en haut — voir `vector-elegans-docs/mobile/OFFER_MAP.md`
 - Code mort : ne pas laisser de composants/hooks sans import ; même nom ≠ même app (voir `.cursor/rules/no-dead-code.mdc`). Swipe pile Expo : `useOfferDismissGesture` sur la card avant → `cycleAvailableRideToBack`. Refuser → `deferAvailableRide`.
 - `extra.eas.projectId` dans `app.json` : requis pour `eas build` et EAS Update OTA
 
