@@ -1679,7 +1679,6 @@ export type Database = {
       }
     }
     Functions: {
-      _current_driver_id: { Args: never; Returns: string }
       _insert_client_push_notification: {
         Args: {
           p_data?: Json
