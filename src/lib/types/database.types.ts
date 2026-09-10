@@ -2016,6 +2016,10 @@ export type Database = {
         Args: { p_response: string; p_ride_id: string }
         Returns: Json
       }
+      ride_effective_matching_deadline: {
+        Args: { p_deadline: string; p_pickup: string; p_snap: Json }
+        Returns: string
+      }
       ride_fee_from_tiers: {
         Args: { p_kind: string; p_minutes: number; p_snap: Json }
         Returns: number
