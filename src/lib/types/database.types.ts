@@ -886,6 +886,98 @@ export type Database = {
           },
         ]
       }
+      ride_fee_policies: {
+        Row: {
+          cancel_after_arrival_flat: number
+          created_at: string
+          driver_late_grace_minutes: number
+          en_route_before_pickup_minutes: number
+          heartbeat_minutes: number
+          id: string
+          is_active: boolean
+          name: string
+          no_show_flat: number
+          scope_id: string | null
+          scope_kind: string
+          silence_expire_minutes: number
+          updated_at: string
+          wait_grace_minutes: number
+          wait_max_minutes: number
+        }
+        Insert: {
+          cancel_after_arrival_flat?: number
+          created_at?: string
+          driver_late_grace_minutes?: number
+          en_route_before_pickup_minutes?: number
+          heartbeat_minutes?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          no_show_flat?: number
+          scope_id?: string | null
+          scope_kind?: string
+          silence_expire_minutes?: number
+          updated_at?: string
+          wait_grace_minutes?: number
+          wait_max_minutes?: number
+        }
+        Update: {
+          cancel_after_arrival_flat?: number
+          created_at?: string
+          driver_late_grace_minutes?: number
+          en_route_before_pickup_minutes?: number
+          heartbeat_minutes?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          no_show_flat?: number
+          scope_id?: string | null
+          scope_kind?: string
+          silence_expire_minutes?: number
+          updated_at?: string
+          wait_grace_minutes?: number
+          wait_max_minutes?: number
+        }
+        Relationships: []
+      }
+      ride_fee_policy_tiers: {
+        Row: {
+          after_minutes: number
+          created_at: string
+          fee_flat: number
+          fee_per_minute: number
+          id: string
+          kind: string
+          policy_id: string
+        }
+        Insert: {
+          after_minutes?: number
+          created_at?: string
+          fee_flat?: number
+          fee_per_minute?: number
+          id?: string
+          kind: string
+          policy_id: string
+        }
+        Update: {
+          after_minutes?: number
+          created_at?: string
+          fee_flat?: number
+          fee_per_minute?: number
+          id?: string
+          kind?: string
+          policy_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ride_fee_policy_tiers_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "ride_fee_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ride_offers: {
         Row: {
           created_at: string
@@ -1065,11 +1157,14 @@ export type Database = {
       rides: {
         Row: {
           accepted_at: string | null
+          cancel_billing: string
+          cancel_fee_amount: number | null
           canceled_at: string | null
           canceled_by: string | null
           cancellation_reason: string | null
           client_incentive: number
           created_at: string
+          delay_kind: string | null
           distance: number | null
           driver_arrived_at: string | null
           driver_id: string | null
@@ -1078,6 +1173,8 @@ export type Database = {
           dropoff_lon: number | null
           duration: number | null
           estimated_price: number | null
+          fee_policy_id: string | null
+          fee_policy_snapshot: Json | null
           final_price: number | null
           id: string
           live_eta_minutes: number | null
@@ -1100,11 +1197,14 @@ export type Database = {
         }
         Insert: {
           accepted_at?: string | null
+          cancel_billing?: string
+          cancel_fee_amount?: number | null
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
           client_incentive?: number
           created_at?: string
+          delay_kind?: string | null
           distance?: number | null
           driver_arrived_at?: string | null
           driver_id?: string | null
@@ -1113,6 +1213,8 @@ export type Database = {
           dropoff_lon?: number | null
           duration?: number | null
           estimated_price?: number | null
+          fee_policy_id?: string | null
+          fee_policy_snapshot?: Json | null
           final_price?: number | null
           id?: string
           live_eta_minutes?: number | null
@@ -1135,11 +1237,14 @@ export type Database = {
         }
         Update: {
           accepted_at?: string | null
+          cancel_billing?: string
+          cancel_fee_amount?: number | null
           canceled_at?: string | null
           canceled_by?: string | null
           cancellation_reason?: string | null
           client_incentive?: number
           created_at?: string
+          delay_kind?: string | null
           distance?: number | null
           driver_arrived_at?: string | null
           driver_id?: string | null
@@ -1148,6 +1253,8 @@ export type Database = {
           dropoff_lon?: number | null
           duration?: number | null
           estimated_price?: number | null
+          fee_policy_id?: string | null
+          fee_policy_snapshot?: Json | null
           final_price?: number | null
           id?: string
           live_eta_minutes?: number | null
@@ -1174,6 +1281,13 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rides_fee_policy_id_fkey"
+            columns: ["fee_policy_id"]
+            isOneToOne: false
+            referencedRelation: "ride_fee_policies"
             referencedColumns: ["id"]
           },
           {
@@ -1597,8 +1711,16 @@ export type Database = {
         Args: { p_driver_id: string; p_ride_id: string }
         Returns: Json
       }
+      admin_set_ride_fee_snapshot: {
+        Args: { p_ride_id: string; p_snapshot: Json }
+        Returns: Json
+      }
       associate_temp_documents: {
         Args: { p_driver_id: string; p_user_id: string }
+        Returns: Json
+      }
+      build_fee_policy_snapshot: {
+        Args: { p_policy_id: string }
         Returns: Json
       }
       calculate_driver_rating: {
@@ -1654,6 +1776,7 @@ export type Database = {
         Args: { p_reason?: string; p_ride_id: string }
         Returns: Json
       }
+      confirm_ride_matching: { Args: { p_ride_id: string }; Returns: Json }
       create_pending_driver: {
         Args: {
           p_company_name?: string
@@ -1871,6 +1994,8 @@ export type Database = {
         Args: { notification_uuid: string }
         Returns: undefined
       }
+      platform_fee_policy_id: { Args: never; Returns: string }
+      preview_ride_cancel_quote: { Args: { p_ride_id: string }; Returns: Json }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
       replace_driver_document: {
         Args: {
@@ -1883,9 +2008,26 @@ export type Database = {
         }
         Returns: Json
       }
+      resolve_ride_cancel_quote: {
+        Args: { p_actor?: string; p_ride_id: string }
+        Returns: Json
+      }
       respond_ride_offer: {
         Args: { p_response: string; p_ride_id: string }
         Returns: Json
+      }
+      ride_fee_from_tiers: {
+        Args: { p_kind: string; p_minutes: number; p_snap: Json }
+        Returns: number
+      }
+      ride_heartbeat_interval: { Args: { p_snap: Json }; Returns: string }
+      ride_snapshot_int: {
+        Args: { p_fallback: number; p_key: string; p_snap: Json }
+        Returns: number
+      }
+      ride_snapshot_num: {
+        Args: { p_fallback: number; p_key: string; p_snap: Json }
+        Returns: number
       }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
