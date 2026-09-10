@@ -33,13 +33,14 @@ export interface AcceptRideResult {
   overrideVehicleId?: string | null;
 }
 
-function applyMatchingFilters<T extends { in: Function; is: Function; gt: Function }>(
+function applyMatchingFilters<T extends { in: Function; is: Function; or: Function }>(
   query: T,
 ): T {
+  const iso = new Date().toISOString();
   return query
     .in('status', ['pending', 'delayed'])
     .is('matching_paused_at', null)
-    .gt('matching_deadline_at', new Date().toISOString()) as T;
+    .or(`matching_deadline_at.gt.${iso},matching_deadline_at.is.null`) as T;
 }
 
 class RideService {
