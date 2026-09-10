@@ -65,6 +65,18 @@ function parseSubmissionResult(data: unknown): DossierSubmissionResult {
   };
 }
 
+const SCHEMA_CACHE_MESSAGE =
+  'Le serveur doit être mis à jour (schéma Supabase). Réessayez dans quelques minutes ou contactez le support.';
+
+const SESSION_EXPIRED_MESSAGE = 'Session expirée, reconnectez-vous.';
+
+function withDevRpcDetail(friendly: string, raw: string): string {
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && raw && raw !== friendly) {
+    return `${friendly} (${raw})`;
+  }
+  return friendly;
+}
+
 function formatDossierRpcError(message: string): string {
   const lower = message.toLowerCase();
   if (
@@ -72,10 +84,13 @@ function formatDossierRpcError(message: string): string {
     lower.includes('could not find the function') ||
     lower.includes('could not find the')
   ) {
-    return 'Le serveur doit être mis à jour (schéma Supabase). Réessayez dans quelques minutes ou contactez le support.';
+    return withDevRpcDetail(SCHEMA_CACHE_MESSAGE, message);
   }
   if (lower.includes('invalid input syntax for type json')) {
-    return 'Erreur serveur lors de l’enregistrement du dossier. Réessayez ou contactez le support.';
+    return withDevRpcDetail(
+      'Erreur serveur lors de l’enregistrement du dossier. Réessayez ou contactez le support.',
+      message,
+    );
   }
   return message;
 }
@@ -320,6 +335,15 @@ export async function listOwnDriverDocuments(
 
 export async function submitDossier(driverId: string, userId: string): Promise<DossierSubmissionResult> {
   try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData?.session) {
+      return {
+        success: false,
+        new_status: 'error',
+        message: SESSION_EXPIRED_MESSAGE,
+      };
+    }
+
     const { data, error } = await supabase
       .rpc('submit_driver_dossier', {
         p_driver_id: driverId,
@@ -327,7 +351,10 @@ export async function submitDossier(driverId: string, userId: string): Promise<D
       });
 
     if (error) {
-      console.error('[dossierService] submitDossier - error:', error);
+      console.error('[dossierService] submitDossier - error:', {
+        code: error.code,
+        message: error.message,
+      });
       return {
         success: false,
         new_status: 'error',

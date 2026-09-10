@@ -1,5 +1,6 @@
 const mockRpc = jest.fn();
 const mockGetUser = jest.fn();
+const mockGetSession = jest.fn();
 const mockFrom = jest.fn();
 
 jest.mock('../supabase', () => ({
@@ -8,6 +9,7 @@ jest.mock('../supabase', () => ({
     from: (...args: unknown[]) => mockFrom(...args),
     auth: {
       getUser: (...args: unknown[]) => mockGetUser(...args),
+      getSession: (...args: unknown[]) => mockGetSession(...args),
     },
   },
 }));
@@ -20,6 +22,11 @@ describe('dossierService', () => {
     mockRpc.mockReset();
     mockFrom.mockReset();
     mockGetUser.mockReset();
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: 'test-token' } },
+      error: null,
+    });
   });
 
   it('submitDossier calls submit_driver_dossier RPC', async () => {
@@ -53,6 +60,7 @@ describe('dossierService', () => {
     mockRpc.mockResolvedValue({
       data: null,
       error: {
+        code: 'PGRST202',
         message:
           "Could not find the function public.submit_driver_dossier(p_driver_id, p_user_id) in the schema cache",
       },
@@ -61,6 +69,19 @@ describe('dossierService', () => {
     const result = await submitDossier('driver-1', 'user-1');
     expect(result.success).toBe(false);
     expect(result.message).toContain('schéma Supabase');
+  });
+
+  it('submitDossier refuses without a session', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+
+    const result = await submitDossier('driver-1', 'user-1');
+
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.message).toBe('Session expirée, reconnectez-vous.');
   });
 
   it('cancelDossierReview calls cancel_driver_dossier_review RPC', async () => {
