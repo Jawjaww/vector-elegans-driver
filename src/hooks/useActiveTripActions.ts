@@ -4,6 +4,18 @@ import { useDriverStore, type Ride } from '../lib/stores/driverStore';
 import { rideService } from '../services/rideService';
 import type { NavDestination } from '../lib/utils/externalNavigation';
 
+function confirmDestructive(
+  title: string,
+  message: string,
+  actionLabel: string,
+  onConfirm: () => void,
+) {
+  Alert.alert(title, message, [
+    { text: 'Non', style: 'cancel' },
+    { text: actionLabel, style: 'destructive', onPress: onConfirm },
+  ]);
+}
+
 export function useActiveTripActions() {
   const { activeRide, setActiveRide, completeRide } = useDriverStore();
 
@@ -66,33 +78,77 @@ export function useActiveTripActions() {
     completeRide({ ...activeRide, status: 'completed' } as Ride);
   }, [activeRide, completeRide]);
 
-  const cancelTrip = useCallback(() => {
+  const applyProgress = useCallback(
+    async (status: 'driver-canceled' | 'no-show') => {
+      if (!activeRide) return;
+      const result = await rideService.updateRideProgress(
+        activeRide.id,
+        status,
+      );
+      if (!result.success) {
+        Alert.alert('Erreur', result.error || "Échec de l'action");
+        return;
+      }
+      setActiveRide(null);
+    },
+    [activeRide, setActiveRide],
+  );
+
+  const cancelInProgress = useCallback(() => {
     if (!activeRide) return;
-    Alert.alert(
+    confirmDestructive(
       'Annuler la course',
       'Cette action est définitive. Confirmer l’annulation ?',
-      [
-        { text: 'Non', style: 'cancel' },
-        {
-          text: 'Annuler la course',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              const result = await rideService.updateRideProgress(
-                activeRide.id,
-                'driver-canceled',
-              );
-              if (!result.success) {
-                Alert.alert('Erreur', result.error || "Échec de l'annulation");
-                return;
-              }
-              setActiveRide(null);
-            })();
-          },
-        },
-      ],
+      'Annuler la course',
+      () => {
+        void applyProgress('driver-canceled');
+      },
     );
-  }, [activeRide, setActiveRide]);
+  }, [activeRide, applyProgress]);
+
+  const cancelScheduled = useCallback(async () => {
+    if (!activeRide) return;
+    const quote = await rideService.previewCancelQuote(activeRide.id);
+    if (!quote.success) {
+      Alert.alert('Erreur', quote.error || 'Devis impossible');
+      return;
+    }
+    if (quote.driver_may_noshow) {
+      confirmDestructive(
+        'Client absent',
+        `Frais affichés : ${quote.amount} €. Marquer no-show ?`,
+        'No-show',
+        () => {
+          void applyProgress('no-show');
+        },
+      );
+      return;
+    }
+    if (quote.driver_may_release) {
+      confirmDestructive(
+        'Se libérer',
+        'Aucun frais client. Confirmer ?',
+        'Se libérer',
+        () => {
+          void applyProgress('driver-canceled');
+        },
+      );
+      return;
+    }
+    Alert.alert(
+      'Action indisponible',
+      "Vous ne pouvez pas encore libérer cette course (grâce d'attente ou pickup non dépassé).",
+    );
+  }, [activeRide, applyProgress]);
+
+  const cancelTrip = useCallback(() => {
+    if (!activeRide) return;
+    if (activeRide.status === 'in-progress') {
+      cancelInProgress();
+      return;
+    }
+    void cancelScheduled();
+  }, [activeRide, cancelInProgress, cancelScheduled]);
 
   return {
     activeRide,

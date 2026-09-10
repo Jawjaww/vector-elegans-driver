@@ -228,6 +228,46 @@ class RideService {
     };
   }
 
+  async previewCancelQuote(rideId: string): Promise<{
+    success: boolean;
+    amount: number;
+    driver_may_release: boolean;
+    driver_may_noshow: boolean;
+    error?: string;
+  }> {
+    const { data, error } = await supabase.rpc(
+      'preview_ride_cancel_quote' as never,
+      { p_ride_id: rideId } as never,
+    );
+    if (error) {
+      return {
+        success: false,
+        amount: 0,
+        driver_may_release: false,
+        driver_may_noshow: false,
+        error: error.message,
+      };
+    }
+    const row =
+      (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    if (!row) {
+      return {
+        success: false,
+        amount: 0,
+        driver_may_release: false,
+        driver_may_noshow: false,
+        error: 'Réponse invalide',
+      };
+    }
+    return {
+      success: row.success !== false,
+      amount: Number(row.amount) || 0,
+      driver_may_release: row.driver_may_release === true,
+      driver_may_noshow: row.driver_may_noshow === true,
+      error: typeof row.error === 'string' ? row.error : undefined,
+    };
+  }
+
   async fetchAssignedRide(driverId: string): Promise<Ride | null> {
     const { data, error } = await supabase
       .from('rides')

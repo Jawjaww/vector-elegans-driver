@@ -10,7 +10,7 @@ import {
 } from '../utils/ridePickup';
 
 describe('ridePickup', () => {
-  it('isRidePickupStillOfferable respects 2h matching window', () => {
+  it('isRidePickupStillOfferable respects 20 min matching heartbeat', () => {
     const now = Date.now();
     expect(
       isRidePickupStillOfferable(new Date(now + 60_000).toISOString()),
@@ -55,12 +55,17 @@ describe('ridePickup', () => {
 
   it('getPendingRideDisplayLabel switches labels', () => {
     const past = new Date(Date.now() - RIDE_MATCHING_WINDOW_MS - 60_000).toISOString();
-    expect(getPendingRideDisplayLabel(past)).toBe('Recherche en pause');
+    expect(getPendingRideDisplayLabel(past)).toBe('Recherche expirée');
     const future = new Date(Date.now() + 3600_000).toISOString();
     expect(getPendingRideDisplayLabel(future)).toBe('En attente');
     const overdue = new Date(Date.now() - 30 * 60_000).toISOString();
     const deadline = new Date(Date.now() + 3600_000).toISOString();
-    expect(getPendingRideDisplayLabel(overdue, deadline)).toBe('En retard');
+    expect(getPendingRideDisplayLabel(overdue, deadline)).toBe(
+      'En recherche (retard matching)',
+    );
+    expect(
+      getPendingRideDisplayLabel(overdue, deadline, new Date().toISOString()),
+    ).toBe('Confirmez la recherche');
   });
 
   it('ridePickupExpiryCutoffIso is in the past', () => {

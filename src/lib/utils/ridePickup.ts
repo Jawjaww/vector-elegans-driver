@@ -1,5 +1,8 @@
-/** Matching window after pickup_time — must match infra expire_overdue_rides */
-export const RIDE_MATCHING_WINDOW_MS = 2 * 60 * 60 * 1000;
+/** Default matching heartbeat after pickup_time — must match infra snapshot. */
+export const RIDE_MATCHING_WINDOW_MS = 20 * 60 * 1000;
+
+/** Pause at deadline; one silence of the same length then system expire. */
+export const RIDE_MATCHING_SOFT_CONFIRM_MS = 20 * 60 * 1000;
 
 /** @deprecated Use RIDE_MATCHING_WINDOW_MS — kept for call-site compat */
 export const RIDE_PICKUP_GRACE_MS = RIDE_MATCHING_WINDOW_MS;
@@ -74,13 +77,15 @@ export function getPendingRideDisplayLabel(
   matchingDeadlineAt?: string | null,
   matchingPausedAt?: string | null,
 ): string {
-  if (matchingPausedAt) return 'Recherche en pause';
+  if (matchingPausedAt) return 'Confirmez la recherche';
   const deadline = resolveMatchingDeadlineMs(pickupTime, matchingDeadlineAt);
   if (deadline == null) return 'En attente';
-  if (deadline <= Date.now()) return 'Recherche en pause';
+  if (deadline <= Date.now()) return 'Recherche expirée';
   if (!pickupTime) return 'En attente';
   const pickup = new Date(pickupTime).getTime();
-  if (!Number.isNaN(pickup) && pickup < Date.now()) return 'En retard';
+  if (!Number.isNaN(pickup) && pickup < Date.now()) {
+    return 'En recherche (retard matching)';
+  }
   return 'En attente';
 }
 
