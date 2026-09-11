@@ -44,6 +44,10 @@ import {
   type DocumentTypeKey,
 } from "../lib/dossierChecklist";
 import { resolveAvatarPreviewUrl } from "../lib/avatarPreview";
+import {
+  ensureActiveDriverId,
+  storePickedDriverAvatar,
+} from "../lib/avatarUpload";
 import { translateDocumentType } from "../lib/documentTypeLabels";
 import {
   getFormExpiryFieldForDocument,
@@ -54,7 +58,6 @@ import {
 import { DriverAvatar } from "./DriverAvatar";
 import { NativeDateField } from "./NativeDateField";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { useDriverSubmissionLogger } from "../lib/services/driverSubmissionLogger";
 import {
   useDriverFolderStore,
@@ -65,7 +68,6 @@ import {
   syncDossierState,
   submitDossier,
   cancelDossierReview,
-  ensureDriverProfile,
   listOwnDriverDocuments,
 } from "../lib/services/dossierService";
 import { isUnsubmittedDossier, normalizeFolderStatus } from "../lib/folderStatus";
@@ -314,6 +316,7 @@ export default function DriverProfileSetup({
   const [submitting, setSubmitting] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [dossierSynced, setDossierSynced] = useState(false);
 
   // Dossier state management
   const { status, isEditable, canEditDocuments } =
@@ -758,8 +761,8 @@ export default function DriverProfileSetup({
     try {
       const syncedState = await syncDossierState(driverId, userId);
       if (syncedState) {
-        setStatus(syncedState.status);
         useDriverFolderStore.setState({
+          status: syncedState.status,
           isEditable: syncedState.isEditable,
           canSubmit: syncedState.canSubmit,
           canEditDocuments: syncedState.canEditDocuments,
@@ -768,6 +771,7 @@ export default function DriverProfileSetup({
         });
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
         setRpcCompletionPercentage(syncedState.completionPercentage ?? 0);
+        setDossierSynced(true);
         await loadDriverDocuments();
       }
       return syncedState;
@@ -1062,6 +1066,10 @@ export default function DriverProfileSetup({
       return;
     }
 
+    if (!dossierSynced) {
+      await syncDossierStateWithBackend();
+    }
+
     // Best-effort save / sync; never block section navigation in editable draft flow.
     if (currentSection <= 1 && isFieldEditable()) {
       const savedDriverId = await handleSave({ silent: true });
@@ -1108,33 +1116,33 @@ export default function DriverProfileSetup({
     }
   };
 
+  const alertEnsureDriverFailure = (
+    error: "no-user" | "ensure-failed",
+    detail?: string,
+  ) => {
+    if (error === "no-user") {
+      showAppAlert(t("common.error"), t("auth.userNotFound"));
+      return;
+    }
+    showAppAlert(t("documents.error"), detail ?? t("profile.draftSaveFailed"));
+  };
+
   const uploadAvatar = async () => {
     if (!isFieldEditable()) return;
     let previousPreview = avatarPreviewUri;
     try {
+      const ready = await ensureActiveDriverId(driverId, userId);
+      if ("error" in ready) {
+        alertEnsureDriverFailure(ready.error, ready.detail);
+        return;
+      }
+      if (ready.id !== driverId) setDriverId(ready.id);
+
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         showAppAlert(t("documents.error"), t("documents.pickFailed"));
         return;
-      }
-
-      let activeDriverId = driverId;
-      if (!activeDriverId) {
-        if (!userId) {
-          showAppAlert(t("common.error"), t("auth.userNotFound"));
-          return;
-        }
-        const ensured = await ensureDriverProfile(userId);
-        if (!ensured.id) {
-          showAppAlert(
-            t("documents.error"),
-            ensured.error ?? t("profile.draftSaveFailed"),
-          );
-          return;
-        }
-        setDriverId(ensured.id);
-        activeDriverId = ensured.id;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -1146,39 +1154,21 @@ export default function DriverProfileSetup({
       if (result.canceled) return;
 
       setUploadingAvatar(true);
-      const asset = result.assets[0];
       previousPreview = avatarPreviewUri;
-      setAvatarPreviewUri(asset.uri);
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: "base64",
+      setAvatarPreviewUri(result.assets[0].uri);
+
+      const stored = await storePickedDriverAvatar({
+        driverId: ready.id,
+        userId,
+        uri: result.assets[0].uri,
       });
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.codePointAt(i) ?? 0;
-      }
-      const path = `${activeDriverId}/avatar_${Date.now()}.jpg`;
-      const { error: upErr } = await supabase.storage
-        .from("driver-avatars")
-        .upload(path, bytes.buffer, {
-          contentType: "image/jpeg",
-          upsert: true,
-        });
-      if (upErr) {
+      if ("error" in stored) {
         setAvatarPreviewUri(previousPreview);
-        showAppAlert(t("documents.error"), upErr.message);
+        showAppAlert(t("documents.error"), stored.error);
         return;
       }
-      const { error: updErr } = await supabase
-        .from("drivers")
-        .update({ avatar_url: path })
-        .eq("id", activeDriverId);
-      if (updErr) {
-        setAvatarPreviewUri(previousPreview);
-        showAppAlert(t("documents.error"), updErr.message);
-        return;
-      }
-      setAvatarUrl(path);
+
+      setAvatarUrl(stored.path);
       await syncDossierStateWithBackend();
     } catch (e) {
       setAvatarPreviewUri(previousPreview);

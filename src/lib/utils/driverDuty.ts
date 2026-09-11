@@ -8,6 +8,10 @@ export function isAssignedTripStatus(
   return status === 'scheduled' || status === 'in-progress';
 }
 
+export function canDriverGoOnline(status: string | null | undefined): boolean {
+  return status === 'active';
+}
+
 export function resolveDriverDuty(
   isOnline: boolean,
   activeRide: { status: string } | null,

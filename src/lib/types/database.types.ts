@@ -345,6 +345,7 @@ export type Database = {
           current_vehicle_id: string | null
           date_of_birth: string | null
           document_urls: Json | null
+          dossier_update_requested_at: string | null
           driving_license_categories: string[] | null
           driving_license_expiry_date: string | null
           driving_license_issue_date: string | null
@@ -386,6 +387,7 @@ export type Database = {
           current_vehicle_id?: string | null
           date_of_birth?: string | null
           document_urls?: Json | null
+          dossier_update_requested_at?: string | null
           driving_license_categories?: string[] | null
           driving_license_expiry_date?: string | null
           driving_license_issue_date?: string | null
@@ -427,6 +429,7 @@ export type Database = {
           current_vehicle_id?: string | null
           date_of_birth?: string | null
           document_urls?: Json | null
+          dossier_update_requested_at?: string | null
           driving_license_categories?: string[] | null
           driving_license_expiry_date?: string | null
           driving_license_issue_date?: string | null
@@ -1690,6 +1693,10 @@ export type Database = {
         }
         Returns: string
       }
+      _notify_driver_dossier_action: {
+        Args: { p_user_id: string }
+        Returns: undefined
+      }
       _ride_offer_snapshot: {
         Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
         Returns: Json
@@ -1708,6 +1715,14 @@ export type Database = {
       }
       admin_reassign_ride: {
         Args: { p_driver_id: string; p_ride_id: string }
+        Returns: Json
+      }
+      admin_set_driver_status: {
+        Args: {
+          p_driver_id: string
+          p_reason?: string
+          p_status: Database["public"]["Enums"]["driver_status"]
+        }
         Returns: Json
       }
       admin_set_ride_fee_snapshot: {
@@ -1894,6 +1909,7 @@ export type Database = {
           can_edit_documents: boolean
           can_submit: boolean
           completion_percentage: number
+          dossier_update_requested: boolean
           expired_document_types: string[]
           expiring_documents: Json
           is_complete: boolean
@@ -1996,6 +2012,10 @@ export type Database = {
       platform_fee_policy_id: { Args: never; Returns: string }
       preview_ride_cancel_quote: { Args: { p_ride_id: string }; Returns: Json }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
+      reopen_driver_dossier: {
+        Args: { p_driver_id: string; p_reason?: string }
+        Returns: Json
+      }
       replace_driver_document: {
         Args: {
           p_document_type: string

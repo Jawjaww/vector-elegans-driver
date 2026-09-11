@@ -25,3 +25,10 @@ export async function pushDriverLocation(
 
   return { error: error ? new Error(error.message) : null };
 }
+
+export async function setDriverOffline(): Promise<void> {
+  const { error } = await supabase.rpc('set_driver_offline');
+  if (error) {
+    console.error('[Location] set_driver_offline failed:', error);
+  }
+}

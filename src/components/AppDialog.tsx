@@ -101,7 +101,7 @@ export function AppDialogProvider({
   return (
     <AppDialogContext.Provider value={value}>
       {children}
-      <GlassModal visible={state.visible} onClose={hide}>
+      <GlassModal visible={state.visible} onClose={hide} fullscreen={false}>
         <View className="px-5 py-5">
           <Text className="text-lg font-bold text-white text-center mb-2">
             {state.title}

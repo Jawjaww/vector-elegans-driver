@@ -7,8 +7,18 @@ import { normalizeFolderStatus, isUnsubmittedDossier, type DriverFolderStatus } 
 import type { ExpiringDocument } from '../dossierBanner';
 
 export type { ExpiringDocument } from '../dossierBanner';
-export { resolveDossierBanner } from '../dossierBanner';
-export type { BannerKind } from '../dossierBanner';
+export {
+  resolveDossierBanner,
+  resolveDossierBanners,
+  sliceDossierBannerStack,
+  noticesBodyHeight,
+  buildDossierBannerCopy,
+} from '../dossierBanner';
+export type {
+  BannerKind,
+  DossierBannerCopy,
+  DossierBannerHit,
+} from '../dossierBanner';
 
 export interface DossierStatus {
   status: DriverFolderStatus;
@@ -27,6 +37,7 @@ export interface DossierStatus {
   missing_for_submit: string[];
   is_complete: boolean;
   missing_fields: string[];
+  dossier_update_requested: boolean;
 }
 
 export interface DossierSubmissionResult {
@@ -157,6 +168,7 @@ function mapDossierStatusRow(row: Record<string, unknown>): DossierStatus {
     is_complete: Boolean(row.is_complete),
     missing_fields: asStringArray(row.missing_fields),
     completion_percentage: Number(row.completion_percentage ?? 0),
+    dossier_update_requested: Boolean(row.dossier_update_requested),
   };
 }
 
@@ -230,6 +242,7 @@ async function getDossierStatusFromCompleteness(
     missing_for_submit: missingForSubmit,
     is_complete: Boolean(comp.is_complete),
     missing_fields: missingFields,
+    dossier_update_requested: false,
   };
 }
 
@@ -487,10 +500,16 @@ export async function syncDossierState(driverId: string, userId: string) {
       validatedAt: status.validated_at,
       rejectedAt: status.rejected_at,
       rejectionReason: status.rejection_reason,
-      isEditable: unsubmitted || Boolean(status.is_editable) || rpcEdit,
+      isEditable:
+        unsubmitted ||
+        Boolean(status.is_editable) ||
+        rpcEdit ||
+        Boolean(status.dossier_update_requested),
       canSubmit: Boolean(status.can_submit),
       canEditDocuments:
-        unsubmitted || Boolean(status.can_edit_documents),
+        unsubmitted ||
+        Boolean(status.can_edit_documents) ||
+        Boolean(status.dossier_update_requested),
       completionPercentage: status.completion_percentage,
       rejectedDocumentCount: status.rejected_document_count,
       rejectedDocumentTypes: status.rejected_document_types,

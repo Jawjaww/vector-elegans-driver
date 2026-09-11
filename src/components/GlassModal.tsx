@@ -4,7 +4,7 @@ import {
   StyleSheet,
   ViewStyle,
   Pressable,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -21,8 +21,8 @@ interface GlassModalProps {
   fullscreen?: boolean;
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const isShortHeight = SCREEN_HEIGHT <= 700;
+const SIDE_INSET = 20;
+const MAX_CARD_WIDTH = 420;
 
 export function GlassModal({
   visible,
@@ -30,7 +30,9 @@ export function GlassModal({
   children,
   style,
   fullscreen = false,
-}: GlassModalProps) {
+}: Readonly<GlassModalProps>) {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const cardWidth = Math.min(MAX_CARD_WIDTH, Math.max(0, screenWidth - SIDE_INSET * 2));
   const opacity = useSharedValue(0);
   const scale = useSharedValue(0.98);
 
@@ -76,7 +78,12 @@ export function GlassModal({
       <Animated.View
         style={[
           styles.modal,
-          fullscreen || isShortHeight ? styles.modalFullscreen : styles.modalDefault,
+          fullscreen
+            ? styles.modalFullscreen
+            : [
+                styles.modalDefault,
+                { width: cardWidth, maxHeight: screenHeight - 48 },
+              ],
           modalStyle,
           style,
         ]}
@@ -103,14 +110,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modal: {
-    width: '100%',
-    maxWidth: 420,
     overflow: 'hidden',
     position: 'relative',
   },
   modalDefault: {
-    borderRadius: 12,
-    maxHeight: SCREEN_HEIGHT - 40,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
     shadowColor: '#020617',
@@ -120,14 +124,14 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   modalFullscreen: {
-    borderRadius: 0,
-    maxHeight: SCREEN_HEIGHT,
+    width: '100%',
     height: '100%',
+    borderRadius: 0,
   },
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
     shadowColor: '#020617',
@@ -140,6 +144,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.008)',
-    borderRadius: 12,
+    borderRadius: 16,
   },
 });

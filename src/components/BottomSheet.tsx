@@ -42,7 +42,7 @@ const SPRING = {
 
 /** Online switch row (title + subtitle + Switch). */
 const ONLINE_BODY_H = 88;
-/** Dossier incomplete / expiry banner. */
+/** Dossier incomplete / expiry banner (1 card). Grows via `noticesHeight`. */
 const NOTICES_BODY_H = 100;
 /** ActiveTripSheet (status + addresses + swipe + cancel). */
 const TRIP_BODY_H = 236;
@@ -62,11 +62,11 @@ const STATS_BODY_H = 110;
  * rides   — + available / deferred ride cards
  * stats   — + day earnings and ride count (last idle palier)
  */
-function buildSnapY(sceneH: number) {
+function buildSnapY(sceneH: number, noticesBodyH = NOTICES_BODY_H) {
   const peek = HANDLE_H + 8;
   const nav = HANDLE_H + 12;
   const online = HANDLE_H + ONLINE_BODY_H;
-  const notices = online + NOTICES_BODY_H;
+  const notices = online + Math.max(0, noticesBodyH);
   const trip = notices + TRIP_BODY_H;
   const rides = notices + RIDES_BODY_H;
   const stats = rides + STATS_BODY_H;
@@ -106,8 +106,11 @@ const SNAP_ORDER: SheetSnapLevel[] = [
 export const NAV_SHEET_VISIBLE_H = HANDLE_H + 12;
 
 /** Visible height of the trip snap (switch + optional banner + ActiveTripSheet). */
-export const TRIP_SHEET_VISIBLE_H =
-  HANDLE_H + ONLINE_BODY_H + NOTICES_BODY_H + TRIP_BODY_H;
+export function tripSheetVisibleHeight(noticesBodyH = NOTICES_BODY_H): number {
+  return HANDLE_H + ONLINE_BODY_H + Math.max(0, noticesBodyH) + TRIP_BODY_H;
+}
+
+export const TRIP_SHEET_VISIBLE_H = tripSheetVisibleHeight();
 
 function resolveAllowedOrder(
   allowedSnaps?: readonly SheetSnapLevel[],
@@ -123,17 +126,20 @@ interface BottomSheetProps {
   snapLevel?: SheetSnapLevel;
   /** When set, drag only settles on these levels (in SNAP_ORDER sequence). */
   allowedSnaps?: readonly SheetSnapLevel[];
+  /** Visible height of the notices palier body (stack of dossier cards). */
+  noticesHeight?: number;
 }
 
 export const BottomSheet = ({
   children,
   snapLevel = 'peek',
   allowedSnaps,
+  noticesHeight = NOTICES_BODY_H,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
   const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
   const scrollRef = useRef<ScrollView>(null);
-  const snapY = buildSnapY(sceneH);
+  const snapY = buildSnapY(sceneH, noticesHeight);
 
   const allowedOrder = useMemo(
     () => resolveAllowedOrder(allowedSnaps),
@@ -161,7 +167,7 @@ export const BottomSheet = ({
 
   // Measure scene: update snap points; only re-spring if that snap's Y changed
   useEffect(() => {
-    const nextSnapY = buildSnapY(sceneH);
+    const nextSnapY = buildSnapY(sceneH, noticesHeight);
     const level = prevSnap.current;
     const prevTarget = snapYShared.value[level];
     const nextTarget = nextSnapY[level];
@@ -169,7 +175,7 @@ export const BottomSheet = ({
     if (Math.abs(prevTarget - nextTarget) > 1) {
       translateY.value = withSpring(nextTarget, SPRING);
     }
-  }, [sceneH, snapYShared, translateY]);
+  }, [sceneH, noticesHeight, snapYShared, translateY]);
 
   useEffect(() => {
     allowedOrderShared.value = allowedOrder;

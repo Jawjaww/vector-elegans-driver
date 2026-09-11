@@ -2,6 +2,7 @@ import {
   onlineStatusCopyKeys,
   resolveDriverDuty,
   shouldForceOnlineOnAssignedHydrate,
+  canDriverGoOnline,
 } from '../utils/driverDuty';
 
 describe('resolveDriverDuty', () => {
@@ -20,6 +21,14 @@ describe('resolveDriverDuty', () => {
     expect(
       resolveDriverDuty(true, { status: 'completed' }),
     ).toBe('available');
+  });
+});
+
+describe('canDriverGoOnline', () => {
+  it('allows matching only while the dossier is active', () => {
+    expect(canDriverGoOnline('active')).toBe(true);
+    expect(canDriverGoOnline('pending_review')).toBe(false);
+    expect(canDriverGoOnline('suspended')).toBe(false);
   });
 });
 

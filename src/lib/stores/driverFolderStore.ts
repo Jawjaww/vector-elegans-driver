@@ -40,7 +40,7 @@ export interface DriverFolderState {
   notifications: DriverNotification[];
   unreadCount: number;
   recentLogs: any[];
-  setStatus: (status: DriverFolderStatus | DriverStatus | string) => void;
+  setStatus: (status: DriverFolderStatus | DriverStatus) => void;
   setSubmissionTimestamp: (timestamp: string) => void;
   setValidationTimestamp: (timestamp: string) => void;
   setRejection: (reason: string, timestamp: string) => void;
@@ -74,8 +74,8 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       ...initialState,
 
       setStatus: (status) => {
+        // Permissions come from get_driver_dossier_status sync — not local heuristics.
         set({ status: normalizeFolderStatus(status) });
-        get().updatePermissions();
       },
 
       setSubmissionTimestamp: (timestamp) => {
@@ -193,7 +193,7 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          state.setStatus(normalizeFolderStatus(state.status));
+          state.status = normalizeFolderStatus(state.status);
         }
       },
     },
