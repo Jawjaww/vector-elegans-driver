@@ -148,6 +148,24 @@ describe('rideService.fetchAssignedRide', () => {
   });
 });
 
+describe('rideService.fetchRideById', () => {
+  it('returns the ride row when SELECT succeeds', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({
+      data: { id: 'r1', status: 'pending' },
+      error: null,
+    });
+    const eq = jest.fn(() => ({ maybeSingle }));
+    const select = jest.fn(() => ({ eq }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    const row = await rideService.fetchRideById('r1');
+    expect(supabase.from).toHaveBeenCalledWith('rides');
+    expect(eq).toHaveBeenCalledWith('id', 'r1');
+    expect(row).toMatchObject({ id: 'r1', status: 'pending' });
+  });
+});
+
 describe('rideService.fetchOfferableRides', () => {
   it('selects pending and delayed then keeps still-offerable rows', async () => {
     const ride = {

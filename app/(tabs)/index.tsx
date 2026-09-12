@@ -24,6 +24,9 @@ import {
   OFFER_CHANNEL_RETRY_MS,
   shouldHydrateOffersOnRealtimeStatus,
   shouldRetryPendingRideChannel,
+  isOpenRideOffer,
+  shouldDropOverlayForOfferStatus,
+  type RideOfferRealtimeRow,
 } from "../../src/lib/utils/pendingRideChannel";
 import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, type DriverDuty } from "../../src/lib/utils/driverDuty";
 import {
@@ -339,7 +342,20 @@ function usePendingRideChannel({
           useDriverStore.getState().availableRides.map((r) => r.id),
       });
       if (newStackIds.length === 0) return;
-      await Promise.all(newStackIds.map((id) => rideService.recordOffer(id)));
+    };
+
+    const handleOfferRow = (row: RideOfferRealtimeRow) => {
+      if (isOpenRideOffer(row)) {
+        void (async () => {
+          const ride = await rideService.fetchRideById(row.ride_id);
+          if (cancelled || !ride || !isRideStillOfferable(ride as Ride)) return;
+          await presentOffer(ride as Ride);
+        })();
+        return;
+      }
+      if (shouldDropOverlayForOfferStatus(row.status)) {
+        removeAvailableRide(row.ride_id);
+      }
     };
 
     const subscribe = () => {
@@ -348,8 +364,8 @@ function usePendingRideChannel({
         void supabase.removeChannel(channel);
         channel = undefined;
       }
-      channel = supabase
-        .channel("public:rides")
+      let next = supabase
+        .channel(myDriverId ? `driver-matching:${myDriverId}` : "public:rides")
         .on(
           "postgres_changes",
           {
@@ -380,20 +396,48 @@ function usePendingRideChannel({
               onUnavailable,
             });
           },
-        )
-        .subscribe((status, err) => {
-          if (cancelled) return;
-          if (shouldHydrateOffersOnRealtimeStatus(status)) {
-            void fetchExistingRide();
+        );
+      if (myDriverId) {
+        const offerFilter = `driver_id=eq.${myDriverId}` as const;
+        next = next
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "ride_offers",
+              filter: offerFilter,
+            },
+            (payload) => {
+              handleOfferRow(payload.new as RideOfferRealtimeRow);
+            },
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "UPDATE",
+              schema: "public",
+              table: "ride_offers",
+              filter: offerFilter,
+            },
+            (payload) => {
+              handleOfferRow(payload.new as RideOfferRealtimeRow);
+            },
+          );
+      }
+      channel = next.subscribe((status, err) => {
+        if (cancelled) return;
+        if (shouldHydrateOffersOnRealtimeStatus(status)) {
+          void fetchExistingRide();
+        }
+        if (shouldRetryPendingRideChannel(status)) {
+          if (__DEV__) {
+            console.warn("[pending-rides] realtime", status, err);
           }
-          if (shouldRetryPendingRideChannel(status)) {
-            if (__DEV__) {
-              console.warn("[pending-rides] realtime", status, err);
-            }
-            if (retryTimer) clearTimeout(retryTimer);
-            retryTimer = setTimeout(subscribe, OFFER_CHANNEL_RETRY_MS);
-          }
-        });
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(subscribe, OFFER_CHANNEL_RETRY_MS);
+        }
+      });
     };
 
     subscribe();
@@ -933,7 +977,6 @@ export default function DashboardScreen() {
       const gate = getOfferGateState();
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
-      await rideService.recordOffer(ride.id);
     },
     [addAvailableRide, canReceiveOffers, getOfferGateState],
   );

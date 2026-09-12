@@ -16,7 +16,7 @@ export function selectFreshHydrateRides(
   );
 }
 
-/** Overlay ids that appeared after a merge (for record_ride_offer). */
+/** Overlay ids that appeared after a merge (catch-up vs current stack). */
 export function newlyStackedOfferIds(
   stackIdsBefore: readonly string[],
   stackIdsAfter: readonly string[],

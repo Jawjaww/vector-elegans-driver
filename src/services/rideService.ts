@@ -129,6 +129,17 @@ class RideService {
     return ((data ?? []) as Ride[]).filter((ride) => isRideStillOfferable(ride));
   }
 
+  /** Load one ride the driver can SELECT (open offer or assigned). */
+  async fetchRideById(rideId: string): Promise<Ride | null> {
+    const { data, error } = await supabase
+      .from('rides')
+      .select('*')
+      .eq('id', rideId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as Ride;
+  }
+
   async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {
     const { data, error } = await supabase.rpc('record_ride_offer', {
       p_ride_id: rideId,
