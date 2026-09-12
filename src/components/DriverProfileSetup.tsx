@@ -305,6 +305,23 @@ const SECTIONS = [
   },
 ];
 
+function mapSubmitDossierAlert(
+  message: string,
+  translate: (key: string) => string,
+): string {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("already in review") ||
+    lower.includes("déjà en cours de vérification")
+  ) {
+    return translate("profile.alreadyInReview");
+  }
+  if (lower.includes("cannot be submitted from current status")) {
+    return translate("profile.cannotSubmitCurrentStatus");
+  }
+  return message;
+}
+
 interface DriverProfileSetupProps {
   onComplete?: () => void;
   /** Leave setup and return to the main map / bottom sheet. */
@@ -954,6 +971,26 @@ export default function DriverProfileSetup({
     );
   };
 
+  const handleSubmitFailure = async (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : t("common.error");
+    if (logger && driverId) {
+      await logger.logError("submission", message, {
+        completion_percentage: completionPercentage,
+      });
+    }
+
+    const synced = await syncDossierStateWithBackend();
+    if (!synced) {
+      const serverLooksPending =
+        message.toLowerCase().includes("already in review") ||
+        message.toLowerCase().includes("déjà en cours de vérification");
+      setStatus(serverLooksPending ? "pending_review" : "draft");
+    }
+    completeSubmission(false, message);
+    showAppAlert(t("common.error"), mapSubmitDossierAlert(message, t));
+  };
+
   const handleSubmit = async () => {
     if (!isEditable) {
       showAppAlert(
@@ -1001,17 +1038,7 @@ export default function DriverProfileSetup({
         router.replace("/(tabs)");
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : t("common.error");
-      if (logger && driverId) {
-        await logger.logError("submission", message, {
-          completion_percentage: completionPercentage,
-        });
-      }
-
-      setStatus("draft");
-      completeSubmission(false, message);
-      showAppAlert(t("common.error"), message);
+      await handleSubmitFailure(error);
     } finally {
       setSubmitting(false);
     }

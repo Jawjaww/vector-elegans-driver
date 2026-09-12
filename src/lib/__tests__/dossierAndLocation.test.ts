@@ -56,6 +56,36 @@ describe('dossierService', () => {
     expect(result.message).toContain('Dossier incomplete');
   });
 
+  it('submitDossier maps already-in-review rows to French', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{
+        success: true,
+        new_status: 'pending_review',
+        message: 'Dossier already in review',
+      }],
+      error: null,
+    });
+
+    const result = await submitDossier('driver-1', 'user-1');
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('déjà en cours de vérification');
+  });
+
+  it('submitDossier maps cannot-submit status errors to French', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{
+        success: false,
+        new_status: 'active',
+        message: 'Dossier cannot be submitted from current status',
+      }],
+      error: null,
+    });
+
+    const result = await submitDossier('driver-1', 'user-1');
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('état actuel');
+  });
+
   it('submitDossier maps schema cache errors to a friendly message', async () => {
     mockRpc.mockResolvedValue({
       data: null,

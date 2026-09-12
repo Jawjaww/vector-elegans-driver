@@ -69,10 +69,11 @@ function parseSubmissionResult(data: unknown): DossierSubmissionResult {
       typeof row.new_status === 'string' && row.new_status
         ? row.new_status
         : 'error',
-    message:
+    message: formatDossierRpcError(
       typeof row.message === 'string' && row.message.trim()
         ? row.message
         : 'Erreur lors de la soumission du dossier',
+    ),
   };
 }
 
@@ -102,6 +103,12 @@ function formatDossierRpcError(message: string): string {
       'Erreur serveur lors de l’enregistrement du dossier. Réessayez ou contactez le support.',
       message,
     );
+  }
+  if (lower.includes('already in review')) {
+    return 'Votre dossier est déjà en cours de vérification.';
+  }
+  if (lower.includes('cannot be submitted from current status')) {
+    return 'Ce dossier ne peut pas être soumis dans son état actuel.';
   }
   return message;
 }

@@ -165,6 +165,10 @@
     "success": "Success",
     "submissionPendingTitle": "Application sent",
     "submissionPendingMessage": "Our team will review it. You will be notified of the result.",
+    "alreadyInReview": "Your file is already under review.",
+    "cannotSubmitCurrentStatus": "This file cannot be submitted in its current status.",
+    "alreadySubmitted": "File already submitted",
+    "cannotModifySubmitted": "This file is already under review. You cannot submit it again.",
     "waitingForValidation": "Awaiting validation",
     "folderStatus": {
       "pendingReviewTitle": "File under review",

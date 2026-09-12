@@ -204,6 +204,10 @@
     "success": "Succès",
     "submissionPendingTitle": "Dossier envoyé",
     "submissionPendingMessage": "Notre équipe va le valider. Vous serez notifié du résultat.",
+    "alreadyInReview": "Votre dossier est déjà en cours de vérification.",
+    "cannotSubmitCurrentStatus": "Ce dossier ne peut pas être soumis dans son état actuel.",
+    "alreadySubmitted": "Dossier déjà soumis",
+    "cannotModifySubmitted": "Ce dossier est déjà en vérification. Vous ne pouvez plus le soumettre à nouveau.",
     "waitingForValidation": "En attente de validation",
     "folderStatus": {
       "pendingReviewTitle": "Dossier en vérification",
