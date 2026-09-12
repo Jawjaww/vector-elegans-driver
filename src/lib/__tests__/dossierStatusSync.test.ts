@@ -2,6 +2,8 @@ import {
   createDossierStatusSync,
   decideOnlineToggle,
   shouldApplyFetchedDriverStatus,
+  shouldForceOfflineForStatus,
+  shouldSyncDriverStatus,
 } from '../utils/dossierStatusSync';
 
 describe('shouldApplyFetchedDriverStatus', () => {
@@ -48,6 +50,29 @@ describe('createDossierStatusSync', () => {
     const sync = createDossierStatusSync();
     const gen = sync.beginFetch();
     expect(sync.shouldApplyFetch(gen)).toBe(true);
+  });
+});
+
+describe('shouldForceOfflineForStatus', () => {
+  it('forces offline when status is not active', () => {
+    expect(shouldForceOfflineForStatus('pending_review')).toBe(true);
+    expect(shouldForceOfflineForStatus('suspended')).toBe(true);
+    expect(shouldForceOfflineForStatus(null)).toBe(true);
+  });
+
+  it('stays online-eligible when status is active', () => {
+    expect(shouldForceOfflineForStatus('active')).toBe(false);
+  });
+});
+
+describe('shouldSyncDriverStatus', () => {
+  it('syncs when the server status differs from local', () => {
+    expect(shouldSyncDriverStatus('active', 'pending_review')).toBe(true);
+  });
+
+  it('skips when status is unchanged or missing', () => {
+    expect(shouldSyncDriverStatus('active', 'active')).toBe(false);
+    expect(shouldSyncDriverStatus('active', null)).toBe(false);
   });
 });
 

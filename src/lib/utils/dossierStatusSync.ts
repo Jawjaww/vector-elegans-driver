@@ -28,6 +28,19 @@ export function createDossierStatusSync() {
   };
 }
 
+/** Local switch + matching must drop when the dossier is no longer active. */
+export function shouldForceOfflineForStatus(status: string | null): boolean {
+  return !canDriverGoOnline(status);
+}
+
+/** Lightweight poll: only refetch dossier meta when status actually changed. */
+export function shouldSyncDriverStatus(
+  local: string | null,
+  fresh: string | null,
+): boolean {
+  return fresh != null && fresh !== local;
+}
+
 export function shouldApplyFetchedDriverStatus(input: {
   startedAtGeneration: number;
   latestFetchGeneration: number;

@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   StyleSheet,
   Switch,
@@ -19,7 +20,12 @@ import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
 import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, type DriverDuty } from "../../src/lib/utils/driverDuty";
-import { createDossierStatusSync, decideOnlineToggle } from "../../src/lib/utils/dossierStatusSync";
+import {
+  createDossierStatusSync,
+  decideOnlineToggle,
+  shouldForceOfflineForStatus,
+  shouldSyncDriverStatus,
+} from "../../src/lib/utils/dossierStatusSync";
 import { resolvePendingRideRealtimeUpdate } from "../../src/lib/utils/pendingRideRealtime";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
@@ -584,7 +590,18 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
         status: normalizeFolderStatus(nextStatus),
       });
 
-      const dossier = await refreshDossierMeta(id);
+      if (shouldForceOfflineForStatus(nextStatus)) {
+        useDriverStore.getState().setIsOnline(false);
+        void setDriverOffline();
+      }
+
+      let dossier: Awaited<ReturnType<typeof refreshDossierMeta>> = null;
+      try {
+        dossier = await refreshDossierMeta(id);
+      } catch (error) {
+        console.error("[Dossier] refreshDossierMeta failed:", error);
+      }
+
       if (!options?.silent) {
         notifyDriverStatusTransition({
           previous,
@@ -592,11 +609,6 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
           dossierIsComplete: dossier?.is_complete,
           setJustValidated,
         });
-      }
-
-      if (!canDriverGoOnline(nextStatus)) {
-        useDriverStore.getState().setIsOnline(false);
-        void setDriverOffline();
       }
     },
     [refreshDossierMeta],
@@ -651,6 +663,15 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
     }
   }, [applyDriverStatus, router]);
 
+  const syncDriverStatusIfChanged = useCallback(async () => {
+    const id = driverId;
+    if (!id) return;
+    const fresh = await fetchFreshDriverStatus(id);
+    if (shouldSyncDriverStatus(driverStatusRef.current, fresh)) {
+      await applyDriverStatus(fresh!, id);
+    }
+  }, [driverId, fetchFreshDriverStatus, applyDriverStatus]);
+
   useFocusEffect(
     useCallback(() => {
       void fetchDriverStatus();
@@ -677,12 +698,42 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
           void applyDriverStatus(row.status, row.id);
         },
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          void fetchDriverStatus();
+          return;
+        }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          if (__DEV__) {
+            console.warn("[driver-dossier] realtime", status, err);
+          }
+          void syncDriverStatusIfChanged();
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [driverId, applyDriverStatus]);
+  }, [driverId, applyDriverStatus, fetchDriverStatus, syncDriverStatusIfChanged]);
+
+  useEffect(() => {
+    if (!driverId) return;
+
+    const onAppStateChange = (next: string) => {
+      if (next === "active") {
+        void syncDriverStatusIfChanged();
+      }
+    };
+    const subscription = AppState.addEventListener("change", onAppStateChange);
+    const pollId = setInterval(() => {
+      void syncDriverStatusIfChanged();
+    }, 45_000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(pollId);
+    };
+  }, [driverId, syncDriverStatusIfChanged]);
 
   return {
     loading,
