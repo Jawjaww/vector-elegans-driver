@@ -175,8 +175,15 @@
       "pendingReviewMessage": "Submitted to our team — you will be notified of the result.",
       "validatedTitle": "File approved",
       "validatedMessage": "You can go online and accept rides.",
+      "validatedNoSubmit": "Your file is approved. No submission is needed.",
       "rejectedTitle": "File rejected",
-      "rejectedMessage": "Fix the items noted and resubmit."
+      "rejectedMessage": "Fix the items noted and resubmit.",
+      "suspendedTitle": "Account suspended",
+      "suspendedMessage": "You can no longer receive rides.",
+      "onVacationTitle": "On leave",
+      "onVacationMessage": "Reactivation is required to receive rides.",
+      "inactiveTitle": "Account inactive",
+      "inactiveMessage": "This account cannot receive rides. Contact administration."
     },
     "documentTypes": {
       "drivingLicense": "Driving License",

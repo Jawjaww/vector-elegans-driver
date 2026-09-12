@@ -70,7 +70,7 @@ import {
   cancelDossierReview,
   listOwnDriverDocuments,
 } from "../lib/services/dossierService";
-import { isUnsubmittedDossier, normalizeFolderStatus } from "../lib/folderStatus";
+import { isUnsubmittedDossier, normalizeFolderStatus, canShowDossierSubmit } from "../lib/folderStatus";
 import {
   canReplaceDocument,
   isProfileEditable,
@@ -322,6 +322,14 @@ function mapSubmitDossierAlert(
   return message;
 }
 
+function submitBlockedMessageKey(status: string): string {
+  if (status === "suspended") return "profile.folderStatus.suspendedMessage";
+  if (status === "on_vacation") return "profile.folderStatus.onVacationMessage";
+  if (status === "inactive") return "profile.folderStatus.inactiveMessage";
+  if (status === "active") return "profile.folderStatus.validatedNoSubmit";
+  return "profile.cannotSubmitCurrentStatus";
+}
+
 interface DriverProfileSetupProps {
   onComplete?: () => void;
   /** Leave setup and return to the main map / bottom sheet. */
@@ -342,7 +350,7 @@ export default function DriverProfileSetup({
   const [dossierSynced, setDossierSynced] = useState(false);
 
   // Dossier state management
-  const { status, dossierUpdateRequested, isEditable } =
+  const { status, dossierUpdateRequested, isEditable, opsStatusReason } =
     useDriverFolderStatus();
   const { setStatus, completeSubmission } = useDriverFolderStore();
   const [rejectedDocumentTypes, setRejectedDocumentTypes] = useState<string[]>(
@@ -813,6 +821,7 @@ export default function DriverProfileSetup({
           canEditDocuments: syncedState.canEditDocuments,
           rejectionReason: syncedState.rejectionReason,
           rejectedAt: syncedState.rejectedAt,
+          opsStatusReason: syncedState.opsStatusReason,
         });
         setRejectedDocumentTypes(syncedState.rejectedDocumentTypes ?? []);
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
@@ -992,10 +1001,10 @@ export default function DriverProfileSetup({
   };
 
   const handleSubmit = async () => {
-    if (!isEditable) {
+    if (!canShowDossierSubmit(status, dossierUpdateRequested) || !isEditable) {
       showAppAlert(
-        t("profile.alreadySubmitted"),
-        t("profile.cannotModifySubmitted"),
+        t("profile.cannotEdit"),
+        t(submitBlockedMessageKey(status)),
       );
       return;
     }
@@ -1854,6 +1863,9 @@ export default function DriverProfileSetup({
     if (isPendingReviewUi) {
       return renderPendingQueueActions();
     }
+    if (!canShowDossierSubmit(status, dossierUpdateRequested)) {
+      return null;
+    }
     return renderDraftValidationActions();
   };
 
@@ -1988,7 +2000,12 @@ export default function DriverProfileSetup({
             </Animated.View>
 
             <Animated.View entering={FadeInUp.duration(500).delay(500)}>
-              <DossierValidationChecklist input={checklistInput} />
+              <DossierValidationChecklist
+                input={checklistInput}
+                status={status}
+                opsStatusReason={opsStatusReason}
+                dossierUpdateRequested={dossierUpdateRequested}
+              />
             </Animated.View>
 
             <Animated.View

@@ -11,6 +11,7 @@ export type BannerKind =
   | 'pending_review'
   | 'suspended'
   | 'on_vacation'
+  | 'inactive'
   | 'incomplete'
   | 'validated'
   | null;
@@ -90,6 +91,10 @@ function resolveStatusBanner(
 
   if (input.driverStatus === 'on_vacation') {
     return { kind: 'on_vacation', slot: 'status' };
+  }
+
+  if (input.driverStatus === 'inactive') {
+    return { kind: 'inactive', slot: 'status' };
   }
 
   if (input.driverStatus && REVIEW_STATUSES.has(input.driverStatus)) {
@@ -180,6 +185,7 @@ export function buildDossierBannerCopy(input: {
   expiredLabels: string[];
   expiringLabel?: string;
   rejectedReason: string | null;
+  opsStatusReason?: string | null;
 }): DossierBannerCopy {
   switch (input.kind) {
     case 'expired': {
@@ -234,16 +240,29 @@ export function buildDossierBannerCopy(input: {
     case 'suspended':
       return {
         title: 'Compte suspendu',
-        subtitle: 'Vous ne pouvez plus recevoir de courses.',
+        subtitle:
+          input.opsStatusReason?.trim() ||
+          'Vous ne pouvez plus recevoir de courses.',
         accent: '#fb7185',
         icon: 'alert-triangle',
       };
     case 'on_vacation':
       return {
         title: 'En congé',
-        subtitle: 'Réactivation nécessaire pour recevoir des courses.',
+        subtitle:
+          input.opsStatusReason?.trim() ||
+          'Réactivation nécessaire pour recevoir des courses.',
         accent: '#fbbf24',
         icon: 'clock',
+      };
+    case 'inactive':
+      return {
+        title: 'Compte inactif',
+        subtitle:
+          input.opsStatusReason?.trim() ||
+          'Ce compte ne peut pas recevoir de courses. Contactez l’administration.',
+        accent: '#94a3b8',
+        icon: 'alert-triangle',
       };
     case 'validated':
       return {

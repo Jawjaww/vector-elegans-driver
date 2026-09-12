@@ -214,8 +214,15 @@
       "pendingReviewMessage": "Soumis à notre équipe — vous serez notifié du résultat.",
       "validatedTitle": "Dossier validé",
       "validatedMessage": "Vous pouvez passer en ligne et accepter des courses.",
+      "validatedNoSubmit": "Votre dossier est validé. Aucune soumission n’est nécessaire.",
       "rejectedTitle": "Dossier refusé",
-      "rejectedMessage": "Corrigez les éléments indiqués puis resoumettez."
+      "rejectedMessage": "Corrigez les éléments indiqués puis resoumettez.",
+      "suspendedTitle": "Compte suspendu",
+      "suspendedMessage": "Vous ne pouvez plus recevoir de courses.",
+      "onVacationTitle": "En congé",
+      "onVacationMessage": "Réactivation nécessaire pour recevoir des courses.",
+      "inactiveTitle": "Compte inactif",
+      "inactiveMessage": "Ce compte ne peut pas recevoir de courses. Contactez l’administration."
     },
     "documentTypes": {
       "drivingLicense": "Permis de conduire",

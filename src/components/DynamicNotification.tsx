@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
+import { View, Text, Pressable, Animated } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useDriverNotifications, useDriverFolderStatus } from '../lib/stores/driverFolderStore';
@@ -9,7 +9,6 @@ interface DynamicNotificationProps {
 }
 
 export const DynamicNotification: React.FC<DynamicNotificationProps> = ({ className }) => {
-  const { t } = useTranslation();
   const { notifications, unreadCount, markNotificationAsRead } = useDriverNotifications();
   
   const fadeAnim = new Animated.Value(0);
@@ -64,7 +63,7 @@ export const DynamicNotification: React.FC<DynamicNotificationProps> = ({ classN
     const now = new Date();
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
     
-    if (diffInMinutes < 1) return 'À l\instant';
+    if (diffInMinutes < 1) return "À l'instant";
     if (diffInMinutes < 60) return `Il y a ${diffInMinutes} min`;
     
     const diffInHours = Math.floor(diffInMinutes / 60);
@@ -130,8 +129,8 @@ export const DriverFolderStatusBanner: React.FC = () => {
     dossierUpdateRequested,
     submittedAt,
     validatedAt,
-    rejectedAt,
     rejectionReason,
+    opsStatusReason,
   } = useDriverFolderStatus();
 
   const getStatusConfig = () => {
@@ -159,6 +158,30 @@ export const DriverFolderStatusBanner: React.FC = () => {
           title: t('profile.folderStatus.validatedTitle'),
           message: t('profile.folderStatus.validatedMessage'),
           color: 'bg-emerald-500/20 border border-emerald-400/30'
+        };
+      case 'suspended':
+        return {
+          icon: 'alert-triangle' as const,
+          title: t('profile.folderStatus.suspendedTitle'),
+          message:
+            opsStatusReason || t('profile.folderStatus.suspendedMessage'),
+          color: 'bg-rose-500/20 border border-rose-400/30',
+        };
+      case 'on_vacation':
+        return {
+          icon: 'clock' as const,
+          title: t('profile.folderStatus.onVacationTitle'),
+          message:
+            opsStatusReason || t('profile.folderStatus.onVacationMessage'),
+          color: 'bg-amber-500/20 border border-amber-400/30',
+        };
+      case 'inactive':
+        return {
+          icon: 'alert-triangle' as const,
+          title: t('profile.folderStatus.inactiveTitle'),
+          message:
+            opsStatusReason || t('profile.folderStatus.inactiveMessage'),
+          color: 'bg-slate-500/20 border border-slate-400/30',
         };
       case 'rejected':
         return {

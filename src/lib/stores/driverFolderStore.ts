@@ -34,6 +34,7 @@ export interface DriverFolderState {
   validatedAt: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
+  opsStatusReason: string | null;
   dossierUpdateRequested: boolean;
   isEditable: boolean;
   canSubmit: boolean;
@@ -61,6 +62,7 @@ const initialState = {
   validatedAt: null,
   rejectedAt: null,
   rejectionReason: null,
+  opsStatusReason: null,
   dossierUpdateRequested: false,
   isEditable: true,
   canSubmit: true,
@@ -225,6 +227,7 @@ export function useDriverFolderStatus() {
     validatedAt,
     rejectedAt,
     rejectionReason,
+    opsStatusReason,
   } = useDriverFolderStore();
 
   const normalized = normalizeFolderStatus(status);
@@ -239,6 +242,7 @@ export function useDriverFolderStatus() {
     validatedAt,
     rejectedAt,
     rejectionReason,
+    opsStatusReason,
   };
 }
 

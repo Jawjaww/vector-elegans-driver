@@ -38,6 +38,7 @@ export interface DossierStatus {
   is_complete: boolean;
   missing_fields: string[];
   dossier_update_requested: boolean;
+  ops_status_reason: string | null;
 }
 
 export interface DossierSubmissionResult {
@@ -176,6 +177,10 @@ function mapDossierStatusRow(row: Record<string, unknown>): DossierStatus {
     missing_fields: asStringArray(row.missing_fields),
     completion_percentage: Number(row.completion_percentage ?? 0),
     dossier_update_requested: Boolean(row.dossier_update_requested),
+    ops_status_reason:
+      typeof row.ops_status_reason === 'string' && row.ops_status_reason.trim()
+        ? row.ops_status_reason.trim()
+        : null,
   };
 }
 
@@ -186,7 +191,7 @@ async function getDossierStatusFromCompleteness(
 ): Promise<DossierStatus | null> {
   const { data: driver, error: driverError } = await supabase
     .from('drivers')
-    .select('id, status, user_id, dossier_update_requested_at')
+    .select('id, status, user_id, dossier_update_requested_at, ops_status_reason')
     .eq('id', driverId)
     .maybeSingle();
 
@@ -264,6 +269,11 @@ async function getDossierStatusFromCompleteness(
     is_complete: Boolean(comp.is_complete),
     missing_fields: missingFields,
     dossier_update_requested: dossierUpdateRequested,
+    ops_status_reason:
+      typeof driver.ops_status_reason === 'string' &&
+      driver.ops_status_reason.trim()
+        ? driver.ops_status_reason.trim()
+        : null,
   };
 }
 
@@ -540,6 +550,7 @@ export async function syncDossierState(driverId: string, userId: string) {
       missingForSubmit: status.missing_for_submit,
       isComplete: status.is_complete,
       missingFields: status.missing_fields,
+      opsStatusReason: status.ops_status_reason,
     };
   } catch (error) {
     console.error('[dossierService] syncDossierState - exception:', error);

@@ -53,10 +53,17 @@ describe('resolveDossierEditMode', () => {
     ).toBe('locked');
   });
 
-  it('returns locked for active drivers', () => {
+  it('returns locked for active and ops drivers', () => {
     expect(
       resolveDossierEditMode({
         status: 'active',
+        dossierUpdateRequested: false,
+        rejectedDocumentTypes: [],
+      }),
+    ).toBe('locked');
+    expect(
+      resolveDossierEditMode({
+        status: 'suspended',
         dossierUpdateRequested: false,
         rejectedDocumentTypes: [],
       }),

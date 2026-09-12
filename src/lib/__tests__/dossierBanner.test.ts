@@ -224,6 +224,24 @@ describe('buildDossierBannerCopy', () => {
     ).toBe('Photo illisible');
   });
 
+  it('shows the admin ops reason on suspended and vacation banners', () => {
+    expect(
+      buildDossierBannerCopy({
+        kind: 'suspended',
+        expiredLabels: [],
+        rejectedReason: null,
+        opsStatusReason: 'fraude documents',
+      }).subtitle,
+    ).toBe('fraude documents');
+    expect(
+      buildDossierBannerCopy({
+        kind: 'on_vacation',
+        expiredLabels: [],
+        rejectedReason: null,
+      }).subtitle,
+    ).toBe('Réactivation nécessaire pour recevoir des courses.');
+  });
+
   it('asks the driver to consult the dossier after a reopen without a targeted document', () => {
     expect(
       buildDossierBannerCopy({

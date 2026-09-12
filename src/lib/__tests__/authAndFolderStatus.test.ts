@@ -1,4 +1,4 @@
-import { normalizeFolderStatus, isUnsubmittedDossier } from '../folderStatus';
+import { normalizeFolderStatus, isUnsubmittedDossier, canShowDossierSubmit } from '../folderStatus';
 import {
   getUserRole,
   isUserDriver,
@@ -25,6 +25,10 @@ describe('normalizeFolderStatus', () => {
     expect(normalizeFolderStatus('draft')).toBe('draft');
     expect(normalizeFolderStatus('pending_review')).toBe('pending_review');
     expect(normalizeFolderStatus('rejected')).toBe('rejected');
+    expect(normalizeFolderStatus('active')).toBe('active');
+    expect(normalizeFolderStatus('suspended')).toBe('suspended');
+    expect(normalizeFolderStatus('on_vacation')).toBe('on_vacation');
+    expect(normalizeFolderStatus('inactive')).toBe('inactive');
   });
 });
 
@@ -38,6 +42,24 @@ describe('isUnsubmittedDossier', () => {
   it('locks pending_review and active', () => {
     expect(isUnsubmittedDossier('pending_review')).toBe(false);
     expect(isUnsubmittedDossier('active')).toBe(false);
+    expect(isUnsubmittedDossier('suspended')).toBe(false);
+    expect(isUnsubmittedDossier('on_vacation')).toBe(false);
+  });
+});
+
+describe('canShowDossierSubmit', () => {
+  it('allows onboarding statuses only', () => {
+    expect(canShowDossierSubmit('draft')).toBe(true);
+    expect(canShowDossierSubmit('rejected')).toBe(true);
+    expect(canShowDossierSubmit('pending_review', true)).toBe(true);
+  });
+
+  it('hides submit for ops and validated dossiers', () => {
+    expect(canShowDossierSubmit('pending_review', false)).toBe(false);
+    expect(canShowDossierSubmit('active')).toBe(false);
+    expect(canShowDossierSubmit('suspended')).toBe(false);
+    expect(canShowDossierSubmit('on_vacation')).toBe(false);
+    expect(canShowDossierSubmit('inactive')).toBe(false);
   });
 });
 

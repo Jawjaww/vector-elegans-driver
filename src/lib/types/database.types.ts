@@ -346,6 +346,7 @@ export type Database = {
           date_of_birth: string | null
           document_urls: Json | null
           dossier_update_requested_at: string | null
+          ops_status_reason: string | null
           driving_license_categories: string[] | null
           driving_license_expiry_date: string | null
           driving_license_issue_date: string | null
@@ -388,6 +389,7 @@ export type Database = {
           date_of_birth?: string | null
           document_urls?: Json | null
           dossier_update_requested_at?: string | null
+          ops_status_reason?: string | null
           driving_license_categories?: string[] | null
           driving_license_expiry_date?: string | null
           driving_license_issue_date?: string | null
@@ -430,6 +432,7 @@ export type Database = {
           date_of_birth?: string | null
           document_urls?: Json | null
           dossier_update_requested_at?: string | null
+          ops_status_reason?: string | null
           driving_license_categories?: string[] | null
           driving_license_expiry_date?: string | null
           driving_license_issue_date?: string | null
@@ -1924,6 +1927,7 @@ export type Database = {
           is_editable: boolean
           missing_fields: string[]
           missing_for_submit: string[]
+          ops_status_reason: string
           rejected_at: string
           rejected_document_count: number
           rejected_document_types: string[]

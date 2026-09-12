@@ -568,6 +568,7 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
         canEditDocuments: dossier.can_edit_documents,
         isEditable: dossier.is_editable,
         dossierUpdateRequested: dossier.dossier_update_requested,
+        opsStatusReason: dossier.ops_status_reason,
       });
       return dossier;
     }
@@ -1328,6 +1329,7 @@ function DriverStatusBanner({
   onDismissValidated: () => void;
 }>) {
   const { t } = useTranslation();
+  const opsStatusReason = useDriverFolderStore((s) => s.opsStatusReason);
 
   if (banners.length === 0) return null;
 
@@ -1346,6 +1348,7 @@ function DriverStatusBanner({
             banner.expiring?.document_type ?? null,
           ),
           rejectedReason: rejectedDocs[0]?.rejection_reason ?? null,
+          opsStatusReason,
         });
         const onPress =
           banner.kind === "validated" ? onDismissValidated : onOpenProfile;
