@@ -72,6 +72,12 @@ import {
 } from "../lib/services/dossierService";
 import { isUnsubmittedDossier, normalizeFolderStatus } from "../lib/folderStatus";
 import {
+  canReplaceDocument,
+  isProfileEditable,
+  resolveDossierEditMode,
+  type DossierEditMode,
+} from "../lib/dossierEditMode";
+import {
   EMPTY_VEHICLE_FORM,
   getOwnPrimaryVehicle,
   upsertOwnPrimaryVehicle,
@@ -319,9 +325,22 @@ export default function DriverProfileSetup({
   const [dossierSynced, setDossierSynced] = useState(false);
 
   // Dossier state management
-  const { status, isEditable, canEditDocuments } =
+  const { status, dossierUpdateRequested, isEditable } =
     useDriverFolderStatus();
   const { setStatus, completeSubmission } = useDriverFolderStore();
+  const [rejectedDocumentTypes, setRejectedDocumentTypes] = useState<string[]>(
+    [],
+  );
+  const editMode: DossierEditMode = useMemo(
+    () =>
+      resolveDossierEditMode({
+        status,
+        dossierUpdateRequested,
+        rejectedDocumentTypes,
+      }),
+    [status, dossierUpdateRequested, rejectedDocumentTypes],
+  );
+  const profileFieldsEditable = isProfileEditable(editMode) && !submitting;
   const {
     logger,
     logSubmissionStart,
@@ -638,7 +657,7 @@ export default function DriverProfileSetup({
 
   const handleInputChange = (field: keyof DriverProfileData, value: string) => {
     // Vérifier si le dossier peut être modifié
-    if (!isEditable) {
+    if (!profileFieldsEditable) {
       showAppAlert(
         t("profile.cannotEdit"),
         t("profile.submittedProfileLocked"),
@@ -668,6 +687,10 @@ export default function DriverProfileSetup({
             documentType: linkedDocType,
             expiryDate: ymd,
             hasDocument: true,
+            editMode,
+            validationStatus: documentMeta[linkedDocType]?.status,
+            rejectedDocumentTypes,
+            serverExpiryDate: documentMeta[linkedDocType]?.expiryDate,
           });
         });
       }
@@ -710,9 +733,13 @@ export default function DriverProfileSetup({
     expiryDate?: string,
   ) => {
     const key = documentType as keyof DocumentStatus;
-    const canReplaceRejected =
-      canEditDocuments && documentMeta[key]?.status === "rejected";
-    if (!isEditable && !canEditDocuments && !canReplaceRejected) {
+    const canReplaceDoc = canReplaceDocument(
+      editMode,
+      documentType,
+      documentMeta[key]?.status,
+      rejectedDocumentTypes,
+    );
+    if (!canReplaceDoc) {
       showAppAlert(
         t("profile.cannotEdit"),
         t("profile.submittedProfileLocked"),
@@ -751,8 +778,8 @@ export default function DriverProfileSetup({
     }
   };
 
-  // Fonction helper pour vérifier si un champ peut être édité
-  const isFieldEditable = () => isEditable && !submitting;
+  // Profile/vehicle fields follow edit mode; document replace has its own rules.
+  const isFieldEditable = () => profileFieldsEditable;
 
   // Synchroniser l'état du dossier avec le backend
   const syncDossierStateWithBackend = async () => {
@@ -763,12 +790,14 @@ export default function DriverProfileSetup({
       if (syncedState) {
         useDriverFolderStore.setState({
           status: syncedState.status,
+          dossierUpdateRequested: syncedState.dossierUpdateRequested,
           isEditable: syncedState.isEditable,
           canSubmit: syncedState.canSubmit,
           canEditDocuments: syncedState.canEditDocuments,
           rejectionReason: syncedState.rejectionReason,
           rejectedAt: syncedState.rejectedAt,
         });
+        setRejectedDocumentTypes(syncedState.rejectedDocumentTypes ?? []);
         setMissingForSubmit(syncedState.missingForSubmit ?? []);
         setRpcCompletionPercentage(syncedState.completionPercentage ?? 0);
         setDossierSynced(true);
@@ -781,9 +810,7 @@ export default function DriverProfileSetup({
     }
   };
 
-  const handleSave = async (
-    options?: { silent?: boolean },
-  ): Promise<string | false> => {
+  const persistDriverRow = async (): Promise<string | false> => {
     try {
       const {
         data: { user },
@@ -827,10 +854,6 @@ export default function DriverProfileSetup({
           showAppAlert(t("common.error"), error.message);
           return false;
         }
-        await syncUploadedDocumentExpiries(t, driverId, checklistInput);
-        if (!options?.silent) {
-          showAppAlert(t("common.success"), t("profile.profileSaved"));
-        }
         return driverId;
       }
 
@@ -847,9 +870,6 @@ export default function DriverProfileSetup({
 
       if (newDriver) {
         setDriverId(newDriver.id);
-        if (!options?.silent) {
-          showAppAlert(t("common.success"), t("profile.profileSaved"));
-        }
         return newDriver.id;
       }
 
@@ -860,6 +880,26 @@ export default function DriverProfileSetup({
       showAppAlert(t("common.error"), message);
       return false;
     }
+  };
+
+  const handleSave = async (
+    options?: { silent?: boolean; syncExpiries?: boolean },
+  ): Promise<string | false> => {
+    const savedId = await persistDriverRow();
+    if (!savedId) return false;
+
+    if (options?.syncExpiries && editMode !== "locked") {
+      await syncUploadedDocumentExpiries(t, savedId, checklistInput, {
+        editMode,
+        rejectedDocumentTypes,
+        silent: options.silent,
+      });
+    }
+
+    if (!options?.silent) {
+      showAppAlert(t("common.success"), t("profile.profileSaved"));
+    }
+    return savedId;
   };
 
   const saveVehicle = async (options?: { force?: boolean }): Promise<boolean> => {
@@ -926,7 +966,10 @@ export default function DriverProfileSetup({
     setSubmitting(true);
 
     try {
-      const savedDriverId = await handleSave({ silent: true });
+      const savedDriverId = await handleSave({
+        silent: true,
+        syncExpiries: true,
+      });
       if (!savedDriverId) return;
       const vehicleSaved = await saveVehicle({ force: true });
       if (!vehicleSaved) return;
@@ -987,6 +1030,14 @@ export default function DriverProfileSetup({
         return;
       }
 
+      useDriverFolderStore.setState({
+        status: "draft",
+        dossierUpdateRequested: false,
+        isEditable: true,
+        canSubmit: true,
+        canEditDocuments: true,
+      });
+      setRejectedDocumentTypes([]);
       await syncDossierStateWithBackend();
       showAppAlert(t("common.success"), t("profile.submissionCancelled"));
     } catch (e) {
@@ -1070,9 +1121,9 @@ export default function DriverProfileSetup({
       await syncDossierStateWithBackend();
     }
 
-    // Best-effort save / sync; never block section navigation in editable draft flow.
+    // Persist driver row only — never touch driver_documents expiry on Next.
     if (currentSection <= 1 && isFieldEditable()) {
-      const savedDriverId = await handleSave({ silent: true });
+      const savedDriverId = await persistDriverRow();
       if (savedDriverId) {
         await syncDossierStateWithBackend();
       }
@@ -1624,6 +1675,161 @@ export default function DriverProfileSetup({
           </Animated.View>
         );
   };
+
+  const isPendingReviewUi =
+    status === "pending_review" || status === "submitted";
+
+  const confirmCancelReview = (messageKey: string) => {
+    showAppAlert(t("common.confirm"), t(messageKey), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.ok"),
+        onPress: async () => await handleCancelSubmission(),
+      },
+    ]);
+  };
+
+  const renderAdminUpdateActions = () => (
+    <>
+      <Animated.View
+        entering={FadeInUp.duration(500).delay(950)}
+        className="bg-sky-500/15 border border-sky-400/30 rounded-xl p-3 mb-1"
+      >
+        <Text className="text-sky-100 text-sm font-semibold">
+          {t("profile.adminUpdateRequestedTitle")}
+        </Text>
+        <Text className="text-sky-100/90 text-xs mt-1">
+          {t("profile.adminUpdateRequestedMessage")}
+        </Text>
+      </Animated.View>
+      <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
+        <Pressable
+          onPress={handleSubmit}
+          disabled={submitting || !isEditable}
+          className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
+        >
+          <LinearGradient
+            colors={["#059669", "#10b981"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            className="absolute inset-0 rounded-lg"
+          />
+          <Animated.Text
+            entering={FadeIn.duration(300).delay(1100)}
+            className="text-white text-sm font-semibold"
+          >
+            {submitting
+              ? t("profile.submitting")
+              : t("profile.submitForReview")}
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+      <Animated.View entering={FlipInEasyX.duration(600).delay(1050)}>
+        <Pressable
+          onPress={() => confirmCancelReview("profile.confirmReturnToDraft")}
+          className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow mt-2"
+        >
+          <LinearGradient
+            colors={["#374151", "#4b5563"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            className="absolute inset-0 rounded-lg"
+          />
+          <Animated.Text className="text-white text-sm font-semibold">
+            {t("profile.returnToDraft")}
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+    </>
+  );
+
+  const renderPendingQueueActions = () => (
+    <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
+      <Pressable
+        onPress={() => confirmCancelReview("profile.confirmCancelSubmission")}
+        className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
+      >
+        <LinearGradient
+          colors={["#f97316", "#ef4444"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          className="absolute inset-0 rounded-lg"
+        />
+        <Animated.Text
+          entering={FadeIn.duration(300).delay(1100)}
+          className="text-white text-sm font-semibold"
+        >
+          {t("profile.cancelSubmission")}
+        </Animated.Text>
+      </Pressable>
+    </Animated.View>
+  );
+
+  const renderDraftValidationActions = () => (
+    <>
+      <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
+        <Pressable
+          onPress={async () => {
+            const savedDriverId = await handleSave({
+              silent: true,
+              syncExpiries: true,
+            });
+            if (!savedDriverId) return;
+            await saveVehicle();
+            await syncDossierStateWithBackend();
+            showAppAlert(t("common.success"), t("profile.profileSaved"));
+          }}
+          className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
+        >
+          <LinearGradient
+            colors={["#374151", "#4b5563"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            className="absolute inset-0 rounded-lg"
+          />
+          <Animated.Text
+            entering={FadeIn.duration(300).delay(1100)}
+            className="text-white text-sm font-semibold"
+          >
+            {t("profile.saveProgress")}
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+      <Animated.View entering={FlipInEasyX.duration(600).delay(1200)}>
+        <Pressable
+          onPress={handleSubmit}
+          disabled={submitting || !isEditable}
+          className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
+        >
+          <LinearGradient
+            colors={["#10b981", "#059669"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            className="absolute inset-0 rounded-lg"
+          />
+          <Animated.Text
+            entering={FadeIn.duration(300).delay(1300)}
+            className="text-white text-sm font-semibold"
+          >
+            {submitting
+              ? t("profile.submitting")
+              : t("profile.submitForReview")}
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+    </>
+  );
+
+  const renderValidationActions = () => {
+    if (dossierUpdateRequested && isPendingReviewUi) {
+      return renderAdminUpdateActions();
+    }
+    if (isPendingReviewUi) {
+      return renderPendingQueueActions();
+    }
+    return renderDraftValidationActions();
+  };
+
   const renderDocumentsSection = () => {
         return (
           <Animated.View
@@ -1659,7 +1865,13 @@ export default function DriverProfileSetup({
                 documentMeta,
               );
               const canReplace =
-                !submitting && (isEditable || canEditDocuments);
+                !submitting &&
+                canReplaceDocument(
+                  editMode,
+                  docType,
+                  meta?.status,
+                  rejectedDocumentTypes,
+                );
               const docValidationStatus = (meta?.status ?? "pending") as
                 | "pending"
                 | "approved"
@@ -1714,6 +1926,7 @@ export default function DriverProfileSetup({
                     documentStatus={docValidationStatus}
                     canReplace={canReplace}
                     hasFile={filePresent}
+                    editMode={editMode}
                   />
                 </Animated.View>
               </Animated.View>
@@ -1755,94 +1968,7 @@ export default function DriverProfileSetup({
               entering={FadeInUp.duration(500).delay(900)}
               className="gap-2.5 pt-2"
             >
-              {status === "pending_review" || status === "submitted" ? (
-                <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
-                  <Pressable
-                    onPress={async () => {
-                      showAppAlert(
-                        t("common.confirm"),
-                        t("profile.confirmCancelSubmission") ||
-                          "Annuler la soumission ?",
-                        [
-                          { text: t("common.cancel"), style: "cancel" },
-                          {
-                            text: t("common.ok"),
-                            onPress: async () => await handleCancelSubmission(),
-                          },
-                        ],
-                      );
-                    }}
-                    className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
-                  >
-                    <LinearGradient
-                      colors={["#f97316", "#ef4444"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      className="absolute inset-0 rounded-lg"
-                    />
-                    <Animated.Text
-                      entering={FadeIn.duration(300).delay(1100)}
-                      className="text-white text-sm font-semibold"
-                    >
-                      {t("profile.cancelSubmission")}
-                    </Animated.Text>
-                  </Pressable>
-                </Animated.View>
-              ) : (
-                <>
-                  <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
-                    <Pressable
-                      onPress={async () => {
-                        const savedDriverId = await handleSave({ silent: true });
-                        if (!savedDriverId) return;
-                        await saveVehicle();
-                        await syncDossierStateWithBackend();
-                        showAppAlert(
-                          t("common.success"),
-                          t("profile.profileSaved"),
-                        );
-                      }}
-                      className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
-                    >
-                      <LinearGradient
-                        colors={["#374151", "#4b5563"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        className="absolute inset-0 rounded-lg"
-                      />
-                      <Animated.Text
-                        entering={FadeIn.duration(300).delay(1100)}
-                        className="text-white text-sm font-semibold"
-                      >
-                        {t("profile.saveProgress")}
-                      </Animated.Text>
-                    </Pressable>
-                  </Animated.View>
-
-                  <Animated.View entering={FlipInEasyX.duration(600).delay(1200)}>
-                    <Pressable
-                      onPress={handleSubmit}
-                      disabled={submitting || !isEditable}
-                      className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
-                    >
-                      <LinearGradient
-                        colors={["#10b981", "#059669"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        className="absolute inset-0 rounded-lg"
-                      />
-                      <Animated.Text
-                        entering={FadeIn.duration(300).delay(1300)}
-                        className="text-white text-sm font-semibold"
-                      >
-                        {submitting
-                          ? t("profile.submitting")
-                          : t("profile.submitForReview")}
-                      </Animated.Text>
-                    </Pressable>
-                  </Animated.View>
-                </>
-              )}
+              {renderValidationActions()}
             </Animated.View>
           </Animated.View>
         );

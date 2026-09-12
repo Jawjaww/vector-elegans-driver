@@ -34,6 +34,7 @@ export interface DriverFolderState {
   validatedAt: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
+  dossierUpdateRequested: boolean;
   isEditable: boolean;
   canSubmit: boolean;
   canEditDocuments: boolean;
@@ -60,6 +61,7 @@ const initialState = {
   validatedAt: null,
   rejectedAt: null,
   rejectionReason: null,
+  dossierUpdateRequested: false,
   isEditable: true,
   canSubmit: true,
   canEditDocuments: true,
@@ -125,9 +127,19 @@ export const useDriverFolderStore = create<DriverFolderState>()(
 
       updatePermissions: () => {
         const status = normalizeFolderStatus(get().status);
-        const isEditable = status === "draft" || status === "rejected";
-        const canSubmit = status === "draft" || status === "rejected";
-        const canEditDocuments = status === "draft" || status === "rejected";
+        const adminUpdate = Boolean(get().dossierUpdateRequested);
+        const isEditable =
+          status === "draft" ||
+          status === "rejected" ||
+          (status === "pending_review" && adminUpdate);
+        const canSubmit =
+          status === "draft" ||
+          status === "rejected" ||
+          (status === "pending_review" && adminUpdate);
+        const canEditDocuments =
+          status === "draft" ||
+          status === "rejected" ||
+          (status === "pending_review" && adminUpdate);
 
         set({
           status,
@@ -146,6 +158,7 @@ export const useDriverFolderStore = create<DriverFolderState>()(
         set({
           status: newStatus,
           submittedAt,
+          dossierUpdateRequested: false,
           isEditable: !success,
           canSubmit: false,
           canEditDocuments: !success,
@@ -194,6 +207,7 @@ export const useDriverFolderStore = create<DriverFolderState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.status = normalizeFolderStatus(state.status);
+          state.updatePermissions();
         }
       },
     },
@@ -203,6 +217,7 @@ export const useDriverFolderStore = create<DriverFolderState>()(
 export function useDriverFolderStatus() {
   const {
     status,
+    dossierUpdateRequested,
     isEditable,
     canSubmit,
     canEditDocuments,
@@ -216,6 +231,7 @@ export function useDriverFolderStatus() {
 
   return {
     status: normalized,
+    dossierUpdateRequested,
     isEditable,
     canSubmit,
     canEditDocuments,

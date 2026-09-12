@@ -96,6 +96,8 @@ Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-dr
 
 ## Notes rapides
 
+- **Sync dossier (home)** : Realtime `drivers` + hors-ligne immédiat dans `applyDriverStatus` + poll 45 s / `AppState` — `src/lib/utils/dossierStatusSync.ts`. Doc : `vector-elegans-docs/mobile/README-APP.md` § Sync dossier temps réel.
+
 - Pour appliquer une migration SQL immédiatement :
 ```bash
 psql "postgresql://postgres:postgres@127.0.0.1:54325/postgres" -v ON_ERROR_STOP=1 -f infra-supabase/supabase/migrations/20260227130000_add_dossier_state_functions.sql

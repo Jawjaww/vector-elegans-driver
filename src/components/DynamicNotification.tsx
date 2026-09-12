@@ -125,12 +125,27 @@ export const DynamicNotification: React.FC<DynamicNotificationProps> = ({ classN
  */
 export const DriverFolderStatusBanner: React.FC = () => {
   const { t } = useTranslation();
-  const { status, submittedAt, validatedAt, rejectedAt, rejectionReason } = useDriverFolderStatus();
+  const {
+    status,
+    dossierUpdateRequested,
+    submittedAt,
+    validatedAt,
+    rejectedAt,
+    rejectionReason,
+  } = useDriverFolderStatus();
 
   const getStatusConfig = () => {
     switch (status) {
       case 'pending_review':
       case 'submitted':
+        if (dossierUpdateRequested) {
+          return {
+            icon: 'edit-3' as const,
+            title: t('profile.adminUpdateRequestedTitle'),
+            message: t('profile.adminUpdateRequestedMessage'),
+            color: 'bg-sky-500/20 border border-sky-400/30',
+          };
+        }
         return {
           icon: 'clock' as const,
           title: t('profile.folderStatus.pendingReviewTitle'),

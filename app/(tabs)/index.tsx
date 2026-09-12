@@ -567,6 +567,7 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
         canSubmit: dossier.can_submit,
         canEditDocuments: dossier.can_edit_documents,
         isEditable: dossier.is_editable,
+        dossierUpdateRequested: dossier.dossier_update_requested,
       });
       return dossier;
     }

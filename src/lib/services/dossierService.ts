@@ -179,7 +179,7 @@ async function getDossierStatusFromCompleteness(
 ): Promise<DossierStatus | null> {
   const { data: driver, error: driverError } = await supabase
     .from('drivers')
-    .select('id, status, user_id')
+    .select('id, status, user_id, dossier_update_requested_at')
     .eq('id', driverId)
     .maybeSingle();
 
@@ -222,8 +222,20 @@ async function getDossierStatusFromCompleteness(
   const status = normalizeFolderStatus(
     typeof driver.status === 'string' ? driver.status : 'draft',
   );
-  const canSubmit = Boolean(comp.can_submit) &&
-    (status === 'draft' || status === 'rejected' || status === 'incomplete');
+  const dossierUpdateRequested =
+    driver.dossier_update_requested_at != null &&
+    String(driver.dossier_update_requested_at).length > 0;
+  const canSubmit =
+    Boolean(comp.can_submit) &&
+    (status === 'draft' ||
+      status === 'rejected' ||
+      status === 'incomplete' ||
+      (status === 'pending_review' && dossierUpdateRequested));
+  const isEditable =
+    status === 'draft' ||
+    status === 'rejected' ||
+    status === 'incomplete' ||
+    (status === 'pending_review' && dossierUpdateRequested);
 
   return {
     status,
@@ -231,9 +243,11 @@ async function getDossierStatusFromCompleteness(
     validated_at: null,
     rejected_at: null,
     rejection_reason: null,
-    is_editable: status !== 'pending_review' && status !== 'active',
+    is_editable: isEditable,
     can_submit: canSubmit,
-    can_edit_documents: status !== 'active',
+    can_edit_documents:
+      status !== 'active' &&
+      (isEditable || status === 'pending_review'),
     completion_percentage: Number(comp.completion_percentage ?? 0),
     rejected_document_count: 0,
     rejected_document_types: [],
@@ -242,7 +256,7 @@ async function getDossierStatusFromCompleteness(
     missing_for_submit: missingForSubmit,
     is_complete: Boolean(comp.is_complete),
     missing_fields: missingFields,
-    dossier_update_requested: false,
+    dossier_update_requested: dossierUpdateRequested,
   };
 }
 
@@ -500,6 +514,7 @@ export async function syncDossierState(driverId: string, userId: string) {
       validatedAt: status.validated_at,
       rejectedAt: status.rejected_at,
       rejectionReason: status.rejection_reason,
+      dossierUpdateRequested: Boolean(status.dossier_update_requested),
       isEditable:
         unsubmitted ||
         Boolean(status.is_editable) ||

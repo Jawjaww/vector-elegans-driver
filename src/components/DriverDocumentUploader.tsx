@@ -20,6 +20,7 @@ import {
   persistDocumentExpiryIfNeeded,
   useDebouncedExpiryPersist,
 } from "../lib/documentExpirySync";
+import type { DossierEditMode } from "../lib/dossierEditMode";
 
 const decodeBase64 = (base64: string) => {
   const binaryString = atob(base64);
@@ -43,6 +44,7 @@ interface DriverDocumentUploaderProps {
   documentStatus?: DocumentValidationStatus;
   canReplace?: boolean;
   hasFile?: boolean;
+  editMode?: DossierEditMode;
 }
 
 function isValidFutureDate(isoDate: string): boolean {
@@ -449,6 +451,7 @@ export const DriverDocumentUploader: React.FC<
   documentStatus = "pending",
   canReplace = true,
   hasFile,
+  editMode = "full",
 }) => {
   const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
@@ -469,13 +472,16 @@ export const DriverDocumentUploader: React.FC<
   const handleExpiryChange = (next: string) => {
     setExpiryDate(next);
     onExpiryDateChange?.(next);
-    if (!driverId || !hasDocument) return;
+    if (!driverId || !hasDocument || !canReplace) return;
     scheduleExpiryPersist(() => {
       void persistDocumentExpiryIfNeeded(t, {
         driverId,
         documentType,
         expiryDate: next,
         hasDocument: true,
+        editMode,
+        validationStatus: documentStatus,
+        serverExpiryDate: currentExpiry,
       });
     });
   };
