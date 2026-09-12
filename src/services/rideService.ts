@@ -113,6 +113,22 @@ class RideService {
       .map((ride) => this.mapToPendingRide(ride as Ride));
   }
 
+  /** Home overlay catch-up: raw rows still offerable (pending + delayed). */
+  async fetchOfferableRides(): Promise<Ride[]> {
+    let query = supabase.from('rides').select('*');
+    query = applyMatchingFilters(query);
+    const { data, error } = await query
+      .order('created_at', { ascending: true })
+      .limit(20);
+
+    if (error) {
+      console.error('[RideService] Error fetching offerable rides:', error);
+      return [];
+    }
+
+    return ((data ?? []) as Ride[]).filter((ride) => isRideStillOfferable(ride));
+  }
+
   async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {
     const { data, error } = await supabase.rpc('record_ride_offer', {
       p_ride_id: rideId,

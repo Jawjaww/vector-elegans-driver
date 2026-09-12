@@ -147,3 +147,27 @@ describe('rideService.fetchAssignedRide', () => {
     expect(row).toMatchObject({ id: 'r1', status: 'scheduled' });
   });
 });
+
+describe('rideService.fetchOfferableRides', () => {
+  it('selects pending and delayed then keeps still-offerable rows', async () => {
+    const ride = {
+      id: 'r1',
+      status: 'delayed',
+      matching_paused_at: null,
+      matching_deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      pickup_time: new Date().toISOString(),
+    };
+    const limit = jest.fn().mockResolvedValue({ data: [ride], error: null });
+    const order = jest.fn(() => ({ limit }));
+    const or = jest.fn(() => ({ order }));
+    const is = jest.fn(() => ({ or }));
+    const inFn = jest.fn(() => ({ is }));
+    const select = jest.fn(() => ({ in: inFn }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    const rows = await rideService.fetchOfferableRides();
+    expect(inFn).toHaveBeenCalledWith('status', ['pending', 'delayed']);
+    expect(rows).toEqual([ride]);
+  });
+});
