@@ -1849,6 +1849,14 @@ export type Database = {
         Returns: undefined
       }
       delete_user_by_id: { Args: { p_user_id: string }; Returns: undefined }
+      driver_can_edit_document_type: {
+        Args: { p_document_type: string; p_driver_id: string }
+        Returns: boolean
+      }
+      driver_dossier_edit_mode: {
+        Args: { p_driver_id: string }
+        Returns: string
+      }
       driver_has_document_with_expiry: {
         Args: { p_document_types: string[]; p_driver_id: string }
         Returns: boolean
