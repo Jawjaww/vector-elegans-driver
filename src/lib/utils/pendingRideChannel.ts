@@ -1,5 +1,5 @@
 /** Catch-up when Realtime INSERT is missed while the driver is already online. */
-export const OFFER_CATCHUP_INTERVAL_MS = 30_000;
+export const OFFER_CATCHUP_INTERVAL_MS = 5_000;
 
 /** Backoff before recreating the pending-rides channel after a socket error. */
 export const OFFER_CHANNEL_RETRY_MS = 2_000;

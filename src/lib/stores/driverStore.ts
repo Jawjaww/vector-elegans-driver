@@ -88,31 +88,29 @@ export function pickNextPendingRide(
   );
 }
 
-/** Merge live DB fields (incentive, matching window, price) into a tracked ride. */
+/** Merge live DB fields (price, addresses, pickup time, matching window) into a tracked ride. */
 export function mergeRideSnapshot(existing: Ride, incoming: Ride): Ride {
   return {
     ...existing,
     status: incoming.status ?? existing.status,
-    estimated_price:
-      incoming.estimated_price !== undefined
-        ? incoming.estimated_price
-        : existing.estimated_price,
-    final_price:
-      incoming.final_price !== undefined
-        ? incoming.final_price
-        : existing.final_price,
-    client_incentive:
-      incoming.client_incentive !== undefined
-        ? incoming.client_incentive
-        : existing.client_incentive,
+    pickup_address: incoming.pickup_address ?? existing.pickup_address,
+    pickup_lat: incoming.pickup_lat ?? existing.pickup_lat,
+    pickup_lon: incoming.pickup_lon ?? existing.pickup_lon,
+    dropoff_address: incoming.dropoff_address ?? existing.dropoff_address,
+    dropoff_lat: incoming.dropoff_lat ?? existing.dropoff_lat,
+    dropoff_lon: incoming.dropoff_lon ?? existing.dropoff_lon,
+    pickup_time: incoming.pickup_time ?? existing.pickup_time,
+    distance: incoming.distance ?? existing.distance,
+    duration: incoming.duration ?? existing.duration,
+    vehicle_type: incoming.vehicle_type ?? existing.vehicle_type,
+    pickup_notes: incoming.pickup_notes ?? existing.pickup_notes,
+    estimated_price: incoming.estimated_price ?? existing.estimated_price,
+    final_price: incoming.final_price ?? existing.final_price,
+    client_incentive: incoming.client_incentive ?? existing.client_incentive,
     matching_deadline_at:
-      incoming.matching_deadline_at !== undefined
-        ? incoming.matching_deadline_at
-        : existing.matching_deadline_at,
+      incoming.matching_deadline_at ?? existing.matching_deadline_at,
     matching_paused_at:
-      incoming.matching_paused_at !== undefined
-        ? incoming.matching_paused_at
-        : existing.matching_paused_at,
+      incoming.matching_paused_at ?? existing.matching_paused_at,
     updated_at: incoming.updated_at ?? existing.updated_at,
   };
 }
@@ -145,6 +143,8 @@ interface DriverState {
   seedDeferredRides: (rides: Ride[]) => void;
   suppressRide: (rideId: string) => void;
   promoteDeferredRide: (rideId: string) => void;
+  /** Client edit / new snapshot: merge, unshift overlay, clear declined. */
+  promoteTrackedRideToFront: (ride: Ride) => void;
   /** Refresh incentive / matching fields on any tracked ride copy */
   patchTrackedRide: (ride: Ride) => void;
   updateStats: (stats: Partial<DriverStats>) => void;
@@ -310,6 +310,33 @@ export const useDriverStore = create<DriverState>()(
             deferredRides: trimmed.deferredRides,
             availableRides: trimmed.availableRides,
             availableRide: trimmed.availableRides[0] ?? null,
+          };
+        }),
+      promoteTrackedRideToFront: (incoming) =>
+        set((state) => {
+          if (state.suppressedRideIds.includes(incoming.id)) return state;
+          const id = incoming.id;
+          const fromOverlay = state.availableRides.find((r) => r.id === id);
+          const fromDeferred = state.deferredRides.find((r) => r.id === id);
+          const existing = fromOverlay ?? fromDeferred;
+          const merged = existing
+            ? mergeRideSnapshot(existing, incoming)
+            : incoming;
+          const deferredWithout = state.deferredRides.filter((r) => r.id !== id);
+          const overlayWithout = state.availableRides.filter((r) => r.id !== id);
+          const trimmed = trimStackOverflowToDeferred({
+            availableRides: [merged, ...overlayWithout],
+            deferredRides: deferredWithout,
+            stackMax: OFFER_STACK_VISIBLE_MAX,
+            sheetMax: DEFERRED_SHEET_MAX,
+          });
+          return {
+            deferredRides: trimmed.deferredRides,
+            availableRides: trimmed.availableRides,
+            availableRide: trimmed.availableRides[0] ?? null,
+            declinedOfferIds: (state.declinedOfferIds ?? []).filter(
+              (x) => x !== id,
+            ),
           };
         }),
       patchTrackedRide: (incoming) =>

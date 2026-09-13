@@ -1025,11 +1025,15 @@ export type Database = {
           dispatch_lead_minutes: number
           driver_late_grace_minutes: number
           en_route_before_pickup_minutes: number
+          gps_fresh_seconds: number
+          gps_max_age_seconds: number
           heartbeat_minutes: number
           id: string
           is_active: boolean
+          max_open_offers: number
           name: string
           no_show_flat: number
+          offer_batch_size: number
           offer_ttl_seconds: number
           scope_id: string | null
           scope_kind: string
@@ -1046,11 +1050,15 @@ export type Database = {
           dispatch_lead_minutes?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
+          gps_fresh_seconds?: number
+          gps_max_age_seconds?: number
           heartbeat_minutes?: number
           id?: string
           is_active?: boolean
+          max_open_offers?: number
           name: string
           no_show_flat?: number
+          offer_batch_size?: number
           offer_ttl_seconds?: number
           scope_id?: string | null
           scope_kind?: string
@@ -1067,11 +1075,15 @@ export type Database = {
           dispatch_lead_minutes?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
+          gps_fresh_seconds?: number
+          gps_max_age_seconds?: number
           heartbeat_minutes?: number
           id?: string
           is_active?: boolean
+          max_open_offers?: number
           name?: string
           no_show_flat?: number
+          offer_batch_size?: number
           offer_ttl_seconds?: number
           scope_id?: string | null
           scope_kind?: string
@@ -2050,6 +2062,10 @@ export type Database = {
         Args: { p_document_types: string[]; p_driver_id: string }
         Returns: boolean
       }
+      driver_matching_vehicle_id: {
+        Args: { p_driver_id: string }
+        Returns: string
+      }
       driver_owns_driver_id: { Args: { p_driver_id: string }; Returns: boolean }
       ensure_driver_profile: {
         Args: { driver_user_id: string }
@@ -2229,6 +2245,10 @@ export type Database = {
         Args: { p_response: string; p_ride_id: string }
         Returns: Json
       }
+      ride_dispatch_starts_at: {
+        Args: { p_pickup: string; p_snap: Json }
+        Returns: string
+      }
       ride_effective_matching_deadline: {
         Args: { p_deadline: string; p_pickup: string; p_snap: Json }
         Returns: string
@@ -2250,6 +2270,8 @@ export type Database = {
       run_ride_dispatch: { Args: { p_ride_id: string }; Returns: Json }
       score_dispatch_candidates: {
         Args: {
+          p_ignore_busy?: boolean
+          p_ignore_gps_age?: boolean
           p_include_cooldown?: boolean
           p_radius_km: number
           p_ride_id: string

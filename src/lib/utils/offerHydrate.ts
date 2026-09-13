@@ -27,7 +27,7 @@ export function newlyStackedOfferIds(
 
 /**
  * Merge a pending SELECT into the overlay (cap 4) / sheet (cap 12).
- * Does not replace the current front card. Returns ids newly stacked.
+ * New rides append behind the current front card. Returns ids newly stacked.
  */
 export function hydratePendingOffers(args: {
   pending: Ride[];

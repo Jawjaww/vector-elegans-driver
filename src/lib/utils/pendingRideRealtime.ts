@@ -5,12 +5,14 @@ export type PendingRideRealtimeDecision =
   | { action: 'ignore' }
   | { action: 'present' }
   | { action: 'patch' }
+  | { action: 'promote' }
   | { action: 'drop'; notifyUnavailable: boolean };
 
 export type PendingRideRealtimeContext = {
   availableRide: Ride | null;
   availableRides: Ride[];
   deferredRides: Ride[];
+  declinedOfferIds?: string[];
   activeRide: Ride | null;
   myDriverId: string | null;
   acceptingRideIds: ReadonlySet<string>;
@@ -43,7 +45,8 @@ export function resolvePendingRideRealtimeUpdate(
   const isFront = ctx.availableRide?.id === updated.id;
   const inStack = ctx.availableRides.some((r) => r.id === updated.id);
   const inDeferred = ctx.deferredRides.some((r) => r.id === updated.id);
-  const isTracked = isFront || inStack || inDeferred;
+  const wasDeclined = Boolean(ctx.declinedOfferIds?.includes(updated.id));
+  const isTracked = isFront || inStack || inDeferred || wasDeclined;
 
   if (isRideClaimedByMe(updated, ctx)) {
     return isTracked
@@ -52,7 +55,10 @@ export function resolvePendingRideRealtimeUpdate(
   }
 
   if (isRideStillOfferable(updated)) {
-    if (isTracked) return { action: 'patch' };
+    if (inDeferred || wasDeclined) return { action: 'promote' };
+    if (inStack) {
+      return isFront ? { action: 'patch' } : { action: 'promote' };
+    }
     return { action: 'present' };
   }
 

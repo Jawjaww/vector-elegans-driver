@@ -19,6 +19,7 @@ import { Feather } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
+import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
 import {
   OFFER_CATCHUP_INTERVAL_MS,
   OFFER_CHANNEL_RETRY_MS,
@@ -47,6 +48,7 @@ import { VTCMap } from "../../src/map";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
+import { requestDriverBackgroundLocation } from "../../src/lib/location/driverLocationTask";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
@@ -251,6 +253,7 @@ function handlePendingRideRealtimeUpdate(
     presentOffer: (ride: Ride) => Promise<void>;
     removeAvailableRide: (rideId: string) => void;
     patchTrackedRide: (ride: Ride) => void;
+    promoteTrackedRideToFront: (ride: Ride) => void;
     myDriverId: string | null;
     acceptingRideIds: ReadonlySet<string>;
     onUnavailable: () => void;
@@ -260,6 +263,7 @@ function handlePendingRideRealtimeUpdate(
     availableRide: current,
     deferredRides: deferred,
     availableRides: queued,
+    declinedOfferIds,
     activeRide,
   } = useDriverStore.getState();
 
@@ -267,6 +271,7 @@ function handlePendingRideRealtimeUpdate(
     availableRide: current,
     availableRides: queued,
     deferredRides: deferred,
+    declinedOfferIds,
     activeRide,
     myDriverId: actions.myDriverId,
     acceptingRideIds: actions.acceptingRideIds,
@@ -274,6 +279,10 @@ function handlePendingRideRealtimeUpdate(
 
   if (decision.action === "present") {
     void actions.presentOffer(updated);
+    return;
+  }
+  if (decision.action === "promote") {
+    actions.promoteTrackedRideToFront(updated);
     return;
   }
   if (decision.action === "patch") {
@@ -299,6 +308,7 @@ function usePendingRideChannel({
   removeAvailableRide,
   clearAvailableRide,
   patchTrackedRide,
+  promoteTrackedRideToFront,
   getOfferGateState,
   myDriverId,
   acceptingRideIdsRef,
@@ -309,6 +319,7 @@ function usePendingRideChannel({
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
   patchTrackedRide: (ride: Ride) => void;
+  promoteTrackedRideToFront: (ride: Ride) => void;
   getOfferGateState: () => OfferGateState;
   myDriverId: string | null;
   acceptingRideIdsRef: { current: Set<string> };
@@ -329,7 +340,13 @@ function usePendingRideChannel({
         useDriverStore.getState();
       if (currentActive) return;
 
-      const pending = (await rideService.fetchOfferableRides()) as Ride[];
+      const fromOffers = myDriverId
+        ? await rideService.fetchOpenOfferRides(myDriverId)
+        : [];
+      const pending =
+        fromOffers.length > 0
+          ? fromOffers
+          : await rideService.fetchOfferableRides();
       if (cancelled || pending.length === 0) return;
       const gate = getOfferGateState();
       const stackIdsBefore = gate.availableRides.map((r) => r.id);
@@ -348,8 +365,8 @@ function usePendingRideChannel({
       if (isOpenRideOffer(row)) {
         void (async () => {
           const ride = await rideService.fetchRideById(row.ride_id);
-          if (cancelled || !ride || !isRideStillOfferable(ride as Ride)) return;
-          await presentOffer(ride as Ride);
+          if (cancelled || !ride || !isRideStillOfferable(ride)) return;
+          await presentOffer(ride);
         })();
         return;
       }
@@ -374,8 +391,10 @@ function usePendingRideChannel({
             table: "rides",
           },
           (payload) => {
-            const ride = payload.new as Ride;
+            const ride = toAppRide(payload.new as RideRow);
             if (!isRideStillOfferable(ride)) return;
+            // P1: unassigned rides are offerable only via ride_offers.
+            if (!ride.driver_id) return;
             void presentOffer(ride);
           },
         )
@@ -387,10 +406,11 @@ function usePendingRideChannel({
             table: "rides",
           },
           (payload) => {
-            handlePendingRideRealtimeUpdate(payload.new as Ride, {
+            handlePendingRideRealtimeUpdate(toAppRide(payload.new as RideRow), {
               presentOffer,
               removeAvailableRide,
               patchTrackedRide,
+              promoteTrackedRideToFront,
               myDriverId,
               acceptingRideIds: acceptingRideIdsRef.current,
               onUnavailable,
@@ -465,6 +485,7 @@ function usePendingRideChannel({
     presentOffer,
     removeAvailableRide,
     patchTrackedRide,
+    promoteTrackedRideToFront,
     getOfferGateState,
     myDriverId,
     onUnavailable,
@@ -565,7 +586,7 @@ async function hydrateAssignedRideFromServer(
     alreadyHydratedRef.current = false;
     return;
   }
-  store.setActiveRide(assigned as Ride);
+  store.setActiveRide(assigned);
   if (
     canDriverGoOnline(driverStatus) &&
     shouldForceOnlineOnAssignedHydrate(alreadyHydratedRef.current, true)
@@ -603,6 +624,7 @@ async function toggleDriverOnlineState(args: {
   if (decision.status !== args.localStatus) {
     await args.applyFreshStatus(decision.status);
   }
+  await requestDriverBackgroundLocation();
   args.setIsOnline(true);
   args.setJustValidated(false);
 }
@@ -857,6 +879,7 @@ export default function DashboardScreen() {
     deferAvailableRide,
     suppressRide,
     promoteDeferredRide,
+    promoteTrackedRideToFront,
     patchTrackedRide,
     clearAvailableRide,
     activeRide,
@@ -874,6 +897,7 @@ export default function DashboardScreen() {
       deferAvailableRide: s.deferAvailableRide,
       suppressRide: s.suppressRide,
       promoteDeferredRide: s.promoteDeferredRide,
+      promoteTrackedRideToFront: s.promoteTrackedRideToFront,
       patchTrackedRide: s.patchTrackedRide,
       clearAvailableRide: s.clearAvailableRide,
       activeRide: s.activeRide,
@@ -991,6 +1015,7 @@ export default function DashboardScreen() {
     removeAvailableRide,
     clearAvailableRide,
     patchTrackedRide,
+    promoteTrackedRideToFront,
     getOfferGateState,
     myDriverId: driverId,
     acceptingRideIdsRef,

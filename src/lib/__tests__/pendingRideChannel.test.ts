@@ -1,4 +1,5 @@
 import {
+  OFFER_CATCHUP_INTERVAL_MS,
   shouldHydrateOffersOnRealtimeStatus,
   shouldRetryPendingRideChannel,
   isOpenRideOffer,
@@ -6,6 +7,10 @@ import {
 } from '../utils/pendingRideChannel';
 
 describe('pendingRideChannel', () => {
+  it('polls missed offers within 5 seconds', () => {
+    expect(OFFER_CATCHUP_INTERVAL_MS).toBe(5_000);
+  });
+
   it('hydrates on subscribe and on socket failure so a missed INSERT is recovered', () => {
     expect(shouldHydrateOffersOnRealtimeStatus('SUBSCRIBED')).toBe(true);
     expect(shouldHydrateOffersOnRealtimeStatus('CHANNEL_ERROR')).toBe(true);
