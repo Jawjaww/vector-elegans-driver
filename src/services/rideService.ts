@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
-import type { Ride, RideStatus } from '../lib/types/database.types';
+import type { RideStatus } from '../lib/types/database.types';
+import type { Ride } from '../lib/stores/driverStore';
 import { isRideStillOfferable } from '../lib/utils/ridePickup';
+import { toAppRide, type RideRow } from '../lib/utils/toAppRide';
 
 export interface PendingRide {
   id: string;
@@ -40,7 +42,11 @@ function applyMatchingFilters<T extends { in: Function; is: Function; or: Functi
   return query
     .in('status', ['pending', 'delayed'])
     .is('matching_paused_at', null)
-    .or(`matching_deadline_at.gt.${iso},matching_deadline_at.is.null`) as T;
+    .or(`matching_deadline_at.gt."${iso}",matching_deadline_at.is.null`) as T;
+}
+
+function isTransientNetworkError(error: { message?: string } | null): boolean {
+  return /network request failed|failed to fetch/i.test(error?.message ?? '');
 }
 
 class RideService {
@@ -63,7 +69,7 @@ class RideService {
           table: 'rides',
         },
         (payload) => {
-          const ride = payload.new as Ride;
+          const ride = toAppRide(payload.new as RideRow);
           if (!isRideStillOfferable(ride)) return;
           onNewRide(this.mapToPendingRide(ride));
         },
@@ -76,7 +82,7 @@ class RideService {
           table: 'rides',
         },
         (payload) => {
-          const ride = payload.new as Ride;
+          const ride = toAppRide(payload.new as RideRow);
           if (!isRideStillOfferable(ride)) {
             onRideRemoved(ride.id);
             return;
@@ -109,8 +115,76 @@ class RideService {
     }
 
     return (data || [])
-      .filter((ride) => isRideStillOfferable(ride as Ride))
-      .map((ride) => this.mapToPendingRide(ride as Ride));
+      .map((ride) => toAppRide(ride))
+      .filter((ride) => isRideStillOfferable(ride))
+      .map((ride) => this.mapToPendingRide(ride));
+  }
+
+  /** Home overlay catch-up: raw rows still offerable (pending + delayed). */
+  async fetchOfferableRides(): Promise<Ride[]> {
+    const run = async () => {
+      let query = supabase.from('rides').select('*');
+      query = applyMatchingFilters(query);
+      return query.order('created_at', { ascending: true }).limit(20);
+    };
+
+    let { data, error } = await run();
+    if (error && isTransientNetworkError(error)) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      ({ data, error } = await run());
+    }
+
+    if (error) {
+      console.error('[RideService] Error fetching offerable rides:', error);
+      return [];
+    }
+
+    return (data ?? [])
+      .map((ride) => toAppRide(ride))
+      .filter((ride) => isRideStillOfferable(ride));
+  }
+
+  /** Catch-up from this driver's open server offers (RLS-safe). */
+  async fetchOpenOfferRides(driverId: string): Promise<Ride[]> {
+    const { data: offers, error: offerError } = await supabase
+      .from('ride_offers')
+      .select('ride_id, status, expires_at')
+      .eq('driver_id', driverId)
+      .eq('status', 'offered');
+
+    if (offerError || !offers?.length) return [];
+
+    const nowMs = Date.now();
+    const rideIds = offers
+      .filter((row) => {
+        if (row.status !== 'offered') return false;
+        if (!row.expires_at) return true;
+        return new Date(row.expires_at).getTime() > nowMs;
+      })
+      .map((row) => row.ride_id);
+
+    if (rideIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('rides')
+      .select('*')
+      .in('id', rideIds);
+
+    if (error) return [];
+    return (data ?? [])
+      .map((ride) => toAppRide(ride))
+      .filter((ride) => isRideStillOfferable(ride));
+  }
+
+  /** Load one ride the driver can SELECT (open offer or assigned). */
+  async fetchRideById(rideId: string): Promise<Ride | null> {
+    const { data, error } = await supabase
+      .from('rides')
+      .select('*')
+      .eq('id', rideId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return toAppRide(data);
   }
 
   async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {
@@ -279,7 +353,7 @@ class RideService {
       .limit(1)
       .maybeSingle();
     if (error || !data) return null;
-    return data as Ride;
+    return toAppRide(data);
   }
 
   private mapToPendingRide(ride: Ride): PendingRide {

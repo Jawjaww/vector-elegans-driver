@@ -7,6 +7,7 @@ import "../global.css"; // ← OK, utilisé par NativeWind
 import "../src/i18n";
 import { DocumentPreviewModalHost } from "../src/lib/documentPreview";
 import { AppDialogProvider } from "../src/components/AppDialog";
+import "../src/lib/location/driverLocationTask";
 
 export default function RootLayout() {
   return (

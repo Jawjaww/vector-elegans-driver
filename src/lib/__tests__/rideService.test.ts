@@ -147,3 +147,80 @@ describe('rideService.fetchAssignedRide', () => {
     expect(row).toMatchObject({ id: 'r1', status: 'scheduled' });
   });
 });
+
+describe('rideService.fetchRideById', () => {
+  it('returns the ride row when SELECT succeeds', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({
+      data: { id: 'r1', status: 'pending' },
+      error: null,
+    });
+    const eq = jest.fn(() => ({ maybeSingle }));
+    const select = jest.fn(() => ({ eq }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    const row = await rideService.fetchRideById('r1');
+    expect(supabase.from).toHaveBeenCalledWith('rides');
+    expect(eq).toHaveBeenCalledWith('id', 'r1');
+    expect(row).toMatchObject({ id: 'r1', status: 'pending' });
+  });
+});
+
+describe('rideService.fetchOfferableRides', () => {
+  it('selects pending and delayed then keeps still-offerable rows', async () => {
+    const ride = {
+      id: 'r1',
+      status: 'delayed',
+      matching_paused_at: null,
+      matching_deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      pickup_time: new Date().toISOString(),
+    };
+    const limit = jest.fn().mockResolvedValue({ data: [ride], error: null });
+    const order = jest.fn(() => ({ limit }));
+    const or = jest.fn(() => ({ order }));
+    const is = jest.fn(() => ({ or }));
+    const inFn = jest.fn(() => ({ is }));
+    const select = jest.fn(() => ({ in: inFn }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    const rows = await rideService.fetchOfferableRides();
+    expect(inFn).toHaveBeenCalledWith('status', ['pending', 'delayed']);
+    expect(rows).toMatchObject([ride]);
+  });
+});
+
+describe('rideService.fetchOpenOfferRides', () => {
+  it('loads rides for non-expired offered rows', async () => {
+    const ride = {
+      id: 'r1',
+      status: 'pending',
+      matching_paused_at: null,
+      matching_deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      pickup_time: new Date().toISOString(),
+    };
+    const inFn = jest.fn().mockResolvedValue({ data: [ride], error: null });
+    const selectRides = jest.fn(() => ({ in: inFn }));
+    const eqStatus = jest.fn().mockResolvedValue({
+      data: [
+        {
+          ride_id: 'r1',
+          status: 'offered',
+          expires_at: new Date(Date.now() + 30_000).toISOString(),
+        },
+      ],
+      error: null,
+    });
+    const eqDriver = jest.fn(() => ({ eq: eqStatus }));
+    const selectOffers = jest.fn(() => ({ eq: eqDriver }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockImplementation((table: string) => {
+      if (table === 'ride_offers') return { select: selectOffers };
+      return { select: selectRides };
+    });
+
+    const rows = await rideService.fetchOpenOfferRides('driver-1');
+    expect(rows).toMatchObject([ride]);
+    expect(inFn).toHaveBeenCalledWith('id', ['r1']);
+  });
+});

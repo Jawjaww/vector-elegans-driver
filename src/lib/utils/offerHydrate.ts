@@ -16,7 +16,7 @@ export function selectFreshHydrateRides(
   );
 }
 
-/** Overlay ids that appeared after a merge (for record_ride_offer). */
+/** Overlay ids that appeared after a merge (catch-up vs current stack). */
 export function newlyStackedOfferIds(
   stackIdsBefore: readonly string[],
   stackIdsAfter: readonly string[],
@@ -27,7 +27,7 @@ export function newlyStackedOfferIds(
 
 /**
  * Merge a pending SELECT into the overlay (cap 4) / sheet (cap 12).
- * Does not replace the current front card. Returns ids newly stacked.
+ * New rides append behind the current front card. Returns ids newly stacked.
  */
 export function hydratePendingOffers(args: {
   pending: Ride[];

@@ -132,4 +132,38 @@ describe('resolvePendingRideRealtimeUpdate', () => {
       }),
     ).toEqual({ action: 'patch' });
   });
+
+  it('promotes a still-offerable ride that was deferred to the sheet', () => {
+    const ride = baseRide('r1');
+    const updated = baseRide('r1', { estimated_price: 55 });
+    expect(
+      resolvePendingRideRealtimeUpdate(updated, {
+        ...emptyCtx,
+        deferredRides: [ride],
+        declinedOfferIds: ['r1'],
+      }),
+    ).toEqual({ action: 'promote' });
+  });
+
+  it('promotes a declined offerable ride even if it left the sheet', () => {
+    const updated = baseRide('r1', { pickup_address: 'New pickup' });
+    expect(
+      resolvePendingRideRealtimeUpdate(updated, {
+        ...emptyCtx,
+        declinedOfferIds: ['r1'],
+      }),
+    ).toEqual({ action: 'promote' });
+  });
+
+  it('promotes an overlay ride that is not the front card', () => {
+    const front = baseRide('front');
+    const back = baseRide('back');
+    expect(
+      resolvePendingRideRealtimeUpdate(baseRide('back', { estimated_price: 40 }), {
+        ...emptyCtx,
+        availableRide: front,
+        availableRides: [front, back],
+      }),
+    ).toEqual({ action: 'promote' });
+  });
 });

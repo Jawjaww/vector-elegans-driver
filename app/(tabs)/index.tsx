@@ -19,6 +19,16 @@ import { Feather } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
+import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
+import {
+  OFFER_CATCHUP_INTERVAL_MS,
+  OFFER_CHANNEL_RETRY_MS,
+  shouldHydrateOffersOnRealtimeStatus,
+  shouldRetryPendingRideChannel,
+  isOpenRideOffer,
+  shouldDropOverlayForOfferStatus,
+  type RideOfferRealtimeRow,
+} from "../../src/lib/utils/pendingRideChannel";
 import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, type DriverDuty } from "../../src/lib/utils/driverDuty";
 import {
   createDossierStatusSync,
@@ -38,6 +48,7 @@ import { VTCMap } from "../../src/map";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
+import { requestDriverBackgroundLocation } from "../../src/lib/location/driverLocationTask";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
@@ -242,6 +253,7 @@ function handlePendingRideRealtimeUpdate(
     presentOffer: (ride: Ride) => Promise<void>;
     removeAvailableRide: (rideId: string) => void;
     patchTrackedRide: (ride: Ride) => void;
+    promoteTrackedRideToFront: (ride: Ride) => void;
     myDriverId: string | null;
     acceptingRideIds: ReadonlySet<string>;
     onUnavailable: () => void;
@@ -251,6 +263,7 @@ function handlePendingRideRealtimeUpdate(
     availableRide: current,
     deferredRides: deferred,
     availableRides: queued,
+    declinedOfferIds,
     activeRide,
   } = useDriverStore.getState();
 
@@ -258,6 +271,7 @@ function handlePendingRideRealtimeUpdate(
     availableRide: current,
     availableRides: queued,
     deferredRides: deferred,
+    declinedOfferIds,
     activeRide,
     myDriverId: actions.myDriverId,
     acceptingRideIds: actions.acceptingRideIds,
@@ -265,6 +279,10 @@ function handlePendingRideRealtimeUpdate(
 
   if (decision.action === "present") {
     void actions.presentOffer(updated);
+    return;
+  }
+  if (decision.action === "promote") {
+    actions.promoteTrackedRideToFront(updated);
     return;
   }
   if (decision.action === "patch") {
@@ -290,6 +308,7 @@ function usePendingRideChannel({
   removeAvailableRide,
   clearAvailableRide,
   patchTrackedRide,
+  promoteTrackedRideToFront,
   getOfferGateState,
   myDriverId,
   acceptingRideIdsRef,
@@ -300,13 +319,16 @@ function usePendingRideChannel({
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
   patchTrackedRide: (ride: Ride) => void;
+  promoteTrackedRideToFront: (ride: Ride) => void;
   getOfferGateState: () => OfferGateState;
   myDriverId: string | null;
   acceptingRideIdsRef: { current: Set<string> };
   onUnavailable: () => void;
 }) {
   useEffect(() => {
+    let cancelled = false;
     let channel: RealtimeChannel | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (!canReceiveOffers) {
       clearAvailableRide();
@@ -318,18 +340,14 @@ function usePendingRideChannel({
         useDriverStore.getState();
       if (currentActive) return;
 
-      const iso = new Date().toISOString();
-      const { data, error } = await supabase
-        .from("rides")
-        .select("*")
-        .in("status", ["pending", "delayed"])
-        .is("matching_paused_at", null)
-        .or(`matching_deadline_at.gt.${iso},matching_deadline_at.is.null`)
-        .order("created_at", { ascending: true })
-        .limit(20);
-
-      if (error || !data?.length) return;
-      const pending = data as Ride[];
+      const fromOffers = myDriverId
+        ? await rideService.fetchOpenOfferRides(myDriverId)
+        : [];
+      const pending =
+        fromOffers.length > 0
+          ? fromOffers
+          : await rideService.fetchOfferableRides();
+      if (cancelled || pending.length === 0) return;
       const gate = getOfferGateState();
       const stackIdsBefore = gate.availableRides.map((r) => r.id);
       const newStackIds = hydratePendingOffers({
@@ -341,48 +359,125 @@ function usePendingRideChannel({
           useDriverStore.getState().availableRides.map((r) => r.id),
       });
       if (newStackIds.length === 0) return;
-      await Promise.all(newStackIds.map((id) => rideService.recordOffer(id)));
     };
 
-    void fetchExistingRide();
+    const handleOfferRow = (row: RideOfferRealtimeRow) => {
+      if (isOpenRideOffer(row)) {
+        void (async () => {
+          const ride = await rideService.fetchRideById(row.ride_id);
+          if (cancelled || !ride || !isRideStillOfferable(ride)) return;
+          await presentOffer(ride);
+        })();
+        return;
+      }
+      if (shouldDropOverlayForOfferStatus(row.status)) {
+        removeAvailableRide(row.ride_id);
+      }
+    };
 
-    channel = supabase
-      .channel("public:rides")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "rides",
-        },
-        (payload) => {
-          const ride = payload.new as Ride;
-          if (!isRideStillOfferable(ride)) return;
-          void presentOffer(ride);
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "rides",
-        },
-        (payload) => {
-          handlePendingRideRealtimeUpdate(payload.new as Ride, {
-            presentOffer,
-            removeAvailableRide,
-            patchTrackedRide,
-            myDriverId,
-            acceptingRideIds: acceptingRideIdsRef.current,
-            onUnavailable,
-          });
-        },
-      )
-      .subscribe();
+    const subscribe = () => {
+      if (cancelled) return;
+      if (channel) {
+        void supabase.removeChannel(channel);
+        channel = undefined;
+      }
+      let next = supabase
+        .channel(myDriverId ? `driver-matching:${myDriverId}` : "public:rides")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "rides",
+          },
+          (payload) => {
+            const ride = toAppRide(payload.new as RideRow);
+            if (!isRideStillOfferable(ride)) return;
+            // P1: unassigned rides are offerable only via ride_offers.
+            if (!ride.driver_id) return;
+            void presentOffer(ride);
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "rides",
+          },
+          (payload) => {
+            handlePendingRideRealtimeUpdate(toAppRide(payload.new as RideRow), {
+              presentOffer,
+              removeAvailableRide,
+              patchTrackedRide,
+              promoteTrackedRideToFront,
+              myDriverId,
+              acceptingRideIds: acceptingRideIdsRef.current,
+              onUnavailable,
+            });
+          },
+        );
+      if (myDriverId) {
+        const offerFilter = `driver_id=eq.${myDriverId}` as const;
+        next = next
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "ride_offers",
+              filter: offerFilter,
+            },
+            (payload) => {
+              handleOfferRow(payload.new as RideOfferRealtimeRow);
+            },
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "UPDATE",
+              schema: "public",
+              table: "ride_offers",
+              filter: offerFilter,
+            },
+            (payload) => {
+              handleOfferRow(payload.new as RideOfferRealtimeRow);
+            },
+          );
+      }
+      channel = next.subscribe((status, err) => {
+        if (cancelled) return;
+        if (shouldHydrateOffersOnRealtimeStatus(status)) {
+          void fetchExistingRide();
+        }
+        if (shouldRetryPendingRideChannel(status)) {
+          if (__DEV__) {
+            console.warn("[pending-rides] realtime", status, err);
+          }
+          if (retryTimer) clearTimeout(retryTimer);
+          retryTimer = setTimeout(subscribe, OFFER_CHANNEL_RETRY_MS);
+        }
+      });
+    };
+
+    subscribe();
+
+    const onAppStateChange = (next: string) => {
+      if (next === "active") {
+        void fetchExistingRide();
+      }
+    };
+    const appSub = AppState.addEventListener("change", onAppStateChange);
+    const pollId = setInterval(() => {
+      void fetchExistingRide();
+    }, OFFER_CATCHUP_INTERVAL_MS);
 
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      appSub.remove();
+      clearInterval(pollId);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [
     canReceiveOffers,
@@ -390,6 +485,7 @@ function usePendingRideChannel({
     presentOffer,
     removeAvailableRide,
     patchTrackedRide,
+    promoteTrackedRideToFront,
     getOfferGateState,
     myDriverId,
     onUnavailable,
@@ -490,7 +586,7 @@ async function hydrateAssignedRideFromServer(
     alreadyHydratedRef.current = false;
     return;
   }
-  store.setActiveRide(assigned as Ride);
+  store.setActiveRide(assigned);
   if (
     canDriverGoOnline(driverStatus) &&
     shouldForceOnlineOnAssignedHydrate(alreadyHydratedRef.current, true)
@@ -528,6 +624,7 @@ async function toggleDriverOnlineState(args: {
   if (decision.status !== args.localStatus) {
     await args.applyFreshStatus(decision.status);
   }
+  await requestDriverBackgroundLocation();
   args.setIsOnline(true);
   args.setJustValidated(false);
 }
@@ -782,6 +879,7 @@ export default function DashboardScreen() {
     deferAvailableRide,
     suppressRide,
     promoteDeferredRide,
+    promoteTrackedRideToFront,
     patchTrackedRide,
     clearAvailableRide,
     activeRide,
@@ -799,6 +897,7 @@ export default function DashboardScreen() {
       deferAvailableRide: s.deferAvailableRide,
       suppressRide: s.suppressRide,
       promoteDeferredRide: s.promoteDeferredRide,
+      promoteTrackedRideToFront: s.promoteTrackedRideToFront,
       patchTrackedRide: s.patchTrackedRide,
       clearAvailableRide: s.clearAvailableRide,
       activeRide: s.activeRide,
@@ -902,7 +1001,6 @@ export default function DashboardScreen() {
       const gate = getOfferGateState();
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
-      await rideService.recordOffer(ride.id);
     },
     [addAvailableRide, canReceiveOffers, getOfferGateState],
   );
@@ -917,6 +1015,7 @@ export default function DashboardScreen() {
     removeAvailableRide,
     clearAvailableRide,
     patchTrackedRide,
+    promoteTrackedRideToFront,
     getOfferGateState,
     myDriverId: driverId,
     acceptingRideIdsRef,

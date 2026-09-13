@@ -16,7 +16,7 @@ import {
 } from '../stores/driverStore';
 import { optionFeatherIcon, vehicleTypeIconName } from '../services/optionsCatalog';
 
-const baseRide = (id: string): Ride => ({
+const baseRide = (id: string, extra: Partial<Ride> = {}): Ride => ({
   id,
   user_id: 'u1',
   status: 'pending',
@@ -35,6 +35,7 @@ const baseRide = (id: string): Ride => ({
   final_price: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
+  ...extra,
 });
 
 describe('offer present / defer / suppress helpers', () => {
@@ -180,6 +181,17 @@ describe('driverStore defer / suppress / promote', () => {
     expect(useDriverStore.getState().declinedOfferIds).toEqual([]);
   });
 
+  it('addAvailableRide appends a new offer behind the front card', () => {
+    const first = baseRide('first');
+    const second = baseRide('second');
+    useDriverStore.getState().addAvailableRide(first);
+    useDriverStore.getState().addAvailableRide(second);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('first');
+    expect(state.availableRides.map((r) => r.id)).toEqual(['first', 'second']);
+  });
+
   it('addAvailableRide overflows to deferred when stack is full', () => {
     const rides = [1, 2, 3, 4].map((n) => baseRide(`s${n}`));
     rides.forEach((r) => useDriverStore.getState().addAvailableRide(r));
@@ -187,6 +199,13 @@ describe('driverStore defer / suppress / promote', () => {
 
     const state = useDriverStore.getState();
     expect(state.availableRides).toHaveLength(4);
+    expect(state.availableRide?.id).toBe('s1');
+    expect(state.availableRides.map((r) => r.id)).toEqual([
+      's1',
+      's2',
+      's3',
+      's4',
+    ]);
     expect(state.deferredRides.map((r) => r.id)).toEqual(['overflow']);
   });
 
@@ -264,6 +283,41 @@ describe('driverStore defer / suppress / promote', () => {
     useDriverStore.getState().completeRide(ride);
     expect(useDriverStore.getState().activeRide).toBeNull();
     expect(useDriverStore.getState().isOnline).toBe(true);
+  });
+
+  it('promoteTrackedRideToFront lifts a deferred edit onto the overlay', () => {
+    const edited = baseRide('edit-1', {
+      estimated_price: 42,
+      pickup_address: 'Gare de Lyon',
+    });
+    const current = baseRide('front');
+    useDriverStore.getState().addAvailableRide(current);
+    useDriverStore.getState().seedDeferredRides([baseRide('edit-1')]);
+    useDriverStore.setState({ declinedOfferIds: ['edit-1'] });
+    useDriverStore.getState().promoteTrackedRideToFront(edited);
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('edit-1');
+    expect(state.availableRide?.estimated_price).toBe(42);
+    expect(state.availableRide?.pickup_address).toBe('Gare de Lyon');
+    expect(state.availableRides.map((r) => r.id)).toEqual(['edit-1', 'front']);
+    expect(state.deferredRides).toHaveLength(0);
+    expect(state.declinedOfferIds).not.toContain('edit-1');
+  });
+
+  it('promoteTrackedRideToFront brings an overlay ride to the front', () => {
+    const a = baseRide('a');
+    const b = baseRide('b');
+    const c = baseRide('c');
+    useDriverStore.getState().setAvailableRides([a, b, c]);
+    useDriverStore.getState().promoteTrackedRideToFront(
+      baseRide('c', { estimated_price: 33 }),
+    );
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('c');
+    expect(state.availableRide?.estimated_price).toBe(33);
+    expect(state.availableRides.map((r) => r.id)).toEqual(['c', 'a', 'b']);
   });
 
   it('seedDeferredRides fills bottomsheet without touching available offer', () => {
