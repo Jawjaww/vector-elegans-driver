@@ -2237,6 +2237,7 @@ export type Database = {
         }
         Returns: Json
       }
+      resolve_dispatch_push_url: { Args: never; Returns: string }
       resolve_ride_cancel_quote: {
         Args: { p_actor?: string; p_ride_id: string }
         Returns: Json
