@@ -21,7 +21,16 @@ const WINDOW_H = Dimensions.get('window').height;
 /** Align with app/(tabs)/_layout.tsx tabBarStyle.height */
 export const TAB_BAR_HEIGHT = 80;
 
-const HANDLE_H = 36;
+/** Top corner radius — keep modest so the collapsed strip stays flat. */
+const SHEET_TOP_RADIUS = 8;
+
+const HANDLE_H = 22;
+
+/** Collapsed strip: rounded lip + handle pill only (px visible above scene bottom). */
+const HANDLE_ONLY_VISIBLE = 14;
+
+/** Scroll paddingTop + OnlineStatusRow (title, subtitle, switch) without section divider. */
+const ONLINE_BODY_H = 46;
 
 /**
  * Sheet extends below the scene (into tab-bar zone) so the bottom edge
@@ -40,8 +49,6 @@ const SPRING = {
   overshootClamping: false,
 } as const;
 
-/** Online switch row (title + subtitle + Switch). */
-const ONLINE_BODY_H = 88;
 /** Dossier incomplete / expiry banner (1 card). Grows via `noticesHeight`. */
 const NOTICES_BODY_H = 100;
 /** ActiveTripSheet (status + addresses + swipe + cancel). */
@@ -63,8 +70,8 @@ const STATS_BODY_H = 110;
  * stats   — + day earnings and ride count (last idle palier)
  */
 function buildSnapY(sceneH: number, noticesBodyH = NOTICES_BODY_H) {
-  const peek = HANDLE_H + 8;
-  const nav = HANDLE_H + 12;
+  const peek = HANDLE_ONLY_VISIBLE;
+  const nav = HANDLE_ONLY_VISIBLE;
   const online = HANDLE_H + ONLINE_BODY_H;
   const notices = online + Math.max(0, noticesBodyH);
   const trip = notices + TRIP_BODY_H;
@@ -103,7 +110,7 @@ const SNAP_ORDER: SheetSnapLevel[] = [
 ];
 
 /** Visible height of the nav snap (for HUD placement above the sheet). */
-export const NAV_SHEET_VISIBLE_H = HANDLE_H + 12;
+export const NAV_SHEET_VISIBLE_H = HANDLE_ONLY_VISIBLE;
 
 /** Visible height of the trip snap (switch + optional banner + ActiveTripSheet). */
 export function tripSheetVisibleHeight(noticesBodyH = NOTICES_BODY_H): number {
@@ -293,8 +300,8 @@ const styles = StyleSheet.create({
     bottom: -BOTTOM_EXTENSION,
     width: '100%',
     backgroundColor: APP_CHROME.fallback,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: SHEET_TOP_RADIUS,
+    borderTopRightRadius: SHEET_TOP_RADIUS,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     borderTopWidth: 1,
@@ -310,13 +317,14 @@ const styles = StyleSheet.create({
     height: HANDLE_H,
     width: '100%',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 8,
   },
   line: {
-    width: 48,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.4)',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.45)',
   },
   scroll: {
     flex: 1,
@@ -324,6 +332,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 28,
     paddingHorizontal: 24,
-    paddingTop: 4,
+    paddingTop: 2,
   },
 });

@@ -7,10 +7,10 @@ describe('computeFullscreenOfferFitPadding', () => {
       { width: 390, height: 844 },
       { edgeInset: 44, topInset: 92, bottomSheetBand: 280 },
     );
-    expect(pad.top).toBe(104);
-    expect(pad.left).toBe(56);
-    expect(pad.right).toBe(56);
-    expect(pad.bottom).toBe(336);
+    expect(pad.top).toBe(112);
+    expect(pad.left).toBe(64);
+    expect(pad.right).toBe(64);
+    expect(pad.bottom).toBe(344);
   });
 
   it('defaults side insets from the offer map edge constant', () => {
@@ -18,8 +18,8 @@ describe('computeFullscreenOfferFitPadding', () => {
       { width: 390, height: 844 },
       { topInset: 80, bottomSheetBand: 200 },
     );
-    expect(pad.left).toBe(OFFER_MAP_EDGE_INSET + 12);
-    expect(pad.right).toBe(OFFER_MAP_EDGE_INSET + 12);
-    expect(pad.bottom).toBe(200 + OFFER_MAP_EDGE_INSET + 12);
+    expect(pad.left).toBe(OFFER_MAP_EDGE_INSET + 20);
+    expect(pad.right).toBe(OFFER_MAP_EDGE_INSET + 20);
+    expect(pad.bottom).toBe(200 + OFFER_MAP_EDGE_INSET + 20);
   });
 });

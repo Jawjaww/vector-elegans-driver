@@ -1335,6 +1335,17 @@ export function buildMapHtmlTemplate(
         if (tripCoords && tripCoords.length) return [tripCoords];
         return [[start, end]];
       }
+      function buildOfferFitCoordLists(tripCoords) {
+        var trip =
+          tripCoords && tripCoords.length > 1 ? tripCoords : [start, end];
+        var points = [];
+        var driver = approachFrom || driverMarker || null;
+        if (driver) points.push(driver);
+        trip.forEach(function (c) {
+          points.push(c);
+        });
+        return [points];
+      }
       function presentOnce(coordLists, fitCoordLists) {
         if (presented) return;
         presented = true;
@@ -1429,7 +1440,7 @@ export function buildMapHtmlTemplate(
           paintStraightFallback();
           presentOnce(
             [approachFrom ? [approachFrom, start] : [], tripCoords],
-            tripFitLists(tripCoords),
+            isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
           );
           return;
         }
@@ -1441,7 +1452,7 @@ export function buildMapHtmlTemplate(
             : [];
         presentOnce(
           [approachCoords, tripCoords],
-          tripFitLists(tripCoords),
+          isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
         );
       }
 
@@ -1451,7 +1462,7 @@ export function buildMapHtmlTemplate(
             const tripOnly = [[start, end]];
             presentOnce(
               approachFrom ? [[approachFrom, start, end]] : tripOnly,
-              tripOnly,
+              buildOfferFitCoordLists([start, end]),
             );
           }, 2500)
         : null;
@@ -1470,7 +1481,7 @@ export function buildMapHtmlTemplate(
           const tripOnly = [[start, end]];
           presentOnce(
             approachFrom ? [[approachFrom, start, end]] : tripOnly,
-            tripOnly,
+            isOffer ? buildOfferFitCoordLists([start, end]) : tripOnly,
           );
           try {
             if (window.ReactNativeWebView) {

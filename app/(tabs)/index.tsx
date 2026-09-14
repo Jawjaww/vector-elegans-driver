@@ -1291,7 +1291,15 @@ function DriverHomeSheetBody({
 
   return (
     <>
-      <View className="mb-5">
+      <View
+        className="mb-5"
+        style={{
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: "rgba(255,255,255,0.1)",
+          paddingTop: 12,
+          marginTop: 4,
+        }}
+      >
         {!activeRide ? (
           <Text
             className="text-sm font-semibold mb-3"
@@ -1401,10 +1409,7 @@ function OnlineStatusRow({
   return (
     <View
       style={{
-        marginBottom: 12,
-        paddingBottom: 14,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: "rgba(255,255,255,0.1)",
+        paddingBottom: 8,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",

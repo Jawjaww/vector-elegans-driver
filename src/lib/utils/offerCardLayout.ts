@@ -8,13 +8,13 @@ export type OfferCardLayout = {
 export const OFFER_MAP_EDGE_INSET = 26;
 
 /** Max MapLibre zoom for offer live framing (short trips). */
-export const OFFER_MAP_ZOOM_CAP = 11;
+export const OFFER_MAP_ZOOM_CAP = 10;
 
 /** Slight dezoom on live offer framing (route + approach in the top map band). */
-export const OFFER_MAP_LIVE_BOUNDS_EXPAND = 1.14;
+export const OFFER_MAP_LIVE_BOUNDS_EXPAND = 1.38;
 
 /** Extra fitBounds padding on all sides — breathes around the route. */
-export const OFFER_MAP_FIT_DEZOOM_INSET = 12;
+export const OFFER_MAP_FIT_DEZOOM_INSET = 20;
 
 /** Gap between the offer stack and the nav bottomsheet handle. */
 export const OFFER_CARD_SHEET_GAP = 4;
