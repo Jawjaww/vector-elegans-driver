@@ -34,7 +34,7 @@ vector-elegans/
 ├── assets/              # Images, icônes
 ├── Dockerfile           # Image expo/eas-cli
 ├── docker-compose.yml   # Services dev/build
-├── app.json            # Configuration Expo
+├── app.config.js       # Configuration Expo (FCM file via GOOGLE_SERVICES_JSON)
 ├── eas.json            # Configuration EAS Build
 └── package.json        # Dépendances
 ```

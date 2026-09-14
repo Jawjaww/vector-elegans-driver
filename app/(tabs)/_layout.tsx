@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
+import { PushNotificationsBootstrap } from '../../src/components/PushNotificationsBootstrap';
 
 type TabBarIconProps = Readonly<{ color: string; focused?: boolean; size?: number }>;
 
@@ -28,6 +29,8 @@ function ProfileTabIcon({ color }: TabBarIconProps) {
 
 export default function TabsLayout() {
   return (
+    <>
+    <PushNotificationsBootstrap />
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -77,5 +80,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </>
   );
 }

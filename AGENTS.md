@@ -49,16 +49,16 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 - Carte : **MapLibre WebView** (`src/map/VTCMap` → `WebViewMap`) — pas Google Maps
 - Offres : card compacte bas + map live en haut — voir `vector-elegans-docs/mobile/OFFER_MAP.md`
 - Code mort : ne pas laisser de composants/hooks sans import ; même nom ≠ même app (voir `.cursor/rules/no-dead-code.mdc`). Swipe pile Expo : `useOfferDismissGesture` sur la card avant → `cycleAvailableRideToBack`. Refuser → `deferAvailableRide`.
-- `extra.eas.projectId` dans `app.json` : requis pour `eas build` et EAS Update OTA
+- `extra.eas.projectId` dans `app.config.js` : requis pour `eas build` et EAS Update OTA
 
 ## EAS Update (preview APK, OTA sans réinstall)
 
-L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview`, `runtimeVersion` = `"1.0.0"` aligné sur `version` dans `app.json` — workflow bare, pas de policy auto).
+L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview`, `runtimeVersion` = `"1.0.0"` aligné sur `version` dans `app.config.js` — workflow bare, pas de policy auto).
 
 ### Première fois (ou changement natif)
 
 ```bash
-# Bump version dans app.json seulement si plugin natif / dep native / permissions changent
+# Bump version dans app.config.js seulement si plugin natif / dep native / permissions changent
 eas build --profile preview --platform android --non-interactive
 # Installer le nouvel APK sur le téléphone
 ```
@@ -72,7 +72,7 @@ npm run update:preview -- "fix login map"
 
 - Env cloud : `--environment preview` reprend les `EXPO_PUBLIC_*` du projet EAS (même DB que Vercel).
 - **Expo Go / Metro** ≠ OTA : dev local reste `npx expo start` ; OTA ne s’applique qu’aux builds preview/production.
-- Rebuild obligatoire si : nouvelle dep native, plugin `app.json`, icône/splash, permissions.
+- Rebuild obligatoire si : nouvelle dep native, plugin `app.config.js`, icône/splash, permissions.
 
 Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-driver/updates
 

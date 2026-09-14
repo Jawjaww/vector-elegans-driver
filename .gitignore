@@ -17,3 +17,5 @@ web-build/
 .env.override
 .env.lan.bak
 .env.cloud
+*-firebase-adminsdk*.json
+google-services.json

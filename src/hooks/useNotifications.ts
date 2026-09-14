@@ -1,7 +1,13 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
+
+const EAS_PROJECT_ID =
+  Constants.expoConfig?.extra?.eas?.projectId ??
+  Constants.easConfig?.projectId;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -13,7 +19,15 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function readNotificationData(
+  notification: Notifications.Notification,
+): Record<string, unknown> {
+  const data = notification.request.content.data;
+  return data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+}
+
 export function useNotifications() {
+  const router = useRouter();
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
@@ -48,9 +62,15 @@ export function useNotifications() {
     const hasPermission = await requestPermissions();
     if (!hasPermission) return null;
 
+    if (!EAS_PROJECT_ID) {
+      console.error('[Notifications] Missing EAS projectId in app.config extra.eas');
+      return null;
+    }
+
     try {
-      const { data: pushToken } =
-        await Notifications.getExpoPushTokenAsync();
+      const { data: pushToken } = await Notifications.getExpoPushTokenAsync({
+        projectId: EAS_PROJECT_ID,
+      });
       return pushToken;
     } catch (error) {
       console.error('[Notifications] Error getting token:', error);
@@ -78,27 +98,49 @@ export function useNotifications() {
     }
   }, []);
 
-  useEffect(() => {
-    const init = async () => {
-      const token = await registerForPushNotifications();
-      if (token) {
-        await sendPushTokenToServer(token);
-      }
-    };
+  const syncPushToken = useCallback(async () => {
+    const token = await registerForPushNotifications();
+    if (token) {
+      await sendPushTokenToServer(token);
+    }
+  }, [registerForPushNotifications, sendPushTokenToServer]);
 
-    init();
+  const handleNotificationOpen = useCallback(
+    (data: Record<string, unknown>) => {
+      const type = typeof data.type === 'string' ? data.type : null;
+      if (type === 'ride_offer' || data.ride_id) {
+        router.push('/(tabs)/');
+      }
+    },
+    [router],
+  );
+
+  useEffect(() => {
+    void syncPushToken();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void syncPushToken();
+      }
+    });
 
     notificationListener.current =
       Notifications.addNotificationReceivedListener((notification) => {
-        console.log('[Notifications] Received:', notification);
+        const data = readNotificationData(notification);
+        console.log('[Notifications] Foreground data:', data);
       });
 
     responseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        console.log('[Notifications] Response:', response);
+        const data = readNotificationData(response.notification);
+        console.log('[Notifications] Opened from push:', data);
+        handleNotificationOpen(data);
       });
 
     return () => {
+      subscription.unsubscribe();
       if (notificationListener.current) {
         notificationListener.current.remove();
       }
@@ -106,7 +148,7 @@ export function useNotifications() {
         responseListener.current.remove();
       }
     };
-  }, [registerForPushNotifications, sendPushTokenToServer]);
+  }, [syncPushToken, handleNotificationOpen]);
 
   return {
     requestPermissions,
