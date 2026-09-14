@@ -49,6 +49,10 @@ import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
 import { requestDriverBackgroundLocation } from "../../src/lib/location/driverLocationTask";
+import {
+  registerAndUpsertPushToken,
+  type PushRegisterResult,
+} from "../../src/lib/notifications/pushRegistration";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
@@ -603,6 +607,8 @@ async function toggleDriverOnlineState(args: {
   applyFreshStatus: (status: string) => Promise<void>;
   setIsOnline: (online: boolean) => void;
   setJustValidated: (value: boolean) => void;
+  syncPushToken?: () => Promise<PushRegisterResult>;
+  onPushPermissionDenied?: () => void;
 }) {
   const decision = await decideOnlineToggle({
     isOnline: args.isOnline,
@@ -630,6 +636,12 @@ async function toggleDriverOnlineState(args: {
   args.setIsOnline(true);
   args.setJustValidated(false);
   void requestDriverBackgroundLocation();
+  void (async () => {
+    const result = await (args.syncPushToken ?? registerAndUpsertPushToken)();
+    if (!result.ok && result.reason === "permission_denied") {
+      args.onPushPermissionDenied?.();
+    }
+  })();
 }
 
 function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
@@ -1068,6 +1080,12 @@ export default function DashboardScreen() {
         applyDriverStatus(status, driverId, { silent: true }),
       setIsOnline,
       setJustValidated,
+      syncPushToken: registerAndUpsertPushToken,
+      onPushPermissionDenied: () =>
+        Alert.alert(
+          t("dashboard.pushPermissionTitle"),
+          t("dashboard.pushPermissionBody"),
+        ),
     });
   };
 

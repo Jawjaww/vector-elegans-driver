@@ -47,7 +47,9 @@
     "offlineNoOffers": "Offline — no new offers",
     "onTrip": "On a trip",
     "stayAvailableAfter": "GPS on — you will stay available after",
-    "offlineAfterTrip": "Offline after this trip — no new offers"
+    "offlineAfterTrip": "Offline after this trip — no new offers",
+    "pushPermissionTitle": "Notifications disabled",
+    "pushPermissionBody": "Enable notifications to receive rides while the app is in the background. You stay online: offers appear as soon as you open the app."
   },
   "ride": {
     "pickup": "Pickup",

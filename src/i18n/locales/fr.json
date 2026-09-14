@@ -52,7 +52,9 @@
     "offlineNoOffers": "Hors ligne — pas de nouvelles offres",
     "onTrip": "En course",
     "stayAvailableAfter": "GPS actif — vous resterez disponible après",
-    "offlineAfterTrip": "Hors ligne après cette course — pas de nouvelles offres"
+    "offlineAfterTrip": "Hors ligne après cette course — pas de nouvelles offres",
+    "pushPermissionTitle": "Notifications désactivées",
+    "pushPermissionBody": "Activez les notifications pour recevoir les courses lorsque l'application est en arrière-plan. Vous restez en ligne : les offres s'affichent dès que vous ouvrez l'app."
   },
   "ride": {
     "pickup": "Prise en charge",

@@ -44,7 +44,9 @@
     "offlineNoOffers": "Desconectado — no hay ofertas nuevas",
     "onTrip": "En un viaje",
     "stayAvailableAfter": "GPS activo — seguirás disponible después",
-    "offlineAfterTrip": "Desconectado después de este viaje — no hay ofertas nuevas"
+    "offlineAfterTrip": "Desconectado después de este viaje — no hay ofertas nuevas",
+    "pushPermissionTitle": "Notificaciones desactivadas",
+    "pushPermissionBody": "Active las notificaciones para recibir viajes cuando la aplicación está en segundo plano. Sigue en línea: las ofertas aparecen al abrir la app."
   },
   "ride": {
     "pickup": "Recogida",

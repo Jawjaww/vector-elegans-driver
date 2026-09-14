@@ -1,13 +1,14 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
-
-const EAS_PROJECT_ID =
-  Constants.expoConfig?.extra?.eas?.projectId ??
-  Constants.easConfig?.projectId;
+import {
+  readNotificationData,
+  registerAndUpsertPushToken,
+  requestRideNotificationPermission,
+  shouldOpenHomeFromPushData,
+} from '../lib/notifications/pushRegistration';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -19,110 +20,59 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function readNotificationData(
-  notification: Notifications.Notification,
-): Record<string, unknown> {
-  const data = notification.request.content.data;
-  return data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-}
-
 export function useNotifications() {
   const router = useRouter();
-  const notificationListener = useRef<Notifications.EventSubscription | null>(null);
+  const notificationListener = useRef<Notifications.EventSubscription | null>(
+    null,
+  );
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
-
-  const requestPermissions = useCallback(async (): Promise<boolean> => {
-    const { status: existingStatus } =
-      await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') {
-      console.warn('[Notifications] Permission not granted');
-      return false;
-    }
-
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('rides', {
-        name: 'Ride Requests',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF0000',
-      });
-    }
-
-    return true;
-  }, []);
-
-  const registerForPushNotifications = useCallback(async (): Promise<string | null> => {
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return null;
-
-    if (!EAS_PROJECT_ID) {
-      console.error('[Notifications] Missing EAS projectId in app.config extra.eas');
-      return null;
-    }
-
-    try {
-      const { data: pushToken } = await Notifications.getExpoPushTokenAsync({
-        projectId: EAS_PROJECT_ID,
-      });
-      return pushToken;
-    } catch (error) {
-      console.error('[Notifications] Error getting token:', error);
-      return null;
-    }
-  }, [requestPermissions]);
-
-  const sendPushTokenToServer = useCallback(async (token: string) => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase.rpc('upsert_push_token', {
-        p_token: token,
-        p_platform: 'expo',
-        p_device_label: Platform.OS,
-      });
-      if (error) {
-        console.error('[Notifications] upsert_push_token:', error.message);
-      }
-    } catch (error) {
-      console.error('[Notifications] Error sending token to server:', error);
-    }
-  }, []);
-
-  const syncPushToken = useCallback(async () => {
-    const token = await registerForPushNotifications();
-    if (token) {
-      await sendPushTokenToServer(token);
-    }
-  }, [registerForPushNotifications, sendPushTokenToServer]);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const lastHandledResponseId = useRef<string | null>(null);
+  const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
   const handleNotificationOpen = useCallback(
     (data: Record<string, unknown>) => {
-      const type = typeof data.type === 'string' ? data.type : null;
-      if (type === 'ride_offer' || data.ride_id) {
+      if (shouldOpenHomeFromPushData(data)) {
         router.push('/(tabs)/');
       }
     },
     [router],
   );
 
+  const openFromResponse = useCallback(
+    (response: Notifications.NotificationResponse) => {
+      const id = response.notification.request.identifier;
+      if (lastHandledResponseId.current === id) return;
+      lastHandledResponseId.current = id;
+      const data = readNotificationData(response.notification);
+      console.log('[Notifications] Opened from push:', data);
+      handleNotificationOpen(data);
+      Notifications.clearLastNotificationResponse();
+    },
+    [handleNotificationOpen],
+  );
+
   useEffect(() => {
-    void syncPushToken();
+    if (!lastNotificationResponse) return;
+    openFromResponse(lastNotificationResponse);
+  }, [lastNotificationResponse, openFromResponse]);
+
+  useEffect(() => {
+    void registerAndUpsertPushToken();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        void syncPushToken();
+        void registerAndUpsertPushToken();
+      }
+    });
+
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      const wasBackground = appState.current.match(/inactive|background/);
+      appState.current = next;
+      if (wasBackground && next === 'active') {
+        void registerAndUpsertPushToken();
       }
     });
 
@@ -134,13 +84,12 @@ export function useNotifications() {
 
     responseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = readNotificationData(response.notification);
-        console.log('[Notifications] Opened from push:', data);
-        handleNotificationOpen(data);
+        openFromResponse(response);
       });
 
     return () => {
       subscription.unsubscribe();
+      appStateSub.remove();
       if (notificationListener.current) {
         notificationListener.current.remove();
       }
@@ -148,10 +97,10 @@ export function useNotifications() {
         responseListener.current.remove();
       }
     };
-  }, [syncPushToken, handleNotificationOpen]);
+  }, [openFromResponse]);
 
   return {
-    requestPermissions,
-    registerForPushNotifications,
+    requestPermissions: requestRideNotificationPermission,
+    registerForPushNotifications: registerAndUpsertPushToken,
   };
 }
