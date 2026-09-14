@@ -1,6 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
 import { AppState, type AppStateStatus } from 'react-native';
+
+let notificationAppState: AppStateStatus = AppState.currentState;
+
+AppState.addEventListener('change', (next) => {
+  notificationAppState = next;
+});
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import {
@@ -11,13 +17,25 @@ import {
 } from '../lib/notifications/pushRegistration';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async () => {
+    const isForeground = notificationAppState === 'active';
+    if (isForeground) {
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
+      };
+    }
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 export function useNotifications() {
