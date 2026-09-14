@@ -106,6 +106,6 @@ describe('decideOnlineToggle', () => {
         localStatus: 'pending_review',
         fetchFreshStatus: async () => 'pending_review',
       }),
-    ).resolves.toEqual({ action: 'refuse' });
+    ).resolves.toEqual({ action: 'refuse', status: 'pending_review' });
   });
 });

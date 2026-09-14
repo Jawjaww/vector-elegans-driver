@@ -12,6 +12,14 @@ export function canDriverGoOnline(status: string | null | undefined): boolean {
   return status === 'active';
 }
 
+/** Restore the home switch from driver_locations.is_online after a fresh install. */
+export function shouldHydrateOnlineFromServer(
+  status: string | null | undefined,
+  serverIsOnline: boolean | null | undefined,
+): boolean {
+  return canDriverGoOnline(status) && serverIsOnline === true;
+}
+
 export function resolveDriverDuty(
   isOnline: boolean,
   activeRide: { status: string } | null,

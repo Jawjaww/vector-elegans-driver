@@ -58,7 +58,7 @@ export function shouldApplyFetchedDriverStatus(input: {
 export type OnlineToggleDecision =
   | { action: 'go-offline' }
   | { action: 'go-online'; status: string }
-  | { action: 'refuse' };
+  | { action: 'refuse'; status: string | null };
 
 /** Always re-read status when going online so a stale local pending_review cannot block. */
 export async function decideOnlineToggle(input: {
@@ -72,7 +72,7 @@ export async function decideOnlineToggle(input: {
   const fresh = await input.fetchFreshStatus();
   const status = fresh ?? input.localStatus;
   if (!canDriverGoOnline(status) || !status) {
-    return { action: 'refuse' };
+    return { action: 'refuse', status };
   }
   return { action: 'go-online', status };
 }

@@ -29,7 +29,7 @@ import {
   shouldDropOverlayForOfferStatus,
   type RideOfferRealtimeRow,
 } from "../../src/lib/utils/pendingRideChannel";
-import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, type DriverDuty } from "../../src/lib/utils/driverDuty";
+import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, shouldHydrateOnlineFromServer, type DriverDuty } from "../../src/lib/utils/driverDuty";
 import {
   createDossierStatusSync,
   decideOnlineToggle,
@@ -610,9 +610,10 @@ async function toggleDriverOnlineState(args: {
     fetchFreshStatus: args.fetchFreshStatus,
   });
   if (decision.action === "refuse") {
+    const statusLabel = decision.status ?? args.localStatus ?? "inconnu";
     Alert.alert(
       "Indisponible",
-      "Votre dossier doit être actif pour passer en ligne.",
+      `Votre dossier doit être actif pour passer en ligne (statut actuel : ${statusLabel}).`,
     );
     return;
   }
@@ -624,9 +625,11 @@ async function toggleDriverOnlineState(args: {
   if (decision.status !== args.localStatus) {
     await args.applyFreshStatus(decision.status);
   }
-  await requestDriverBackgroundLocation();
+  // Flip the switch first: awaiting Always location on a fresh APK can stall
+  // on Android before the UI ever shows online.
   args.setIsOnline(true);
   args.setJustValidated(false);
+  void requestDriverBackgroundLocation();
 }
 
 function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
@@ -749,6 +752,16 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
         dossierStatusSyncRef.current.shouldApplyFetch(startedAt);
       if (applyThisFetch) {
         await applyDriverStatus(driver.status, driver.id);
+      }
+      if (canDriverGoOnline(driver.status)) {
+        const { data: loc } = await supabase
+          .from("driver_locations")
+          .select("is_online")
+          .eq("driver_id", driver.id)
+          .maybeSingle();
+        if (shouldHydrateOnlineFromServer(driver.status, loc?.is_online)) {
+          useDriverStore.getState().setIsOnline(true);
+        }
       }
       await hydrateAssignedRideFromServer(
         driver.id,

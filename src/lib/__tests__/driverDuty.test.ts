@@ -3,6 +3,7 @@ import {
   resolveDriverDuty,
   shouldForceOnlineOnAssignedHydrate,
   canDriverGoOnline,
+  shouldHydrateOnlineFromServer,
 } from '../utils/driverDuty';
 
 describe('resolveDriverDuty', () => {
@@ -29,6 +30,14 @@ describe('canDriverGoOnline', () => {
     expect(canDriverGoOnline('active')).toBe(true);
     expect(canDriverGoOnline('pending_review')).toBe(false);
     expect(canDriverGoOnline('suspended')).toBe(false);
+  });
+});
+
+describe('shouldHydrateOnlineFromServer', () => {
+  it('turns the switch on when the cloud row is already matching', () => {
+    expect(shouldHydrateOnlineFromServer('active', true)).toBe(true);
+    expect(shouldHydrateOnlineFromServer('active', false)).toBe(false);
+    expect(shouldHydrateOnlineFromServer('draft', true)).toBe(false);
   });
 });
 
