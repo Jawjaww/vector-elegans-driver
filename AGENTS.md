@@ -51,14 +51,18 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 - Code mort : ne pas laisser de composants/hooks sans import ; même nom ≠ même app (voir `.cursor/rules/no-dead-code.mdc`). Swipe pile Expo : `useOfferDismissGesture` sur la card avant → `cycleAvailableRideToBack`. Refuser → `deferAvailableRide`.
 - `extra.eas.projectId` dans `app.config.js` : requis pour `eas build` et EAS Update OTA
 
-## EAS Update (preview APK, OTA sans réinstall)
+## EAS Build / Update (CNG, pas de `android/` commité)
 
-L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview`, `runtimeVersion` = `"1.0.0"` aligné sur `version` dans `app.config.js` — workflow bare, pas de policy auto).
+Le natif Android est **généré par prebuild** sur EAS à partir de [`app.config.js`](app.config.js) (plugins, permissions, FCM, icônes). Les dossiers `android/` et `ios/` sont **gitignorés** — ne pas les committer.
+
+L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview` dans [`eas.json`](eas.json), `runtimeVersion` = `"1.0.0"` aligné sur `version` dans `app.config.js`).
+
+Build local natif (optionnel) : `npx expo prebuild --platform android` (recrée `android/` localement, non versionné).
 
 ### Première fois (ou changement natif)
 
 ```bash
-# Bump version dans app.config.js seulement si plugin natif / dep native / permissions changent
+# Bump runtimeVersion dans app.config.js si plugin natif / dep native / permissions changent
 eas build --profile preview --platform android --non-interactive
 # Installer le nouvel APK sur le téléphone
 ```

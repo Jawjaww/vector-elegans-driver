@@ -49,7 +49,7 @@
     "pushPermissionBody": "Active las notificaciones para recibir viajes cuando la aplicación está en segundo plano. Sigue en línea: las ofertas aparecen al abrir la app.",
     "pushFailedTitle": "Notificaciones no disponibles",
     "pushFailedPermission": "Active las notificaciones para recibir viajes en segundo plano. Sigue en línea: las ofertas aparecen al abrir la app.",
-    "pushFailedToken": "No se pudo obtener el token FCM. Reinstale la aplicación (nuevo build nativo).",
+    "pushFailedToken": "No se pudo obtener el token FCM (despertar en segundo plano no disponible). Las ofertas se muestran con la app abierta. Reinstale el APK tras un nuevo build nativo.",
     "pushFailedUpsert": "No se pudo guardar el token. Vuelva a ponerse en línea.",
     "pushFailedAuth": "Vuelva a iniciar sesión para activar las notificaciones de viaje.",
     "pushFailedProject": "Configuración de Expo incompleta (projectId)."

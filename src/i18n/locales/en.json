@@ -52,7 +52,7 @@
     "pushPermissionBody": "Enable notifications to receive rides while the app is in the background. You stay online: offers appear as soon as you open the app.",
     "pushFailedTitle": "Notifications unavailable",
     "pushFailedPermission": "Enable notifications to receive rides in the background. You stay online: offers appear as soon as you open the app.",
-    "pushFailedToken": "Could not get an FCM token. Reinstall the app (new native build).",
+    "pushFailedToken": "Could not get an FCM token (background wake unavailable). Offers still appear when the app is open. Reinstall the APK after a new native build.",
     "pushFailedUpsert": "The push token could not be saved. Try going online again.",
     "pushFailedAuth": "Sign in again to enable ride notifications.",
     "pushFailedProject": "Incomplete Expo configuration (projectId)."
