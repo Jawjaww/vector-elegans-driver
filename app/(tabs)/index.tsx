@@ -53,6 +53,8 @@ import {
   registerAndUpsertPushToken,
   type PushRegisterResult,
 } from "../../src/lib/notifications/pushRegistration";
+import { pushRegisterFailureI18n } from "../../src/lib/notifications/pushStatusCopy";
+import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
@@ -608,7 +610,7 @@ async function toggleDriverOnlineState(args: {
   setIsOnline: (online: boolean) => void;
   setJustValidated: (value: boolean) => void;
   syncPushToken?: () => Promise<PushRegisterResult>;
-  onPushPermissionDenied?: () => void;
+  onPushRegisterFailed?: (result: Extract<PushRegisterResult, { ok: false }>) => void;
 }) {
   const decision = await decideOnlineToggle({
     isOnline: args.isOnline,
@@ -638,8 +640,8 @@ async function toggleDriverOnlineState(args: {
   void requestDriverBackgroundLocation();
   void (async () => {
     const result = await (args.syncPushToken ?? registerAndUpsertPushToken)();
-    if (!result.ok && result.reason === "permission_denied") {
-      args.onPushPermissionDenied?.();
+    if (!result.ok) {
+      args.onPushRegisterFailed?.(result);
     }
   })();
 }
@@ -878,6 +880,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const acceptingRideIdsRef = useRef(new Set<string>());
+  const pushRegisterStatus = usePushRegisterStatus();
   const {
     loading,
     driverStatus,
@@ -1081,11 +1084,10 @@ export default function DashboardScreen() {
       setIsOnline,
       setJustValidated,
       syncPushToken: registerAndUpsertPushToken,
-      onPushPermissionDenied: () =>
-        Alert.alert(
-          t("dashboard.pushPermissionTitle"),
-          t("dashboard.pushPermissionBody"),
-        ),
+      onPushRegisterFailed: (failure) => {
+        const copy = pushRegisterFailureI18n(failure.reason);
+        Alert.alert(t(copy.titleKey), t(copy.bodyKey));
+      },
     });
   };
 
@@ -1241,6 +1243,7 @@ export default function DashboardScreen() {
             duty={resolveDriverDuty(isOnline, activeRide)}
             isOnline={isOnline}
             onToggle={handleToggleOnline}
+            pushStatus={pushRegisterStatus}
           />
           <DriverStatusBanner
             banners={visibleDossierBanners}
@@ -1382,13 +1385,19 @@ function OnlineStatusRow({
   duty,
   isOnline,
   onToggle,
+  pushStatus,
 }: Readonly<{
   duty: DriverDuty;
   isOnline: boolean;
   onToggle: () => void;
+  pushStatus: PushRegisterResult | null;
 }>) {
   const { t } = useTranslation();
   const { titleKey, subtitleKey } = onlineStatusCopyKeys(duty, isOnline);
+  const pushFailure =
+    pushStatus && !pushStatus.ok
+      ? pushRegisterFailureI18n(pushStatus.reason)
+      : null;
   return (
     <View
       style={{
@@ -1422,6 +1431,18 @@ function OnlineStatusRow({
         >
           {t(subtitleKey)}
         </Text>
+        {pushFailure ? (
+          <Text
+            style={{
+              color: "#fbbf24",
+              fontSize: 11,
+              marginTop: 6,
+              fontWeight: "600",
+            }}
+          >
+            {t(pushFailure.bodyKey)}
+          </Text>
+        ) : null}
       </View>
       <Switch
         value={isOnline}

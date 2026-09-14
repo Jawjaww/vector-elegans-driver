@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from '../supabase';
+import { publishPushRegisterResult } from './pushStatusStore';
 
 export { shouldOpenHomeFromPushData } from './pushOpen';
 
@@ -65,6 +66,12 @@ function resolveEasProjectId(): string | undefined {
 
 /** Request permission (channel-first on Android), then upsert the Expo token. */
 export async function registerAndUpsertPushToken(): Promise<PushRegisterResult> {
+  const result = await registerAndUpsertPushTokenInner();
+  publishPushRegisterResult(result);
+  return result;
+}
+
+async function registerAndUpsertPushTokenInner(): Promise<PushRegisterResult> {
   const granted = await requestRideNotificationPermission();
   if (!granted) {
     console.warn('[Notifications] Permission not granted');

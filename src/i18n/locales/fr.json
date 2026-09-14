@@ -54,7 +54,13 @@
     "stayAvailableAfter": "GPS actif — vous resterez disponible après",
     "offlineAfterTrip": "Hors ligne après cette course — pas de nouvelles offres",
     "pushPermissionTitle": "Notifications désactivées",
-    "pushPermissionBody": "Activez les notifications pour recevoir les courses lorsque l'application est en arrière-plan. Vous restez en ligne : les offres s'affichent dès que vous ouvrez l'app."
+    "pushPermissionBody": "Activez les notifications pour recevoir les courses lorsque l'application est en arrière-plan. Vous restez en ligne : les offres s'affichent dès que vous ouvrez l'app.",
+    "pushFailedTitle": "Notifications indisponibles",
+    "pushFailedPermission": "Activez les notifications pour recevoir les courses en arrière-plan. Vous restez en ligne : les offres s'affichent dès que vous ouvrez l'app.",
+    "pushFailedToken": "Impossible d'obtenir le jeton FCM. Réinstallez l'application (nouveau build natif).",
+    "pushFailedUpsert": "Le jeton n'a pas pu être enregistré. Réessayez en passant en ligne.",
+    "pushFailedAuth": "Reconnectez-vous pour activer les notifications de course.",
+    "pushFailedProject": "Configuration Expo incomplète (projectId)."
   },
   "ride": {
     "pickup": "Prise en charge",

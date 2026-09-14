@@ -46,6 +46,7 @@ module.exports = {
         'android.permission.ACCESS_BACKGROUND_LOCATION',
         'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_LOCATION',
+        'android.permission.POST_NOTIFICATIONS',
       ],
     },
     plugins: [
@@ -53,7 +54,7 @@ module.exports = {
       [
         'expo-notifications',
         {
-          icon: './assets/notification-icon.png',
+          icon: './assets/icon.png',
           color: '#171717',
         },
       ],

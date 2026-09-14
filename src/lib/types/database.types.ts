@@ -2259,6 +2259,10 @@ export type Database = {
         Returns: number
       }
       ride_heartbeat_interval: { Args: { p_snap: Json }; Returns: string }
+      ride_offer_push_copy: {
+        Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
+        Returns: Json
+      }
       ride_snapshot_int: {
         Args: { p_fallback: number; p_key: string; p_snap: Json }
         Returns: number
