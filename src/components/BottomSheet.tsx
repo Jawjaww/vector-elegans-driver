@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,6 +15,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 import { APP_CHROME } from '../lib/theme';
 import { AppChromeBackground } from './AppChromeBackground';
+import { setBottomSheetTabBarPanGesture } from './bottomSheetGestureBridge';
 
 const WINDOW_H = Dimensions.get('window').height;
 
@@ -28,6 +29,9 @@ const HANDLE_H = 22;
 
 /** Collapsed strip: rounded lip + handle pill only (px visible above scene bottom). */
 const HANDLE_ONLY_VISIBLE = 14;
+
+/** Invisible upward-drag band at scene bottom (above tab bar). */
+export const SCENE_BOTTOM_DRAG_ZONE = 36;
 
 /** Scroll paddingTop + OnlineStatusRow (title, subtitle, switch) without section divider. */
 const ONLINE_BODY_H = 46;
@@ -164,13 +168,13 @@ export const BottomSheet = ({
   const prevSnap = useRef<SheetSnapLevel>(effectiveSnap);
   const prevAllowedKey = useRef(allowedOrder.join(','));
 
-  const applySnapLevel = (level: SheetSnapLevel) => {
+  const applySnapLevel = useCallback((level: SheetSnapLevel) => {
     const atStats = level === 'stats';
     setScrollEnabled(atStats);
     if (!atStats) {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
     }
-  };
+  }, []);
 
   // Measure scene: update snap points; only re-spring if that snap's Y changed
   useEffect(() => {
@@ -216,45 +220,57 @@ export const BottomSheet = ({
     }
   };
 
-  const sheetPan = Gesture.Pan()
-    .activeOffsetY([-10, 10])
-    .failOffsetX([-28, 28])
-    .onStart(() => {
-      context.value = { y: translateY.value };
-    })
-    .onUpdate((event) => {
-      const order = allowedOrderShared.value;
-      const collapsed = snapYShared.value[order[0]];
-      const expandedKey = order.at(-1) ?? order[0];
-      const expanded = snapYShared.value[expandedKey];
-      const next = event.translationY + context.value.y;
-      const rubberMin = expanded - 16;
-      translateY.value = Math.min(collapsed, Math.max(rubberMin, next));
-    })
-    .onEnd((event) => {
-      const order = allowedOrderShared.value;
-      const points = order.map((k) => snapYShared.value[k]);
-      let idx = 0;
-      let best = Math.abs(translateY.value - points[0]);
-      for (let i = 1; i < points.length; i++) {
-        const d = Math.abs(translateY.value - points[i]);
-        if (d < best) {
-          best = d;
-          idx = i;
-        }
-      }
-      if (event.velocityY < -900) {
-        idx = Math.min(idx + 1, points.length - 1);
-      } else if (event.velocityY > 900) {
-        idx = Math.max(idx - 1, 0);
-      }
-      const level = order[idx];
-      scheduleOnRN(applySnapLevel, level);
-      translateY.value = withSpring(points[idx], {
-        ...SPRING,
-        velocity: event.velocityY,
-      });
-    });
+  const buildPanGesture = useCallback(
+    (pullUpOnly: boolean) =>
+      Gesture.Pan()
+        .activeOffsetY(pullUpOnly ? -8 : [-10, 10])
+        .failOffsetX([-32, 32])
+        .onStart(() => {
+          context.value = { y: translateY.value };
+        })
+        .onUpdate((event) => {
+          const order = allowedOrderShared.value;
+          const collapsed = snapYShared.value[order[0]];
+          const expandedKey = order.at(-1) ?? order[0];
+          const expanded = snapYShared.value[expandedKey];
+          const next = event.translationY + context.value.y;
+          const rubberMin = expanded - 16;
+          translateY.value = Math.min(collapsed, Math.max(rubberMin, next));
+        })
+        .onEnd((event) => {
+          const order = allowedOrderShared.value;
+          const points = order.map((k) => snapYShared.value[k]);
+          let idx = 0;
+          let best = Math.abs(translateY.value - points[0]);
+          for (let i = 1; i < points.length; i++) {
+            const d = Math.abs(translateY.value - points[i]);
+            if (d < best) {
+              best = d;
+              idx = i;
+            }
+          }
+          if (event.velocityY < -900) {
+            idx = Math.min(idx + 1, points.length - 1);
+          } else if (event.velocityY > 900) {
+            idx = Math.max(idx - 1, 0);
+          }
+          const level = order[idx];
+          scheduleOnRN(applySnapLevel, level);
+          translateY.value = withSpring(points[idx], {
+            ...SPRING,
+            velocity: event.velocityY,
+          });
+        }),
+    [applySnapLevel, allowedOrderShared, context, snapYShared, translateY],
+  );
+
+  const sheetPan = useMemo(() => buildPanGesture(false), [buildPanGesture]);
+  const pullUpPan = useMemo(() => buildPanGesture(true), [buildPanGesture]);
+
+  useEffect(() => {
+    setBottomSheetTabBarPanGesture(pullUpPan);
+    return () => setBottomSheetTabBarPanGesture(null);
+  }, [pullUpPan]);
 
   const rBottomSheetStyle = useAnimatedStyle(() => ({
     top: translateY.value,
@@ -262,6 +278,9 @@ export const BottomSheet = ({
 
   return (
     <View style={styles.sceneFill} pointerEvents="box-none" onLayout={onLayout}>
+      <GestureDetector gesture={pullUpPan}>
+        <View style={styles.sceneBottomDragZone} />
+      </GestureDetector>
       <GestureDetector gesture={sheetPan}>
         <Animated.View style={[styles.sheet, rBottomSheetStyle]}>
           <AppChromeBackground />
@@ -292,6 +311,14 @@ const styles = StyleSheet.create({
     // Above map GPS HUDs so a raised sheet covers maneuver / arrival chips
     zIndex: 40,
     elevation: 40,
+  },
+  sceneBottomDragZone: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: SCENE_BOTTOM_DRAG_ZONE,
+    zIndex: 41,
   },
   sheet: {
     position: 'absolute',

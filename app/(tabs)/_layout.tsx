@@ -1,6 +1,8 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { PushNotificationsBootstrap } from '../../src/components/PushNotificationsBootstrap';
+import { DriverTabBar } from '../../src/components/DriverTabBar';
 
 type TabBarIconProps = Readonly<{ color: string; focused?: boolean; size?: number }>;
 
@@ -27,18 +29,22 @@ function ProfileTabIcon({ color }: TabBarIconProps) {
   return <TabIcon icon="👤" color={color} />;
 }
 
+function TabsTabBar(props: Readonly<BottomTabBarProps>) {
+  return <DriverTabBar {...props} />;
+}
+
 export default function TabsLayout() {
   return (
     <>
     <PushNotificationsBootstrap />
     <Tabs
+      tabBar={TabsTabBar}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: 'transparent' },
         tabBarStyle: {
-          backgroundColor: '#161616',
-          borderTopColor: 'rgba(255,255,255,0.06)',
-          borderTopWidth: 1,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
           height: 80,
           paddingBottom: 20,
           paddingTop: 10,
