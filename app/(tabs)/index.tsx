@@ -49,6 +49,8 @@ import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
 import {
+  consumePendingOfferRideId,
+  peekPendingOfferRideId,
   registerAndUpsertPushToken,
   type PushRegisterResult,
 } from "../../src/lib/notifications/pushRegistration";
@@ -1031,6 +1033,38 @@ export default function DashboardScreen() {
     },
     [addAvailableRide, canReceiveOffers, getOfferGateState],
   );
+
+  // Tapping a ride_offer push surfaces that ride in the overlay, even when it
+  // already sits in the deferred bottomsheet (previously nothing happened).
+  useEffect(() => {
+    if (loading || !canReceiveOffers) return;
+    const rideId = peekPendingOfferRideId();
+    if (!rideId) return;
+    consumePendingOfferRideId();
+
+    const deferred = deferredRides.find((ride) => ride.id === rideId);
+    if (deferred) {
+      if (isRideStillOfferable(deferred)) promoteDeferredRide(rideId);
+      return;
+    }
+    const stacked = availableRides.find((ride) => ride.id === rideId);
+    if (stacked) {
+      promoteTrackedRideToFront(stacked);
+      return;
+    }
+    void (async () => {
+      const ride = await rideService.fetchRideById(rideId);
+      if (!ride || !isRideStillOfferable(ride)) return;
+      promoteTrackedRideToFront(ride);
+    })();
+  }, [
+    loading,
+    canReceiveOffers,
+    deferredRides,
+    availableRides,
+    promoteDeferredRide,
+    promoteTrackedRideToFront,
+  ]);
 
   const notifyRideUnavailable = useCallback(() => {
     Alert.alert(t("common.info"), t("ride.noLongerAvailable"));

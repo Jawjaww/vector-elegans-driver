@@ -7,7 +7,9 @@ import {
   readNotificationData,
   registerAndUpsertPushToken,
   requestRideNotificationPermission,
+  rideIdFromPushData,
   RIDES_PUSH_CHANNEL_ID,
+  setPendingOfferRideId,
   shouldOpenHomeFromPushData,
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
@@ -61,9 +63,12 @@ export function useNotifications() {
 
   const handleNotificationOpen = useCallback(
     (data: Record<string, unknown>) => {
-      if (shouldOpenHomeFromPushData(data)) {
-        router.push('/(tabs)/');
-      }
+      if (!shouldOpenHomeFromPushData(data)) return;
+      // Remember the tapped ride so the dashboard can surface it in the overlay
+      // even when it already sits in the deferred bottomsheet.
+      const rideId = rideIdFromPushData(data);
+      if (rideId) setPendingOfferRideId(rideId);
+      router.push('/(tabs)/');
     },
     [router],
   );

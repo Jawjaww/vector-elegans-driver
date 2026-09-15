@@ -1,4 +1,10 @@
-import { shouldOpenHomeFromPushData } from '../notifications/pushOpen';
+import {
+  consumePendingOfferRideId,
+  peekPendingOfferRideId,
+  rideIdFromPushData,
+  setPendingOfferRideId,
+  shouldOpenHomeFromPushData,
+} from '../notifications/pushOpen';
 import { presentationForIncomingPush } from '../notifications/pushPresentation';
 import { pushRegisterFailureI18n } from '../notifications/pushStatusCopy';
 import {
@@ -22,6 +28,28 @@ describe('shouldOpenHomeFromPushData', () => {
   it('ignores unrelated notifications', () => {
     expect(shouldOpenHomeFromPushData({ type: 'promo' })).toBe(false);
     expect(shouldOpenHomeFromPushData({})).toBe(false);
+  });
+});
+
+describe('pending offer ride id from push', () => {
+  afterEach(() => {
+    consumePendingOfferRideId();
+  });
+
+  it('reads ride_id only from a non-empty string', () => {
+    expect(rideIdFromPushData({ ride_id: 'abc' })).toBe('abc');
+    expect(rideIdFromPushData({ ride_id: '' })).toBeNull();
+    expect(rideIdFromPushData({ ride_id: 42 })).toBeNull();
+    expect(rideIdFromPushData({})).toBeNull();
+  });
+
+  it('keeps the tapped ride until the dashboard consumes it once', () => {
+    setPendingOfferRideId('ride-1');
+    expect(peekPendingOfferRideId()).toBe('ride-1');
+    expect(peekPendingOfferRideId()).toBe('ride-1');
+    expect(consumePendingOfferRideId()).toBe('ride-1');
+    expect(peekPendingOfferRideId()).toBeNull();
+    expect(consumePendingOfferRideId()).toBeNull();
   });
 });
 

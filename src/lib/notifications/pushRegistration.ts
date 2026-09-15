@@ -5,7 +5,13 @@ import { supabase } from '../supabase';
 import { publishPushRegisterResult } from './pushStatusStore';
 import { RIDE_OFFER_BRAND_COLOR } from './rideOfferPushContent';
 
-export { shouldOpenHomeFromPushData } from './pushOpen';
+export {
+  consumePendingOfferRideId,
+  peekPendingOfferRideId,
+  rideIdFromPushData,
+  setPendingOfferRideId,
+  shouldOpenHomeFromPushData,
+} from './pushOpen';
 
 /** Android channel id — must match dispatch-push `channelId`. */
 export const RIDES_PUSH_CHANNEL_ID = 'rides';
