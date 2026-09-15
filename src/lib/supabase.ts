@@ -4,6 +4,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import * as aesjs from "aes-js";
 import { AppState, Platform } from "react-native";
+import {
+  getAuthRefreshKeepAlive,
+  shouldKeepAuthRefresh,
+} from "./authRefreshGate";
 
 /** Android emulator alias for the host machine (local Supabase only). */
 const ANDROID_EMULATOR_LOOPBACK = ["10", "0", "2", "2"].join(".");
@@ -160,9 +164,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// RN: pause token refresh while backgrounded so rotation does not race a failed persist
+// RN: pause token refresh while backgrounded so rotation does not race a failed persist.
+// Keep refresh running when the location FGS is up — matching needs a live JWT.
 AppState.addEventListener("change", (state) => {
-  if (state === "active") {
+  if (shouldKeepAuthRefresh(state, getAuthRefreshKeepAlive())) {
     void supabase.auth.startAutoRefresh();
   } else {
     void supabase.auth.stopAutoRefresh();

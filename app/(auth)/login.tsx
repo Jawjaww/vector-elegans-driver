@@ -64,7 +64,7 @@ function AuthFieldShell({
   );
 }
 
-const LOGIN_TIMEOUT_MS = 10_000;
+const LOGIN_TIMEOUT_MS = 20_000;
 
 const DRIVER_HOME_STATUSES = new Set([
   "active",
@@ -246,13 +246,11 @@ export default function LoginScreen() {
               <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
                 Pour les chauffeur
               </Text>
-              {__DEV__ ? (
-                <Text className="text-xs text-amber-300/90 mt-3 text-center px-4">
-                  {backendLabel === "cloud"
-                    ? t("auth.backendCloud")
-                    : t("auth.backendLocal")}
-                </Text>
-              ) : null}
+              <Text className="text-xs text-amber-300/90 mt-3 text-center px-4">
+                {backendLabel === "cloud"
+                  ? t("auth.backendCloud")
+                  : t("auth.backendLocal")}
+              </Text>
             </View>
 
             {/* Form Container */}

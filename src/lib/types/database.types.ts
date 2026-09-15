@@ -1022,11 +1022,15 @@ export type Database = {
         Row: {
           cancel_after_arrival_flat: number
           created_at: string
+          dispatch_include_offline_from_wave: number
           dispatch_lead_minutes: number
           driver_late_grace_minutes: number
           en_route_before_pickup_minutes: number
           gps_fresh_seconds: number
           gps_max_age_seconds: number
+          gps_wave1_max_age_seconds: number
+          gps_wave2_max_age_seconds: number
+          gps_wave3_max_age_seconds: number
           heartbeat_minutes: number
           id: string
           is_active: boolean
@@ -1048,11 +1052,15 @@ export type Database = {
         Insert: {
           cancel_after_arrival_flat?: number
           created_at?: string
+          dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
           gps_fresh_seconds?: number
           gps_max_age_seconds?: number
+          gps_wave1_max_age_seconds?: number
+          gps_wave2_max_age_seconds?: number
+          gps_wave3_max_age_seconds?: number
           heartbeat_minutes?: number
           id?: string
           is_active?: boolean
@@ -1074,11 +1082,15 @@ export type Database = {
         Update: {
           cancel_after_arrival_flat?: number
           created_at?: string
+          dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
           gps_fresh_seconds?: number
           gps_max_age_seconds?: number
+          gps_wave1_max_age_seconds?: number
+          gps_wave2_max_age_seconds?: number
+          gps_wave3_max_age_seconds?: number
           heartbeat_minutes?: number
           id?: string
           is_active?: boolean
@@ -2044,7 +2056,15 @@ export type Database = {
         Returns: undefined
       }
       delete_user_by_id: { Args: { p_user_id: string }; Returns: undefined }
+      dispatch_wave_gps_max_age_seconds: {
+        Args: { p_snap: Json; p_wave: number }
+        Returns: number
+      }
       dispatch_wave_radius_km: { Args: { p_wave: number }; Returns: number }
+      dispatch_wave_requires_online: {
+        Args: { p_snap: Json; p_wave: number }
+        Returns: boolean
+      }
       dispatch_wave_size: {
         Args: { p_snap: Json; p_wave: number }
         Returns: number
@@ -2283,6 +2303,7 @@ export type Database = {
           p_include_cooldown?: boolean
           p_radius_km: number
           p_ride_id: string
+          p_wave?: number
         }
         Returns: {
           distance_meters: number

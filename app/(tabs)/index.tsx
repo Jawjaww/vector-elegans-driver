@@ -48,7 +48,6 @@ import { VTCMap } from "../../src/map";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
-import { requestDriverBackgroundLocation } from "../../src/lib/location/driverLocationTask";
 import {
   registerAndUpsertPushToken,
   type PushRegisterResult,
@@ -638,7 +637,6 @@ async function toggleDriverOnlineState(args: {
   // on Android before the UI ever shows online.
   args.setIsOnline(true);
   args.setJustValidated(false);
-  void requestDriverBackgroundLocation();
   void (async () => {
     const result = await (args.syncPushToken ?? registerAndUpsertPushToken)();
     if (!result.ok) {

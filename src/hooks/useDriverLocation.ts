@@ -34,6 +34,8 @@ export function useDriverLocation(enabled: boolean) {
   const lastUpdate = useRef<number>(0);
   const retryCount = useRef<number>(0);
   const onTrip = useDriverStore((s) => Boolean(s.activeRide));
+  const onTripRef = useRef(onTrip);
+  onTripRef.current = onTrip;
 
   const syncPayload = useCallback(
     async (location: DriverLocationPayload, force: boolean) => {
@@ -74,11 +76,21 @@ export function useDriverLocation(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) {
+      void stopDriverBackgroundLocation();
+      return;
+    }
+    void startDriverBackgroundLocation({
+      highAccuracy: onTrip,
+      replaceExisting: true,
+    });
+  }, [enabled, onTrip]);
+
+  useEffect(() => {
+    if (!enabled) {
       if (watchRef.current) {
         watchRef.current.remove();
         watchRef.current = null;
       }
-      void stopDriverBackgroundLocation();
       return;
     }
 
@@ -109,6 +121,12 @@ export function useDriverLocation(enabled: boolean) {
     const appSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void runHeartbeat();
+        return;
+      }
+      if (state === 'background') {
+        void startDriverBackgroundLocation({
+          highAccuracy: onTripRef.current,
+        });
       }
     });
 
@@ -120,8 +138,6 @@ export function useDriverLocation(enabled: boolean) {
         }
         return;
       }
-
-      await startDriverBackgroundLocation({ highAccuracy: onTrip });
 
       watchRef.current = await Location.watchPositionAsync(
         {
@@ -151,9 +167,8 @@ export function useDriverLocation(enabled: boolean) {
         watchRef.current.remove();
         watchRef.current = null;
       }
-      void stopDriverBackgroundLocation();
     };
-  }, [enabled, onTrip]);
+  }, [enabled]);
 
   return { isTracking: watchRef.current !== null };
 }

@@ -4,6 +4,9 @@
  */
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { AppState } from 'react-native';
+import { setAuthRefreshKeepAlive, sessionAccessTokenIsExpiring } from '../authRefreshGate';
+import { supabase } from '../supabase';
 import { pushDriverLocation } from '../services/locationService';
 
 export const DRIVER_LOCATION_TASK = 'VE_DRIVER_LOCATION';
@@ -21,6 +24,11 @@ if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
     const locations = (data as LocationTaskData | undefined)?.locations;
     const last = locations?.at(-1);
     if (!last) return;
+    const authed = await ensureFreshAuthSession();
+    if (!authed) {
+      console.warn('[Location] background push skipped: no session');
+      return;
+    }
     const { error: rpcError } = await pushDriverLocation({
       lat: last.coords.latitude,
       lng: last.coords.longitude,
@@ -41,13 +49,38 @@ export async function requestDriverBackgroundLocation(): Promise<boolean> {
   return background.status === 'granted';
 }
 
+/** Refresh JWT in the headless task — autoRefresh is paused while UI is backgrounded. */
+export async function ensureFreshAuthSession(): Promise<boolean> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session) return false;
+  if (!sessionAccessTokenIsExpiring(data.session.expires_at)) return true;
+  const { error: refreshError } = await supabase.auth.refreshSession();
+  return !refreshError;
+}
+
 export async function startDriverBackgroundLocation(opts: {
   highAccuracy: boolean;
+  /** Stop and restart when accuracy / interval must change (assigned trip). */
+  replaceExisting?: boolean;
 }): Promise<boolean> {
-  const { status } = await Location.getBackgroundPermissionsAsync();
-  if (status !== 'granted') return false;
+  const running = await Location.hasStartedLocationUpdatesAsync(
+    DRIVER_LOCATION_TASK,
+  );
+  if (running && !opts.replaceExisting) {
+    setAuthRefreshKeepAlive(true);
+    void supabase.auth.startAutoRefresh();
+    return true;
+  }
 
-  if (await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK)) {
+  const allowed = await requestDriverBackgroundLocation();
+  if (!allowed) {
+    console.warn(
+      '[Location] Always permission missing — GPS will go stale in background',
+    );
+    return false;
+  }
+
+  if (running) {
     await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK);
   }
 
@@ -66,10 +99,16 @@ export async function startDriverBackgroundLocation(opts: {
       notificationColor: '#171717',
     },
   });
+  setAuthRefreshKeepAlive(true);
+  void supabase.auth.startAutoRefresh();
   return true;
 }
 
 export async function stopDriverBackgroundLocation(): Promise<void> {
+  setAuthRefreshKeepAlive(false);
+  if (AppState.currentState !== 'active') {
+    void supabase.auth.stopAutoRefresh();
+  }
   if (await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK)) {
     await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK);
   }

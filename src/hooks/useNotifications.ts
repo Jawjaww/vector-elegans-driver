@@ -1,40 +1,51 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
-import { AppState, type AppStateStatus } from 'react-native';
-
-let notificationAppState: AppStateStatus = AppState.currentState;
-
-AppState.addEventListener('change', (next) => {
-  notificationAppState = next;
-});
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import {
   readNotificationData,
   registerAndUpsertPushToken,
   requestRideNotificationPermission,
+  RIDES_PUSH_CHANNEL_ID,
   shouldOpenHomeFromPushData,
 } from '../lib/notifications/pushRegistration';
+import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
+import {
+  buildRideOfferPushContent,
+  isRideOfferPush,
+  RIDE_OFFER_BRAND_COLOR,
+  rideOfferNotificationId,
+} from '../lib/notifications/rideOfferPushContent';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => {
-    const isForeground = notificationAppState === 'active';
-    if (isForeground) {
-      return {
-        shouldShowAlert: false,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-        shouldShowBanner: false,
-        shouldShowList: false,
-      };
+  handleNotification: async (notification) => {
+    const data = readNotificationData(notification);
+    const appState = AppState.currentState;
+
+    if (isRideOfferPush(data) && appState === 'active') {
+      const content = buildRideOfferPushContent(
+        data,
+        notification.request.content,
+        { includeSubtitle: Platform.OS === 'ios' },
+      );
+      await Notifications.scheduleNotificationAsync({
+        identifier: rideOfferNotificationId(data),
+        content: {
+          ...content,
+          data,
+          ...(Platform.OS === 'android' && {
+            channelId: RIDES_PUSH_CHANNEL_ID,
+            color: RIDE_OFFER_BRAND_COLOR,
+            priority: Notifications.AndroidNotificationPriority.MAX,
+          }),
+        },
+        trigger: null,
+      });
+      return SUPPRESS_INCOMING_PUSH;
     }
-    return {
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    };
+
+    return presentationForIncomingPush(appState, data);
   },
 });
 

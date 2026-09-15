@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from '../supabase';
 import { publishPushRegisterResult } from './pushStatusStore';
+import { RIDE_OFFER_BRAND_COLOR } from './rideOfferPushContent';
 
 export { shouldOpenHomeFromPushData } from './pushOpen';
 
@@ -36,10 +37,11 @@ export function readNotificationData(
 export async function ensureAndroidRideChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
   await Notifications.setNotificationChannelAsync(RIDES_PUSH_CHANNEL_ID, {
-    name: 'Ride Requests',
+    name: 'Offres de course',
+    description: 'Nouvelles courses à accepter sur Vector Elegans',
     importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#FF0000',
+    vibrationPattern: [0, 200, 120, 200],
+    lightColor: RIDE_OFFER_BRAND_COLOR,
     sound: 'default',
     enableVibrate: true,
   });
