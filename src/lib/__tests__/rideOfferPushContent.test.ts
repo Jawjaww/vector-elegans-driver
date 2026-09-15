@@ -31,7 +31,7 @@ describe('buildRideOfferPushContent', () => {
 
     expect(content.title).toBe('Nouvelle course');
     expect(content.body).toContain('📍 12 Rue de Rivoli, Paris');
-    expect(content.body).toContain('▦ CDG Terminal 2');
+    expect(content.body).toContain('🏁 CDG Terminal 2');
     expect(content.body).toContain('💶 42.50 € · Appuyez pour accepter');
     expect(content.subtitle).toBe('42.50 €');
   });

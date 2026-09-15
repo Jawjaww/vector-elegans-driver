@@ -1,9 +1,9 @@
 /** Map pickup pin blue — matches web map markers. */
 export const RIDE_OFFER_BRAND_COLOR = '#3b82f6';
 
-/** Pin-style prefixes — aligned with TripEndpointRail (MapPin / LandPlot). */
+/** Pin + arrival-flag prefixes — matches the offer card (orange pin / green flag). */
 const PICKUP_PREFIX = '📍 ';
-const DROPOFF_PREFIX = '▦ ';
+const DROPOFF_PREFIX = '🏁 ';
 const DEFAULT_CTA = 'Appuyez pour accepter';
 
 export type RideOfferRemoteCopy = {
