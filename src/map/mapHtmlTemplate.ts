@@ -1,12 +1,15 @@
 import type { LatLng } from "./types";
-import {
-  OFFER_MAP_LIVE_BOUNDS_EXPAND,
-  OFFER_MAP_ZOOM_CAP,
-} from "../lib/utils/offerCardLayout";
+import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
-  OFFER_GPS_MIN_SEPARATION_PX,
+  OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
+  OFFER_PICKUP_HIDE_MAX_METERS,
 } from "../lib/utils/markerDeclutter";
+
+const MAP_PICKUP_COLOR = "#3b82f6";
+const MAP_DROPOFF_COLOR = "#10b981";
+const MAP_DRIVER_COLOR = "#3b82f6";
+const MAP_APPROACH_LINE_COLOR = "#60a5fa";
 
 interface PrefetchConfig {
   enabled: boolean;
@@ -111,7 +114,7 @@ export function buildMapHtmlTemplate(
       width: 18px;
       height: 18px;
       border-radius: 9px;
-      background: #f97316;
+      background: ${MAP_DRIVER_COLOR};
       border: 2px solid #fff;
       box-shadow: 0 1px 4px rgba(0,0,0,0.35);
     }
@@ -641,8 +644,10 @@ export function buildMapHtmlTemplate(
 
     var GPS_ARROW_SVG =
       '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-      '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="#059669" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>' +
+      '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="${MAP_DRIVER_COLOR}" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>' +
       "</svg>";
+
+    ${offerMapZoomScriptBlock()}
 
     function ensureGpsArrowMarker() {
       if (window.__veGpsMarker) return window.__veGpsMarker;
@@ -682,13 +687,21 @@ export function buildMapHtmlTemplate(
       var gps = window.__veLastGpsCoords;
       var pickup = window.__veOfferPickup;
       if (!gps || !pickup) return false;
-      try {
-        var g = map.project(gps);
-        var p = map.project(pickup);
-        return Math.hypot(g.x - p.x, g.y - p.y) < ${OFFER_GPS_MIN_SEPARATION_PX};
-      } catch (_) {
-        return false;
-      }
+      var fitPoints = [gps, pickup];
+      if (window.__veOfferDropoff) fitPoints.push(window.__veOfferDropoff);
+      var spanKm = computeFitSpanKm([fitPoints]);
+      if (spanKm < ${OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM}) return false;
+      var toRad = Math.PI / 180;
+      var dLat = (pickup[1] - gps[1]) * toRad;
+      var dLng = (pickup[0] - gps[0]) * toRad;
+      var lat1 = gps[1] * toRad;
+      var lat2 = pickup[1] * toRad;
+      var h =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      var meters =
+        6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      return meters < ${OFFER_PICKUP_HIDE_MAX_METERS};
     }
 
     // Hide orange approach only when already near pickup (meters). Screen px
@@ -995,19 +1008,19 @@ export function buildMapHtmlTemplate(
       return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     }
 
-    // Orange departure pin at client pickup (matches approach dotted line).
+    // MapPin pickup (blue) — matches reservation TripEndpointRail.
     var OFFER_PIN_SVG =
       '<svg width="28" height="34" viewBox="0 0 28 34" xmlns="http://www.w3.org/2000/svg">' +
-      '<path d="M14 0C7.37 0 2 5.37 2 12c0 8.5 12 22 12 22s12-13.5 12-22C26 5.37 20.63 0 14 0z" fill="#f97316"/>' +
+      '<path d="M14 0C7.37 0 2 5.37 2 12c0 8.5 12 22 12 22s12-13.5 12-22C26 5.37 20.63 0 14 0z" fill="${MAP_PICKUP_COLOR}"/>' +
       '<circle cx="14" cy="12" r="5" fill="#fff"/>' +
-      '<circle cx="14" cy="12" r="2.4" fill="#f97316"/>' +
+      '<circle cx="14" cy="12" r="2.4" fill="${MAP_PICKUP_COLOR}"/>' +
       "</svg>";
 
-    var OFFER_FLAG_SVG =
-      '<svg width="36" height="40" viewBox="0 0 36 40" xmlns="http://www.w3.org/2000/svg">' +
-      '<path d="M8 2v36" stroke="#047857" stroke-width="3.2" stroke-linecap="round"/>' +
-      '<path d="M9.5 3.5h22l-5 8 5 8H9.5z" fill="#10b981" stroke="#047857" stroke-width="1"/>' +
-      '<circle cx="8" cy="3" r="2.4" fill="#047857"/>' +
+    // LandPlot dropoff (green) — matches reservation TripEndpointRail.
+    var OFFER_LANDPLOT_SVG =
+      '<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
+      '<rect x="5" y="5" width="18" height="18" rx="2.5" fill="${MAP_DROPOFF_COLOR}" stroke="#ffffff" stroke-width="2"/>' +
+      '<path d="M5 14h18M14 5v18" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>' +
       "</svg>";
 
     window.__veOfferMarkerImagesReady = false;
@@ -1064,7 +1077,7 @@ export function buildMapHtmlTemplate(
       }
 
       loadSvg("pickup-depart", OFFER_PIN_SVG);
-      loadSvg("dropoff-flag", OFFER_FLAG_SVG);
+      loadSvg("dropoff-landplot", OFFER_LANDPLOT_SVG);
       loadSvg("gps-chevron", GPS_ARROW_SVG);
     }
 
@@ -1083,12 +1096,12 @@ export function buildMapHtmlTemplate(
       };
     }
 
-    // Orange dotted approach (driver → client). Round caps + [0, gap] → small dots.
+    // Blue dotted approach (driver → client). Round caps + [0, gap] → small dots.
     function approachLineStyle() {
       return {
         casing: null,
         line: {
-          "line-color": "#f97316",
+          "line-color": "${MAP_APPROACH_LINE_COLOR}",
           "line-width": 4,
           "line-opacity": 0.95,
           "line-dasharray": [0, 1.75],
@@ -1165,32 +1178,34 @@ export function buildMapHtmlTemplate(
         return el;
       }
 
-      function makeFlagEl(color) {
+      function makeLandPlotEl(color) {
         const el = document.createElement("div");
         el.className = "route-marker";
+        el.style.width = "28px";
+        el.style.height = "28px";
         el.innerHTML =
-          '<svg width="36" height="40" viewBox="0 0 36 40" xmlns="http://www.w3.org/2000/svg">' +
-          '<path d="M8 2v36" stroke="' + color + '" stroke-width="3.2" stroke-linecap="round"/>' +
-          '<path d="M9.5 3.5h22l-5 8 5 8H9.5z" fill="' + color + '"/>' +
+          '<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
+          '<rect x="5" y="5" width="18" height="18" rx="2.5" fill="' + color + '" stroke="#ffffff" stroke-width="2"/>' +
+          '<path d="M5 14h18M14 5v18" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>' +
           "</svg>";
         return el;
       }
 
       window.__vePickupMarker = new maplibregl.Marker({
-        element: makePinEl("#f97316"),
+        element: makePinEl("${MAP_PICKUP_COLOR}"),
         anchor: "bottom",
       })
         .setLngLat(start)
         .addTo(map);
 
       window.__veDropoffMarker = new maplibregl.Marker({
-        element: makeFlagEl("#10b981"),
-        anchor: "bottom-left",
+        element: makeLandPlotEl("${MAP_DROPOFF_COLOR}"),
+        anchor: "center",
       })
         .setLngLat(end)
         .addTo(map);
 
-      // No orange driver orb — GPS puck (canvas in offer mode) is the current location.
+      // GPS puck (canvas in offer mode) is the current location.
     }
 
     /**
@@ -1349,12 +1364,14 @@ export function buildMapHtmlTemplate(
       function presentOnce(coordLists, fitCoordLists) {
         if (presented) return;
         presented = true;
-        const zoomCap = isOffer ? ${OFFER_MAP_ZOOM_CAP} : 15;
-        const boundsExpand = isOffer ? ${OFFER_MAP_LIVE_BOUNDS_EXPAND} : 1;
         const listsForFit =
           isOffer && fitCoordLists && fitCoordLists.length
             ? fitCoordLists
             : coordLists;
+        const spanKm = isOffer ? computeFitSpanKm(listsForFit) : 0;
+        const offerCamera = isOffer ? resolveOfferFitCamera(spanKm) : null;
+        const zoomCap = isOffer ? offerCamera.maxZoom : 15;
+        const boundsExpand = isOffer ? offerCamera.boundsExpand : 1;
         if (isOffer && offerRoutePresented) {
           if (shouldFitBounds || isOffer) {
             fitRouteBounds(

@@ -14,6 +14,15 @@ export const OFFER_GPS_MIN_SEPARATION_PX = 48;
  */
 export const OFFER_APPROACH_HIDE_MAX_METERS = 250;
 
+/**
+ * Hide pickup pin only when driver is geographically this close (meters).
+ * Used instead of screen pixels on short trips so both markers stay visible.
+ */
+export const OFFER_PICKUP_HIDE_MAX_METERS = 80;
+
+/** Keep pickup + driver visible when the offer span is under this (km). */
+export const OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM = 5;
+
 export function markersOverlapOnScreen(
   a: ScreenPt,
   b: ScreenPt,
