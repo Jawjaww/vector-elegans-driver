@@ -71,6 +71,40 @@ export function isRidePickupStillOfferable(
   return t >= Date.now() - graceMs;
 }
 
+/** Short label when pickup passed but matching is still open (badge uses flame icon). */
+export const MATCHING_DELAY_LABEL = 'En recherche';
+
+/** Pickup time passed, deadline still open, client has not paused matching. */
+export function isMatchingDelayActive(
+  pickupTime: string | null | undefined,
+  matchingDeadlineAt?: string | null,
+  matchingPausedAt?: string | null,
+): boolean {
+  if (matchingPausedAt) return false;
+  const deadline = resolveMatchingDeadlineMs(pickupTime, matchingDeadlineAt);
+  if (deadline == null || deadline <= Date.now()) return false;
+  if (!pickupTime) return false;
+  const pickup = new Date(pickupTime).getTime();
+  return !Number.isNaN(pickup) && pickup < Date.now();
+}
+
+/** Compact flame badge on list cards when matching runs past pickup. */
+export function shouldShowMatchingFlameBadge(
+  status: string,
+  pickupTime: string | null | undefined,
+  matchingDeadlineAt?: string | null,
+  matchingPausedAt?: string | null,
+): boolean {
+  if (matchingPausedAt) return false;
+  if (status === 'delayed') return true;
+  if (status !== 'pending') return false;
+  return isMatchingDelayActive(
+    pickupTime,
+    matchingDeadlineAt,
+    matchingPausedAt,
+  );
+}
+
 /** UI label for pending/delayed rides */
 export function getPendingRideDisplayLabel(
   pickupTime: string | null | undefined,
@@ -81,10 +115,8 @@ export function getPendingRideDisplayLabel(
   const deadline = resolveMatchingDeadlineMs(pickupTime, matchingDeadlineAt);
   if (deadline == null) return 'En attente';
   if (deadline <= Date.now()) return 'Recherche expirée';
-  if (!pickupTime) return 'En attente';
-  const pickup = new Date(pickupTime).getTime();
-  if (!Number.isNaN(pickup) && pickup < Date.now()) {
-    return 'En recherche (retard matching)';
+  if (isMatchingDelayActive(pickupTime, matchingDeadlineAt, matchingPausedAt)) {
+    return MATCHING_DELAY_LABEL;
   }
   return 'En attente';
 }

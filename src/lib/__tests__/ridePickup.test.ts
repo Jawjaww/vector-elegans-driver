@@ -1,12 +1,14 @@
 import {
   formatIncentiveBonusLabel,
   getPendingRideDisplayLabel,
+  isMatchingDelayActive,
   isRidePickupStillOfferable,
   isRideStillOfferable,
   resolveRideOfferPrice,
   RIDE_MATCHING_WINDOW_MS,
   RIDE_PICKUP_GRACE_MS,
   ridePickupExpiryCutoffIso,
+  shouldShowMatchingFlameBadge,
 } from '../utils/ridePickup';
 
 describe('ridePickup', () => {
@@ -60,9 +62,14 @@ describe('ridePickup', () => {
     expect(getPendingRideDisplayLabel(future)).toBe('En attente');
     const overdue = new Date(Date.now() - 30 * 60_000).toISOString();
     const deadline = new Date(Date.now() + 3600_000).toISOString();
-    expect(getPendingRideDisplayLabel(overdue, deadline)).toBe(
-      'En recherche (retard matching)',
-    );
+    expect(getPendingRideDisplayLabel(overdue, deadline)).toBe('En recherche');
+    expect(isMatchingDelayActive(overdue, deadline)).toBe(true);
+    expect(
+      shouldShowMatchingFlameBadge('pending', overdue, deadline, null),
+    ).toBe(true);
+    expect(
+      shouldShowMatchingFlameBadge('delayed', overdue, deadline, null),
+    ).toBe(true);
     expect(
       getPendingRideDisplayLabel(overdue, deadline, new Date().toISOString()),
     ).toBe('Confirmez la recherche');

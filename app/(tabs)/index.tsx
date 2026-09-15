@@ -15,7 +15,7 @@ import {
 import { useRouter, useFocusEffect } from "expo-router";
 import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
@@ -84,6 +84,7 @@ import {
   isRideStillOfferable,
   getPendingRideDisplayLabel,
   resolveRideOfferPrice,
+  shouldShowMatchingFlameBadge,
 } from "../../src/lib/utils/ridePickup";
 import { RidePriceBonus } from "../../src/components/RidePriceBonus";
 import { useDashboardNavProgress } from "../../src/hooks/useDashboardNavProgress";
@@ -1596,6 +1597,12 @@ function DeferredRideCard({
     ride.matching_deadline_at,
     ride.matching_paused_at,
   ).toUpperCase();
+  const showMatchingFlame = shouldShowMatchingFlameBadge(
+    ride.status ?? "delayed",
+    ride.pickup_time,
+    ride.matching_deadline_at,
+    ride.matching_paused_at,
+  );
   const isOverdue = !isRideStillOfferable(ride);
 
   return (
@@ -1621,12 +1628,21 @@ function DeferredRideCard({
                 : "rgba(251, 191, 36, 0.2)",
             }}
           >
-            <Text
-              className="text-[10px] font-bold tracking-wide"
-              style={{ color: isOverdue ? "#fb7185" : "#fbbf24" }}
-            >
-              {statusLabel}
-            </Text>
+            {showMatchingFlame ? (
+              <MaterialCommunityIcons
+                name="fire"
+                size={12}
+                color={isOverdue ? "#fb7185" : "#fbbf24"}
+                accessibilityLabel="En recherche"
+              />
+            ) : (
+              <Text
+                className="text-[10px] font-bold tracking-wide"
+                style={{ color: isOverdue ? "#fb7185" : "#fbbf24" }}
+              >
+                {statusLabel}
+              </Text>
+            )}
           </View>
           <View className="items-end">
             <Text className="text-white text-xl font-bold">{priceLabel}</Text>
