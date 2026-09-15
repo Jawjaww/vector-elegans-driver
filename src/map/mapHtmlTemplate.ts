@@ -6,10 +6,10 @@ import {
   OFFER_PICKUP_HIDE_MAX_METERS,
 } from "../lib/utils/markerDeclutter";
 
-const MAP_PICKUP_COLOR = "#3b82f6";
+const MAP_PICKUP_COLOR = "#f97316";
 const MAP_DROPOFF_COLOR = "#10b981";
 const MAP_DRIVER_COLOR = "#3b82f6";
-const MAP_APPROACH_LINE_COLOR = "#60a5fa";
+const MAP_APPROACH_LINE_COLOR = "#f97316";
 
 interface PrefetchConfig {
   enabled: boolean;
@@ -1008,7 +1008,7 @@ export function buildMapHtmlTemplate(
       return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     }
 
-    // MapPin pickup (blue) — matches reservation TripEndpointRail.
+    // Orange departure pin at client pickup (matches the orange approach dots).
     var OFFER_PIN_SVG =
       '<svg width="28" height="34" viewBox="0 0 28 34" xmlns="http://www.w3.org/2000/svg">' +
       '<path d="M14 0C7.37 0 2 5.37 2 12c0 8.5 12 22 12 22s12-13.5 12-22C26 5.37 20.63 0 14 0z" fill="${MAP_PICKUP_COLOR}"/>' +
@@ -1016,12 +1016,14 @@ export function buildMapHtmlTemplate(
       '<circle cx="14" cy="12" r="2.4" fill="${MAP_PICKUP_COLOR}"/>' +
       "</svg>";
 
-    // LandPlot dropoff (green) — matches reservation TripEndpointRail.
-    var OFFER_LANDPLOT_SVG =
-      '<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
-      '<rect x="5" y="5" width="18" height="18" rx="2.5" fill="${MAP_DROPOFF_COLOR}" stroke="#ffffff" stroke-width="2"/>' +
-      '<path d="M5 14h18M14 5v18" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>' +
-      "</svg>";
+    // Green arrival flag — pole base marks the dropoff point (matches the offer card).
+    function offerFlagSvg(color) {
+      return '<svg width="31" height="40" viewBox="0 0 31 40" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="M4.5 4v34" stroke="#047857" stroke-width="3.4" stroke-linecap="round"/>' +
+        '<path d="M6.1 5h21.4l-5.2 8 5.2 8H6.1z" fill="' + color + '" stroke="#047857" stroke-width="1.2" stroke-linejoin="round"/>' +
+        '<circle cx="4.5" cy="4" r="2.5" fill="#047857"/>' +
+        "</svg>";
+    }
 
     window.__veOfferMarkerImagesReady = false;
     window.__veOfferMarkerImagesLoading = false;
@@ -1077,7 +1079,7 @@ export function buildMapHtmlTemplate(
       }
 
       loadSvg("pickup-depart", OFFER_PIN_SVG);
-      loadSvg("dropoff-landplot", OFFER_LANDPLOT_SVG);
+      loadSvg("dropoff-flag", offerFlagSvg("${MAP_DROPOFF_COLOR}"));
       loadSvg("gps-chevron", GPS_ARROW_SVG);
     }
 
@@ -1096,7 +1098,7 @@ export function buildMapHtmlTemplate(
       };
     }
 
-    // Blue dotted approach (driver → client). Round caps + [0, gap] → small dots.
+    // Orange dotted approach (driver → client). Round caps + [0, gap] → small dots.
     function approachLineStyle() {
       return {
         casing: null,
@@ -1178,16 +1180,12 @@ export function buildMapHtmlTemplate(
         return el;
       }
 
-      function makeLandPlotEl(color) {
+      function makeFlagEl(color) {
         const el = document.createElement("div");
         el.className = "route-marker";
-        el.style.width = "28px";
-        el.style.height = "28px";
-        el.innerHTML =
-          '<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">' +
-          '<rect x="5" y="5" width="18" height="18" rx="2.5" fill="' + color + '" stroke="#ffffff" stroke-width="2"/>' +
-          '<path d="M5 14h18M14 5v18" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>' +
-          "</svg>";
+        el.style.width = "31px";
+        el.style.height = "40px";
+        el.innerHTML = offerFlagSvg(color);
         return el;
       }
 
@@ -1199,8 +1197,8 @@ export function buildMapHtmlTemplate(
         .addTo(map);
 
       window.__veDropoffMarker = new maplibregl.Marker({
-        element: makeLandPlotEl("${MAP_DROPOFF_COLOR}"),
-        anchor: "center",
+        element: makeFlagEl("${MAP_DROPOFF_COLOR}"),
+        anchor: "bottom-left",
       })
         .setLngLat(end)
         .addTo(map);
