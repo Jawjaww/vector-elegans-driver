@@ -2300,7 +2300,6 @@ export type Database = {
         Args: {
           p_ignore_busy?: boolean
           p_ignore_gps_age?: boolean
-          p_include_cooldown?: boolean
           p_radius_km: number
           p_ride_id: string
           p_wave?: number
