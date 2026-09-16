@@ -3,14 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import * as aesjs from "aes-js";
+import Constants from "expo-constants";
 import { AppState, Platform } from "react-native";
 import {
   getAuthRefreshKeepAlive,
   shouldKeepAuthRefresh,
 } from "./authRefreshGate";
+import {
+  ANDROID_EMULATOR_LOOPBACK,
+  deviceHostFor,
+  hostFromHostUri,
+  isMachineLocalHttpUrl,
+} from "./utils/localBackendHost";
 
-/** Android emulator alias for the host machine (local Supabase only). */
-const ANDROID_EMULATOR_LOOPBACK = ["10", "0", "2", "2"].join(".");
 const LOCAL_SUPABASE_PORT = "54329";
 
 function localSupabaseUrl(host: string): string {
@@ -46,6 +51,18 @@ function resolveSupabaseUrl(): string {
       );
     }
     return envUrl.replace(/\/$/, "");
+  }
+
+  // Dev only: when the target is the machine-local stack, follow the host Metro
+  // is served from instead of the inlined `.env` value. A LAN IP frozen in the
+  // bundle goes stale on the next DHCP lease and every request times out; Metro
+  // is by definition reachable from the device, so it is the reliable source.
+  // Cloud URLs still win — pointing dev at the cloud must keep working.
+  if (!envUrl || isMachineLocalHttpUrl(envUrl)) {
+    const metroHost = hostFromHostUri(Constants.expoConfig?.hostUri);
+    if (metroHost) {
+      return localSupabaseUrl(deviceHostFor(metroHost, Platform.OS));
+    }
   }
 
   if (envUrl?.length) {
