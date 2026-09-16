@@ -25,8 +25,7 @@ import {
 } from '../lib/utils/offerCarousel';
 import {
   computeOfferCardLayout,
-  OFFER_CARD_BOTTOM_NUDGE,
-  OFFER_CARD_SHEET_GAP,
+  offerDeckClearance,
 } from '../lib/utils/offerCardLayout';
 import { useOfferDismissGesture } from '../hooks/useOfferDismissGesture';
 import { NAV_SHEET_VISIBLE_H } from './BottomSheet';
@@ -49,6 +48,7 @@ function OfferStackLayer({
   isFront,
   canCycle,
   stackCardLeft,
+  stackExtra,
   cardWidth,
   layout,
   chromeVisible,
@@ -63,6 +63,7 @@ function OfferStackLayer({
   isFront: boolean;
   canCycle: boolean;
   stackCardLeft: number;
+  stackExtra: number;
   cardWidth: number;
   layout: ReturnType<typeof computeOfferCardLayout>;
   chromeVisible: boolean;
@@ -72,7 +73,7 @@ function OfferStackLayer({
   onDecline: () => void;
   onTimeout: () => void;
 }>) {
-  const restStyle = offerStackRestStyle(depth, stackCardLeft);
+  const restStyle = offerStackRestStyle(depth, stackCardLeft, stackExtra);
   const restScale = offerStackScale(depth);
   const peekX = offerStackPeekX(depth);
   const peekY = offerStackPeekY(depth);
@@ -151,8 +152,10 @@ export function OfferRideCarousel({
   const visibleRides = useMemo(() => visibleOfferStack(rides), [rides]);
   const stackExtra = offerStackExtraHeight(visibleRides.length);
   const stackCardLeft = (SCREEN_WIDTH - OFFER_CARD_WIDTH) / 2;
-  const sheetClearance =
-    NAV_SHEET_VISIBLE_H + OFFER_CARD_SHEET_GAP - OFFER_CARD_BOTTOM_NUDGE;
+  const sheetClearance = offerDeckClearance(
+    NAV_SHEET_VISIBLE_H,
+    visibleRides.length,
+  );
 
   useEffect(() => {
     onActiveIndexChangeRef.current = onActiveIndexChange;
@@ -208,6 +211,7 @@ export function OfferRideCarousel({
               isFront={depth === 0}
               canCycle={canCycle}
               stackCardLeft={stackCardLeft}
+              stackExtra={stackExtra}
               cardWidth={OFFER_CARD_WIDTH}
               layout={cardLayout}
               chromeVisible={chromeVisible}

@@ -1,12 +1,14 @@
 import {
   clampOfferCarouselIndex,
   OFFER_STACK_LIFT_CAP,
+  OFFER_STACK_TAIL_ROOM,
   offerStackDragLift,
   offerStackExtraHeight,
   offerStackPeekX,
   offerStackPeekY,
   offerStackRestStyle,
   offerStackScale,
+  offerStackTailSlack,
   visibleOfferStack,
 } from '../utils/offerCarousel';
 
@@ -60,19 +62,30 @@ describe('offer stack peek', () => {
 });
 
 describe('offerStackRestStyle', () => {
-  it('places depth 0 at the stack origin', () => {
-    const rest = offerStackRestStyle(0, 40);
-    expect(rest.top).toBe(0);
+  it('anchors the front card above the stack tail room', () => {
+    const rest = offerStackRestStyle(0, 40, 38);
+    expect(rest.bottom).toBe(38);
     expect(rest.left).toBe(40);
     expect(rest.zIndex).toBe(20);
   });
 
-  it('places depth 1 down and right of the front', () => {
-    const front = offerStackRestStyle(0, 40);
-    const behind = offerStackRestStyle(1, 40);
-    expect(behind.top).toBeGreaterThan(front.top as number);
+  it('places depth 1 below and right of the front', () => {
+    const front = offerStackRestStyle(0, 40, 38);
+    const behind = offerStackRestStyle(1, 40, 38);
+    expect(behind.bottom).toBeLessThan(front.bottom as number);
     expect(behind.left).toBeGreaterThan(front.left as number);
     expect(behind.zIndex).toBeLessThan(front.zIndex as number);
+  });
+
+  it('keeps the deepest peek inside the tail room whatever the content height', () => {
+    const deepest = offerStackRestStyle(3, 40, offerStackExtraHeight(4));
+    expect(deepest.bottom).toBe(OFFER_STACK_TAIL_ROOM);
+  });
+
+  it('reserves no tail room in front of a single card', () => {
+    expect(offerStackExtraHeight(1)).toBe(0);
+    expect(offerStackTailSlack(1)).toBe(0);
+    expect(offerStackTailSlack(2)).toBe(OFFER_STACK_TAIL_ROOM);
   });
 });
 

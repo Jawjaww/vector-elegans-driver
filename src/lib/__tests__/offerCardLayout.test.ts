@@ -1,4 +1,12 @@
-import { computeOfferCardLayout } from '../utils/offerCardLayout';
+import {
+  computeOfferCardLayout,
+  OFFER_CARD_SHEET_GAP,
+  offerDeckClearance,
+} from '../utils/offerCardLayout';
+import {
+  offerStackExtraHeight,
+  offerStackRestStyle,
+} from '../utils/offerCarousel';
 
 describe('computeOfferCardLayout', () => {
   it('keeps a compact overlay so the home map stays visible above', () => {
@@ -13,5 +21,20 @@ describe('computeOfferCardLayout', () => {
     const usable = 568 - 20 - 20 - 32;
     expect(layout.maxCardHeight).toBeLessThanOrEqual(usable * 0.52 + 1);
     expect(layout.contentPadding).toBeLessThanOrEqual(14);
+  });
+});
+
+describe('offerDeckClearance', () => {
+  // Any sheet visible height works: only the delta to the deck matters here.
+  const sheetTop = 14;
+
+  it('leaves the same gap above the sheet for every deck size', () => {
+    for (const count of [1, 2, 3, 4]) {
+      const clearance = offerDeckClearance(sheetTop, count);
+      const stackExtra = offerStackExtraHeight(count);
+      const deckBottom = offerStackRestStyle(count - 1, 0, stackExtra)
+        .bottom as number;
+      expect(clearance + deckBottom - sheetTop).toBe(OFFER_CARD_SHEET_GAP);
+    }
   });
 });

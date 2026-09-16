@@ -1,3 +1,5 @@
+import { offerStackTailSlack } from './offerCarousel';
+
 export type OfferCardLayout = {
   maxCardHeight: number;
   contentPadding: number;
@@ -16,11 +18,29 @@ export const OFFER_MAP_LIVE_BOUNDS_EXPAND = 1.38;
 /** Extra fitBounds padding on all sides — breathes around the route. */
 export const OFFER_MAP_FIT_DEZOOM_INSET = 20;
 
-/** Gap between the offer stack and the nav bottomsheet handle. */
-export const OFFER_CARD_SHEET_GAP = 4;
+/**
+ * Constant clearance between the bottomsheet's visible top and the bottom of
+ * the offer deck, whatever the height of the cards' content.
+ */
+export const OFFER_CARD_SHEET_GAP = 10;
 
-/** Pulls the offer stack closer to the bottomsheet / tab bar (px). */
-export const OFFER_CARD_BOTTOM_NUDGE = 14;
+/**
+ * Distance from the screen bottom to the bottom of the offer deck
+ * (`paddingBottom` of the carousel). It subtracts the slack the deck keeps
+ * below its deepest rear peek, so that the whole deck — peeks included — ends
+ * up exactly `OFFER_CARD_SHEET_GAP` above the sheet's visible top.
+ *
+ * The deck is anchored by the bottom, so a tall card grows upwards instead of
+ * reaching the bottomsheet.
+ */
+export function offerDeckClearance(
+  sheetVisibleHeight: number,
+  visibleCount: number,
+): number {
+  return (
+    sheetVisibleHeight + OFFER_CARD_SHEET_GAP - offerStackTailSlack(visibleCount)
+  );
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

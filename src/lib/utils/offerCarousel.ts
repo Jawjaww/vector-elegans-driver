@@ -18,6 +18,20 @@ export const OFFER_STACK_PEEK_X = [0, 8, 16, 24] as const;
 export const OFFER_STACK_SCALE = [1, 0.985, 0.97, 0.955] as const;
 export const OFFER_STACK_OPACITY = [1, 0.98, 0.96, 0.94] as const;
 
+/**
+ * Empty room kept inside the stack below the deepest peek so its scaled
+ * silhouette is not clipped. Zero for a single card: nothing is peeking, so
+ * there is nothing to reserve. `OfferRideCarousel` subtracts this slack from
+ * its sheet clearance, which is how the whole deck — rear peeks included —
+ * ends up at an exact, content-independent distance above the bottomsheet.
+ */
+export const OFFER_STACK_TAIL_ROOM = 8;
+
+/** Tail room actually in use for a given deck size (see `OFFER_STACK_TAIL_ROOM`). */
+export function offerStackTailSlack(visibleCount: number): number {
+  return visibleCount <= 1 ? 0 : OFFER_STACK_TAIL_ROOM;
+}
+
 /** Max peek cancelled during a front drag — never fully stack into one card. */
 export const OFFER_STACK_LIFT_CAP = 0.35;
 
@@ -50,9 +64,15 @@ export function offerStackOpacity(depth: number): number {
 export function offerStackRestStyle(
   depth: number,
   stackCardLeft: number,
+  stackExtra: number,
 ): ViewStyle {
   return {
-    top: offerStackPeekY(depth),
+    // Anchored by the BOTTOM: a card whose height follows its content then
+    // grows upwards, so the deck keeps a constant clearance above the
+    // bottomsheet instead of drifting down into it.
+    // `stackExtra - peekY` leaves the depth peeks sticking out below the front
+    // card, exactly like the former top-anchored layout did.
+    bottom: stackExtra - offerStackPeekY(depth),
     left: stackCardLeft + offerStackPeekX(depth),
     zIndex: 20 - depth,
     opacity: offerStackOpacity(depth),
@@ -80,5 +100,5 @@ export function offerStackDragLift(
 export function offerStackExtraHeight(visibleCount: number): number {
   if (visibleCount <= 1) return 0;
   const depth = Math.min(visibleCount - 1, OFFER_STACK_PEEK_Y.length - 1);
-  return OFFER_STACK_PEEK_Y[depth] + 8;
+  return OFFER_STACK_PEEK_Y[depth] + offerStackTailSlack(visibleCount);
 }
