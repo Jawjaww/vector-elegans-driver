@@ -2,6 +2,7 @@ import { View, Text, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { Ride } from '../lib/stores/driverStore';
 import { NeonSwipeButton, type SwipeVariant } from './NeonSwipeButton';
+import { MAP_PALETTE } from '../lib/mapPalette';
 import { PreferredNavButton } from './PreferredNavButton';
 import { WaitingElapsedTimer } from './WaitingElapsedTimer';
 import { RidePriceBonus } from './RidePriceBonus';
@@ -87,7 +88,7 @@ export function ActiveTripSheet({
           <Feather
             name="map-pin"
             size={12}
-            color="#34d399"
+            color={MAP_PALETTE.departure}
             style={{ marginRight: 6 }}
           />
           <Text className="text-white text-xs font-medium flex-1" numberOfLines={1}>
@@ -98,7 +99,7 @@ export function ActiveTripSheet({
           <Feather
             name="flag"
             size={12}
-            color="#818cf8"
+            color={MAP_PALETTE.arrival}
             style={{ marginRight: 6 }}
           />
           <Text className="text-white/70 text-xs flex-1" numberOfLines={1}>

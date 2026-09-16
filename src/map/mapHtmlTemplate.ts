@@ -1,15 +1,14 @@
 import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
+import { MAP_PALETTE } from "../lib/mapPalette";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
   OFFER_PICKUP_HIDE_MAX_METERS,
 } from "../lib/utils/markerDeclutter";
 
-const MAP_PICKUP_COLOR = "#f97316";
-const MAP_DROPOFF_COLOR = "#10b981";
-const MAP_DRIVER_COLOR = "#3b82f6";
-const MAP_APPROACH_LINE_COLOR = "#f97316";
+/** Neon rim shared by every outline, ready to interpolate into CSS/SVG. */
+const NEON_BLUR = `${MAP_PALETTE.neonBlur}px`;
 
 interface PrefetchConfig {
   enabled: boolean;
@@ -86,38 +85,13 @@ export function buildMapHtmlTemplate(
       display: none;
     }
 
-    .driver-marker {
-      background: #007cbf;
-      width: 28px;
-      height: 28px;
-      border-radius: 14px;
-      border: 2px solid #ffffff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      will-change: transform;
-    }
-    .driver-marker::after { content: '🚗'; }
-
+    /* Marker wrapper — size and neon filter are set per marker in JS. */
     .route-marker {
-      width: 36px;
-      height: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
     }
     .route-marker svg { display: block; }
-    .route-marker-driver {
-      width: 18px;
-      height: 18px;
-      border-radius: 9px;
-      background: ${MAP_DRIVER_COLOR};
-      border: 2px solid #fff;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.35);
-    }
 
     /* GPS nav puck: solid (declutter handles overlap with pickup at low zoom) */
     .gps-nav-puck {
@@ -127,7 +101,7 @@ export function buildMapHtmlTemplate(
       align-items: center;
       justify-content: center;
       pointer-events: none;
-      filter: drop-shadow(0 2px 5px rgba(0,0,0,0.45));
+      filter: drop-shadow(0 2px 5px rgba(0,0,0,0.45)) drop-shadow(0 0 ${NEON_BLUR} ${MAP_PALETTE.driverGlow});
     }
     .gps-nav-puck svg {
       display: block;
@@ -644,7 +618,7 @@ export function buildMapHtmlTemplate(
 
     var GPS_ARROW_SVG =
       '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-      '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="${MAP_DRIVER_COLOR}" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>' +
+      '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="${MAP_PALETTE.driver}" stroke="${MAP_PALETTE.driverEdge}" stroke-width="2.5" stroke-linejoin="round"/>' +
       "</svg>";
 
     ${offerMapZoomScriptBlock()}
@@ -664,7 +638,9 @@ export function buildMapHtmlTemplate(
         element: el,
         anchor: "center",
         pitchAlignment: "viewport",
-        rotationAlignment: "viewport",
+        // Rotated in map space so the arrow keeps pointing along the track at
+        // any camera bearing — same behaviour as the canvas puck below.
+        rotationAlignment: "map",
       });
       window.__veGpsMarkerAdded = false;
       return window.__veGpsMarker;
@@ -735,6 +711,13 @@ export function buildMapHtmlTemplate(
         }
         if (map.getLayer("approach-line")) {
           map.setLayoutProperty("approach-line", "visibility", approachVis);
+        }
+        if (map.getLayer("approach-line-glow")) {
+          map.setLayoutProperty(
+            "approach-line-glow",
+            "visibility",
+            approachVis,
+          );
         }
         if (map.getLayer("approach-casing")) {
           map.setLayoutProperty("approach-casing", "visibility", approachVis);
@@ -817,6 +800,9 @@ export function buildMapHtmlTemplate(
       removeGpsCanvasPuck();
       const marker = ensureGpsArrowMarker();
       marker.setLngLat(coords);
+      // The HTML puck only gets its position from MapLibre, so the arrow would
+      // otherwise stay frozen pointing north.
+      marker.setRotation(gpsBearingAlongTrack(coords));
       if (!window.__veGpsMarkerAdded) {
         marker.addTo(map);
         window.__veGpsMarkerAdded = true;
@@ -962,6 +948,14 @@ export function buildMapHtmlTemplate(
       } catch (e) {}
     }
 
+    /** Marker drop shadow + the neon rim, sharing the route's blur radius. */
+    function markerNeonFilter(glow) {
+      return (
+        "drop-shadow(0 2px 4px rgba(0,0,0,0.35)) " +
+        "drop-shadow(0 0 ${NEON_BLUR} " + glow + ")"
+      );
+    }
+
     function clearAllRoutes() {
       window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
       offerRoutePresented = false;
@@ -970,8 +964,8 @@ export function buildMapHtmlTemplate(
       window.__veNavSteps = null;
       window.__veRouteMeta = null;
       [
-        "route-line", "route-casing",
-        "approach-line", "approach-casing",
+        "route-line", "route-line-glow", "route-casing",
+        "approach-line", "approach-line-glow", "approach-casing",
         "endpoint-pickup", "endpoint-dropoff", "endpoint-driver", "gps-puck",
       ].forEach(removeLayerSafe);
       ["route", "approach", "endpoints", "gps-puck"].forEach(removeSourceSafe);
@@ -1008,20 +1002,20 @@ export function buildMapHtmlTemplate(
       return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     }
 
-    // Orange departure pin at client pickup (matches the orange approach dots).
+    // Blue departure pin at client pickup — contrasted outline, no white halo.
     var OFFER_PIN_SVG =
-      '<svg width="28" height="34" viewBox="0 0 28 34" xmlns="http://www.w3.org/2000/svg">' +
-      '<path d="M14 0C7.37 0 2 5.37 2 12c0 8.5 12 22 12 22s12-13.5 12-22C26 5.37 20.63 0 14 0z" fill="${MAP_PICKUP_COLOR}"/>' +
-      '<circle cx="14" cy="12" r="5" fill="#fff"/>' +
-      '<circle cx="14" cy="12" r="2.4" fill="${MAP_PICKUP_COLOR}"/>' +
+      '<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">' +
+      '<path d="M14 1C7.373 1 2 6.373 2 13c0 8.25 10.2 20.4 11.2 21.55a1.2 1.2 0 0 0 1.6 0C15.8 33.4 26 21.25 26 13 26 6.373 20.627 1 14 1z" fill="${MAP_PALETTE.departure}" stroke="${MAP_PALETTE.departureEdge}" stroke-width="1.5"/>' +
+      '<circle cx="14" cy="13" r="4.5" fill="#fff"/>' +
+      '<circle cx="14" cy="13" r="2.2" fill="${MAP_PALETTE.departure}"/>' +
       "</svg>";
 
-    // Green arrival flag — pole base marks the dropoff point (matches the offer card).
+    // Green arrival flag — pole base marks the dropoff point, contrasted outline.
     function offerFlagSvg(color) {
       return '<svg width="31" height="40" viewBox="0 0 31 40" xmlns="http://www.w3.org/2000/svg">' +
-        '<path d="M4.5 4v34" stroke="#047857" stroke-width="3.4" stroke-linecap="round"/>' +
-        '<path d="M6.1 5h21.4l-5.2 8 5.2 8H6.1z" fill="' + color + '" stroke="#047857" stroke-width="1.2" stroke-linejoin="round"/>' +
-        '<circle cx="4.5" cy="4" r="2.5" fill="#047857"/>' +
+        '<path d="M4.5 4v34" stroke="${MAP_PALETTE.arrivalEdge}" stroke-width="3.4" stroke-linecap="round"/>' +
+        '<path d="M6.1 5h21.4l-5.2 8 5.2 8H6.1z" fill="' + color + '" stroke="${MAP_PALETTE.arrivalEdge}" stroke-width="1.2" stroke-linejoin="round"/>' +
+        '<circle cx="4.5" cy="4" r="2.5" fill="${MAP_PALETTE.arrivalEdge}"/>' +
         "</svg>";
     }
 
@@ -1079,31 +1073,43 @@ export function buildMapHtmlTemplate(
       }
 
       loadSvg("pickup-depart", OFFER_PIN_SVG);
-      loadSvg("dropoff-flag", offerFlagSvg("${MAP_DROPOFF_COLOR}"));
+      loadSvg("dropoff-flag", offerFlagSvg("${MAP_PALETTE.arrival}"));
       loadSvg("gps-chevron", GPS_ARROW_SVG);
     }
 
     function routeLineStyle() {
       return {
+        glow: {
+          "line-color": "${MAP_PALETTE.routeGlow}",
+          "line-width": 11,
+          "line-blur": ${MAP_PALETTE.neonBlur},
+        },
         casing: {
-          "line-color": "#064e3b",
-          "line-width": 9,
-          "line-opacity": 0.4,
+          "line-color": "${MAP_PALETTE.routeEdge}",
+          "line-width": 7,
+          "line-opacity": 0.9,
         },
         line: {
-          "line-color": "#10b981",
+          "line-color": "${MAP_PALETTE.route}",
           "line-width": 5.5,
           "line-opacity": 0.95,
         },
       };
     }
 
-    // Orange dotted approach (driver → client). Round caps + [0, gap] → small dots.
+    // Green dotted approach (driver → client). Same dash on the glow so the
+    // halo follows the dots instead of bleeding into a solid band.
     function approachLineStyle() {
       return {
+        glow: {
+          "line-color": "${MAP_PALETTE.approachGlow}",
+          "line-width": 8,
+          "line-blur": ${MAP_PALETTE.neonBlur},
+          "line-dasharray": [0, 1.75],
+        },
         casing: null,
         line: {
-          "line-color": "${MAP_APPROACH_LINE_COLOR}",
+          "line-color": "${MAP_PALETTE.approach}",
           "line-width": 4,
           "line-opacity": 0.95,
           "line-dasharray": [0, 1.75],
@@ -1127,10 +1133,22 @@ export function buildMapHtmlTemplate(
     }
 
     function setOrAddLine(sourceId, casingId, lineId, feature, style) {
+      const glowId = lineId + "-glow";
+      removeLayerSafe(glowId);
       removeLayerSafe(lineId);
       removeLayerSafe(casingId);
       removeSourceSafe(sourceId);
       map.addSource(sourceId, { type: "geojson", data: feature });
+      // Neon rim first so it renders under the casing and the line.
+      if (style.glow) {
+        map.addLayer({
+          id: glowId,
+          type: "line",
+          source: sourceId,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: style.glow,
+        });
+      }
       if (style.casing) {
         map.addLayer({
           id: casingId,
@@ -1168,36 +1186,35 @@ export function buildMapHtmlTemplate(
         window.__veDriverMarker = null;
       }
 
-      function makePinEl(color) {
+      function makePinEl() {
         const el = document.createElement("div");
         el.className = "route-marker";
-        el.innerHTML =
-          '<svg width="20" height="24" viewBox="0 0 20 24" xmlns="http://www.w3.org/2000/svg">' +
-          '<path d="M10 0C5.58 0 2 3.58 2 8c0 5.25 8 16 8 16s8-10.75 8-16C18 3.58 14.42 0 10 0z" fill="' + color + '"/>' +
-          '<circle cx="10" cy="8" r="3.2" fill="#fff"/>' +
-          '<circle cx="10" cy="8" r="1.4" fill="' + color + '"/>' +
-          "</svg>";
+        el.style.width = "28px";
+        el.style.height = "36px";
+        el.style.filter = markerNeonFilter("${MAP_PALETTE.departureGlow}");
+        el.innerHTML = OFFER_PIN_SVG;
         return el;
       }
 
-      function makeFlagEl(color) {
+      function makeFlagEl() {
         const el = document.createElement("div");
         el.className = "route-marker";
         el.style.width = "31px";
         el.style.height = "40px";
-        el.innerHTML = offerFlagSvg(color);
+        el.style.filter = markerNeonFilter("${MAP_PALETTE.arrivalGlow}");
+        el.innerHTML = offerFlagSvg("${MAP_PALETTE.arrival}");
         return el;
       }
 
       window.__vePickupMarker = new maplibregl.Marker({
-        element: makePinEl("${MAP_PICKUP_COLOR}"),
+        element: makePinEl(),
         anchor: "bottom",
       })
         .setLngLat(start)
         .addTo(map);
 
       window.__veDropoffMarker = new maplibregl.Marker({
-        element: makeFlagEl("${MAP_DROPOFF_COLOR}"),
+        element: makeFlagEl(),
         anchor: "bottom-left",
       })
         .setLngLat(end)

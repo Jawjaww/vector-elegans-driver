@@ -13,6 +13,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTranslation } from 'react-i18next';
 
 import { useDriverStore, Ride } from '../lib/stores/driverStore';
+import { MAP_PALETTE } from '../lib/mapPalette';
 import type { OfferCardLayout } from '../lib/utils/offerCardLayout';
 import { NeonSwipeButton } from './NeonSwipeButton';
 import { NeonProgress } from './NeonProgress';
@@ -213,13 +214,13 @@ function OfferCardTripDetails({
         </View>
       ) : null}
       <View style={styles.metaRow}>
-        <Feather name="map-pin" size={14} color="#f97316" />
+        <Feather name="map-pin" size={14} color={MAP_PALETTE.departure} />
         <Text style={styles.metaText} numberOfLines={2}>
           {ride.pickup_address}
         </Text>
       </View>
       <View style={styles.metaRow}>
-        <Feather name="flag" size={14} color="#10b981" />
+        <Feather name="flag" size={14} color={MAP_PALETTE.arrival} />
         <Text style={[styles.metaText, styles.dropoffText]} numberOfLines={2}>
           {ride.dropoff_address}
         </Text>
