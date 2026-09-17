@@ -6,8 +6,8 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.1',
-    runtimeVersion: '1.0.1',
+    version: '1.0.2',
+    runtimeVersion: '1.0.2',
     updates: {
       url: 'https://u.expo.dev/d9eee7f2-f575-4bc6-ba03-87c1292daa75',
       checkAutomatically: 'ON_LOAD',
