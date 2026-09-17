@@ -15,6 +15,7 @@ import {
   shouldOpenHomeFromPushData,
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
+import { bringAppToForeground } from '../lib/overlay/overlayService';
 import {
   buildRideOfferPushContent,
   isRideOfferPush,
@@ -26,6 +27,18 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = readNotificationData(notification);
     const appState = AppState.currentState;
+
+    // A ride offer is handled natively when the overlay pill is on screen: the
+    // pill unlocks a background activity launch, so the app comes forward on
+    // its own offer card and a tray entry would be a duplicate of it.
+    //
+    // Suppression is conditional on the launch being *accepted*. Without the
+    // overlay permission — or offline, when there is no pill — the launch is
+    // refused and the notification keeps its role as the only path to the
+    // offer, so the tray and its Accept / Decline buttons still work.
+    if (isRideOfferPush(data) && bringAppToForeground()) {
+      return SUPPRESS_INCOMING_PUSH;
+    }
 
     if (isRideOfferPush(data) && appState === 'active') {
       const content = buildRideOfferPushContent(
