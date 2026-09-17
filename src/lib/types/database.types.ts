@@ -2089,6 +2089,7 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: string
       }
+      driver_on_ride: { Args: { p_driver_id: string }; Returns: boolean }
       driver_owns_driver_id: { Args: { p_driver_id: string }; Returns: boolean }
       ensure_driver_profile: {
         Args: { driver_user_id: string }
@@ -2159,6 +2160,7 @@ export type Database = {
         }[]
       }
       get_driver_id_from_auth: { Args: never; Returns: string }
+      get_driver_offer_ride: { Args: { p_ride_id: string }; Returns: Json }
       get_driver_submission_history: {
         Args: { p_driver_id: string }
         Returns: {
