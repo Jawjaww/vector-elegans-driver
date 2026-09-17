@@ -148,21 +148,99 @@ describe('rideService.fetchAssignedRide', () => {
   });
 });
 
-describe('rideService.fetchRideById', () => {
-  it('returns the ride row when SELECT succeeds', async () => {
-    const maybeSingle = jest.fn().mockResolvedValue({
-      data: { id: 'r1', status: 'pending' },
+describe('rideService.fetchDriverOfferRide', () => {
+  beforeEach(() => {
+    mockRpc.mockReset();
+    mockGetUser.mockReset();
+  });
+
+  const expectOk = (
+    result: Awaited<ReturnType<typeof rideService.fetchDriverOfferRide>>,
+  ) => {
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason}`);
+    return result;
+  };
+
+  it('maps a successful payload to ride + offer state', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        success: true,
+        ride: { id: 'r1', status: 'pending', pickup_address: 'Rue de Rivoli' },
+        offer: {
+          status: 'offered',
+          wave_n: 1,
+          offered_at: '2026-09-16T10:00:00Z',
+          expires_at: '2026-09-16T10:01:30Z',
+          responded_at: null,
+          alive: true,
+        },
+      },
       error: null,
     });
-    const eq = jest.fn(() => ({ maybeSingle }));
-    const select = jest.fn(() => ({ eq }));
-    const { supabase } = require('../supabase');
-    supabase.from.mockReturnValue({ select });
 
-    const row = await rideService.fetchRideById('r1');
-    expect(supabase.from).toHaveBeenCalledWith('rides');
-    expect(eq).toHaveBeenCalledWith('id', 'r1');
-    expect(row).toMatchObject({ id: 'r1', status: 'pending' });
+    const result = await rideService.fetchDriverOfferRide('r1');
+
+    expect(mockRpc).toHaveBeenCalledWith('get_driver_offer_ride', {
+      p_ride_id: 'r1',
+    });
+    expect(expectOk(result)).toEqual({
+      ok: true,
+      ride: expect.objectContaining({
+        id: 'r1',
+        pickup_address: 'Rue de Rivoli',
+      }),
+      offer: {
+        status: 'offered',
+        waveN: 1,
+        offeredAt: '2026-09-16T10:00:00Z',
+        expiresAt: '2026-09-16T10:01:30Z',
+        respondedAt: null,
+        alive: true,
+      },
+    });
+  });
+
+  it('keeps an expired offer readable and flags it dead', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        success: true,
+        ride: { id: 'r1', status: 'pending' },
+        offer: {
+          status: 'offered',
+          expires_at: '2020-01-01T00:00:00Z',
+          alive: false,
+        },
+      },
+      error: null,
+    });
+
+    expect(expectOk(await rideService.fetchDriverOfferRide('r1')).offer.alive).toBe(
+      false,
+    );
+  });
+
+  it('maps a refusal payload to its reason', async () => {
+    mockRpc.mockResolvedValue({
+      data: { success: false, reason: 'no_offer' },
+      error: null,
+    });
+
+    expect(await rideService.fetchDriverOfferRide('r1')).toEqual({
+      ok: false,
+      reason: 'no_offer',
+    });
+  });
+
+  it('flags a transient network failure', async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { message: 'Network request failed' },
+    });
+
+    expect(await rideService.fetchDriverOfferRide('r1')).toEqual({
+      ok: false,
+      reason: 'network',
+    });
   });
 });
 

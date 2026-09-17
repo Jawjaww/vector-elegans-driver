@@ -77,7 +77,52 @@
     "approach": "Acercamiento",
     "pickupLabel": "Recogida",
     "dropoffLabel": "Destino",
-    "swipeToAccept": "DESLIZAR PARA ACEPTAR >>>"
+    "swipeToAccept": "DESLIZAR PARA ACEPTAR >>>",
+    "offerAccept": "Aceptar",
+    "offerDecline": "Rechazar",
+    "offerNotice": {
+      "dismiss": "Entendido",
+      "offer_expired": {
+        "title": "Plazo agotado",
+        "body": "El tiempo de respuesta ha expirado: la carrera se ha ofrecido a otro conductor."
+      },
+      "offer_declined": {
+        "title": "Carrera rechazada",
+        "body": "Has rechazado esta carrera. Se ofrecerá a otro conductor."
+      },
+      "ride_taken": {
+        "title": "Carrera ya aceptada",
+        "body": "Otro conductor aceptó esta carrera antes que tú."
+      },
+      "already_accepted": {
+        "title": "Ya la has aceptado",
+        "body": "Ya aceptaste esta carrera. Búscala en tus carreras."
+      },
+      "matching_closed": {
+        "title": "Búsqueda finalizada",
+        "body": "El cliente ya no busca conductor para esta carrera."
+      },
+      "dossier_inactive": {
+        "title": "Expediente inactivo",
+        "body": "Tu expediente no está activo: no puedes aceptar carreras por ahora."
+      },
+      "already_on_ride": {
+        "title": "Ya en carrera",
+        "body": "Termina tu carrera actual antes de aceptar otra."
+      },
+      "not_available": {
+        "title": "Carrera no disponible",
+        "body": "Esta carrera ya no se te ofrece."
+      },
+      "unreachable": {
+        "title": "Comprobación fallida",
+        "body": "No se pudo comprobar esta carrera. Revisa tu conexión e inténtalo de nuevo."
+      }
+    },
+    "offerNoticeCta": {
+      "profile": "Completar mi expediente",
+      "currentRide": "Ver mi carrera"
+    }
   },
   "profile": {
     "title": "Perfil",

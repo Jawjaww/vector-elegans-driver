@@ -7,9 +7,11 @@ import {
   readNotificationData,
   registerAndUpsertPushToken,
   requestRideNotificationPermission,
+  notificationResponseEventKey,
+  offerActionFromIdentifier,
+  queueOfferOpen,
   rideIdFromPushData,
   RIDES_PUSH_CHANNEL_ID,
-  setPendingOfferRideId,
   shouldOpenHomeFromPushData,
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
@@ -58,16 +60,19 @@ export function useNotifications() {
   );
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
   const appState = useRef<AppStateStatus>(AppState.currentState);
-  const lastHandledResponseId = useRef<string | null>(null);
+  const lastHandledEventKey = useRef<string | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
   const handleNotificationOpen = useCallback(
-    (data: Record<string, unknown>) => {
+    (data: Record<string, unknown>, actionIdentifier: string) => {
       if (!shouldOpenHomeFromPushData(data)) return;
-      // Remember the tapped ride so the dashboard can surface it in the overlay
-      // even when it already sits in the deferred bottomsheet.
+      // Remember the opened ride (and the tray action) so the dashboard can
+      // surface it in the overlay even when it already sits in the deferred
+      // bottomsheet.
       const rideId = rideIdFromPushData(data);
-      if (rideId) setPendingOfferRideId(rideId);
+      if (rideId) {
+        queueOfferOpen(rideId, offerActionFromIdentifier(actionIdentifier));
+      }
       router.push('/(tabs)/');
     },
     [router],
@@ -75,12 +80,14 @@ export function useNotifications() {
 
   const openFromResponse = useCallback(
     (response: Notifications.NotificationResponse) => {
-      const id = response.notification.request.identifier;
-      if (lastHandledResponseId.current === id) return;
-      lastHandledResponseId.current = id;
+      // Keyed by event, not by identifier: the identifier is stable per ride, so
+      // identifier-only dedup swallowed the same ride re-offered 30 min later.
+      const eventKey = notificationResponseEventKey(response);
+      if (lastHandledEventKey.current === eventKey) return;
+      lastHandledEventKey.current = eventKey;
       const data = readNotificationData(response.notification);
       console.log('[Notifications] Opened from push:', data);
-      handleNotificationOpen(data);
+      handleNotificationOpen(data, response.actionIdentifier);
       Notifications.clearLastNotificationResponse();
     },
     [handleNotificationOpen],

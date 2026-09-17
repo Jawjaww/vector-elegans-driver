@@ -1,3 +1,13 @@
+import {
+  useDriverStore,
+  type OfferNotificationAction,
+  type PendingOfferOpen,
+} from '../stores/driverStore';
+import {
+  RIDE_OFFER_ACCEPT_ACTION,
+  RIDE_OFFER_DECLINE_ACTION,
+} from './rideOfferPushContent';
+
 /** Whether a push payload should open the driver home (offer overlay). */
 export function shouldOpenHomeFromPushData(
   data: Record<string, unknown>,
@@ -17,22 +27,52 @@ export function rideIdFromPushData(
 }
 
 /**
- * Ride tapped from a ride_offer push, awaiting promotion to the overlay.
- * Kept in module scope: on cold start the notification handler runs before the
- * offer store hydrates, so the dashboard consumes it once offers are live.
+ * Identity of one notification tap event.
+ *
+ * The identifier alone is `ride-offer-<rideId>` — stable per ride — so it cannot
+ * tell a fresh offer from the same ride re-offered 30 minutes later, and the
+ * second tap was dropped. Pairing the identifier with the delivery date yields
+ * one key per event while still absorbing the double delivery
+ * (useLastNotificationResponse plus the response listener).
  */
-let pendingOfferRideId: string | null = null;
-
-export function setPendingOfferRideId(rideId: string): void {
-  pendingOfferRideId = rideId;
+export function notificationResponseEventKey(response: {
+  notification: { date: number; request: { identifier: string } };
+}): string {
+  return `${response.notification.request.identifier}:${response.notification.date}`;
 }
 
-export function peekPendingOfferRideId(): string | null {
-  return pendingOfferRideId;
+/**
+ * Map a notification action identifier to the offer action to queue.
+ * A plain tap (DEFAULT_ACTION_IDENTIFIER) maps to null — opening is enough.
+ */
+export function offerActionFromIdentifier(
+  identifier: string,
+): OfferNotificationAction | null {
+  if (identifier === RIDE_OFFER_ACCEPT_ACTION) return 'accept';
+  if (identifier === RIDE_OFFER_DECLINE_ACTION) return 'decline';
+  return null;
 }
 
-export function consumePendingOfferRideId(): string | null {
-  const rideId = pendingOfferRideId;
-  pendingOfferRideId = null;
-  return rideId;
+/**
+ * Queue the ride opened from a notification, with the tray action if any.
+ *
+ * Backed by the driver store rather than module scope: the dashboard must react
+ * the instant a tap lands, including when it is already mounted behind the
+ * notification shade. A module variable changed no dependency, so the promotion
+ * effect only fired by luck.
+ */
+export function queueOfferOpen(
+  rideId: string,
+  action: OfferNotificationAction | null,
+): void {
+  useDriverStore.getState().setPendingOfferOpen({ rideId, action });
+}
+
+/** Read the queued offer once and clear it. Returns null when nothing is queued. */
+export function consumePendingOfferOpen(): PendingOfferOpen | null {
+  const state = useDriverStore.getState();
+  const pending = state.pendingOfferOpen;
+  if (pending === null) return null;
+  state.setPendingOfferOpen(null);
+  return pending;
 }
