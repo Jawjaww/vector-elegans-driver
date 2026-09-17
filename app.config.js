@@ -6,8 +6,8 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.0',
-    runtimeVersion: '1.0.0',
+    version: '1.0.1',
+    runtimeVersion: '1.0.1',
     updates: {
       url: 'https://u.expo.dev/d9eee7f2-f575-4bc6-ba03-87c1292daa75',
       checkAutomatically: 'ON_LOAD',
@@ -47,6 +47,12 @@ module.exports = {
         'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_LOCATION',
         'android.permission.POST_NOTIFICATIONS',
+        // Special app access, granted by the user from Settings. Required to
+        // draw the online pill over other apps — the visible overlay window is
+        // what lets an incoming offer bring the app back to the foreground
+        // (background activity launches are blocked since Android 10).
+        // On refusal the app keeps the notification path, so it stays usable.
+        'android.permission.SYSTEM_ALERT_WINDOW',
       ],
     },
     plugins: [
