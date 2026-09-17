@@ -63,6 +63,19 @@ export type OfferGateState = {
   declinedOfferIds?: string[];
 };
 
+/** Action chosen from the notification's Accept / Decline buttons. */
+export type OfferNotificationAction = 'accept' | 'decline';
+
+/**
+ * A ride opened from a ride_offer notification, plus the action the driver
+ * picked in the tray (if any). Held as one value so the ride and its action can
+ * never be claimed by two different readers.
+ */
+export type PendingOfferOpen = {
+  rideId: string;
+  action: OfferNotificationAction | null;
+};
+
 /** Pure helper — used by presentOffer + Jest */
 export function canPresentRideOffer(
   rideId: string,
@@ -127,6 +140,12 @@ interface DriverState {
   declinedOfferIds: string[];
   /** Hard-suppressed this session — never re-present */
   suppressedRideIds: string[];
+  /**
+   * Ride opened from a ride_offer notification, awaiting overlay promotion.
+   * Deliberately in the store (not module scope) so a tap re-renders the
+   * dashboard even when it is already mounted behind the notification shade.
+   */
+  pendingOfferOpen: PendingOfferOpen | null;
   stats: DriverStats;
   currentLocation: Location | null;
   setIsOnline: (online: boolean) => void;
@@ -150,6 +169,7 @@ interface DriverState {
   updateStats: (stats: Partial<DriverStats>) => void;
   completeRide: (ride: Ride) => void;
   setCurrentLocation: (location: Location | null) => void;
+  setPendingOfferOpen: (value: PendingOfferOpen | null) => void;
 }
 
 export const useDriverStore = create<DriverState>()(
@@ -404,6 +424,8 @@ export const useDriverStore = create<DriverState>()(
           }
           return { currentLocation: location };
         }),
+      pendingOfferOpen: null,
+      setPendingOfferOpen: (value) => set({ pendingOfferOpen: value }),
     }),
     {
       name: 'driver-storage',

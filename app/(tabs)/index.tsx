@@ -49,8 +49,7 @@ import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
 import {
-  consumePendingOfferRideId,
-  peekPendingOfferRideId,
+  consumePendingOfferOpen,
   registerAndUpsertPushToken,
   type PushRegisterResult,
 } from "../../src/lib/notifications/pushRegistration";
@@ -88,6 +87,11 @@ import {
   shouldShowMatchingFlameBadge,
 } from "../../src/lib/utils/ridePickup";
 import { RidePriceBonus } from "../../src/components/RidePriceBonus";
+import { OfferNoticeCard } from "../../src/components/OfferNoticeCard";
+import {
+  resolveOfferOpenOutcome,
+  type OfferNotice,
+} from "../../src/lib/utils/offerOpenOutcome";
 import { useDashboardNavProgress } from "../../src/hooks/useDashboardNavProgress";
 import { useDashboardOfferMap } from "../../src/hooks/useDashboardOfferMap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -110,6 +114,9 @@ function mapRouteFitPaddingBottom(
 
 const DEFAULT_MAP_CENTER = { lat: 48.8566, lng: 2.3522 };
 
+/** How long an offer notice stays on screen before fading out by itself. */
+const OFFER_NOTICE_TTL_MS = 25_000;
+
 function mapLoaderHint(mapReady: boolean, hasGpsFix: boolean): string {
   if (!mapReady) return "Préparation de la carte";
   if (!hasGpsFix) return "Localisation en cours";
@@ -127,14 +134,14 @@ function resolveDriverHomeSnapLevel(input: {
   availableRidesCount: number;
   availableRide: unknown;
   offerableDeferredCount: number;
-  hasDossierAlert: boolean;
+  hasNotices: boolean;
 }): SheetSnapLevel {
   const {
     activeRide,
     availableRidesCount,
     availableRide,
     offerableDeferredCount,
-    hasDossierAlert,
+    hasNotices,
   } = input;
 
   if (activeRide) {
@@ -145,7 +152,7 @@ function resolveDriverHomeSnapLevel(input: {
   }
   // Overlay offer cards sit above the nav palier — notices stay reachable by drag.
   if (availableRidesCount > 0) return "nav";
-  if (hasDossierAlert) return "notices";
+  if (hasNotices) return "notices";
   if (availableRide || offerableDeferredCount > 0) return "rides";
   return "peek";
 }
@@ -372,9 +379,14 @@ function usePendingRideChannel({
     const handleOfferRow = (row: RideOfferRealtimeRow) => {
       if (isOpenRideOffer(row)) {
         void (async () => {
-          const ride = await rideService.fetchRideById(row.ride_id);
-          if (cancelled || !ride || !isRideStillOfferable(ride)) return;
-          await presentOffer(ride);
+          // Same read as a notification open: the offer may already be dead by
+          // the time the realtime event lands, and only the RPC can say so.
+          const fetched = await rideService.fetchDriverOfferRide(row.ride_id);
+          if (cancelled || !fetched.ok) return;
+          if (!fetched.offer.alive || !isRideStillOfferable(fetched.ride)) {
+            return;
+          }
+          await presentOffer(fetched.ride);
         })();
         return;
       }
@@ -513,6 +525,8 @@ function shouldShowTripNavigationHud(
 async function acceptTrackedRide(args: {
   rideId: string;
   driverStatus: string | null;
+  isOnline: boolean;
+  setIsOnline: (online: boolean) => void;
   availableRides: Ride[];
   deferredRides: Ride[];
   availableRide: Ride | null;
@@ -530,6 +544,9 @@ async function acceptTrackedRide(args: {
     Alert.alert("Error", "Only active drivers can accept rides");
     return;
   }
+  // An offer can be opened and accepted while offline; accepting is what brings
+  // the driver online, so the wave-1 dispatcher sees them from that moment on.
+  if (!args.isOnline) args.setIsOnline(true);
 
   args.acceptingRideIds.add(args.rideId);
   try {
@@ -553,12 +570,12 @@ async function acceptTrackedRide(args: {
 function resolveBottomSheetAllowedSnaps(
   activeRide: Ride | null,
   availableRidesCount: number,
-  hasDossierAlert: boolean,
+  hasNotices: boolean,
 ): readonly SheetSnapLevel[] {
   const withNotices = (
     snaps: SheetSnapLevel[],
   ): readonly SheetSnapLevel[] =>
-    hasDossierAlert ? snaps : snaps.filter((s) => s !== "notices");
+    hasNotices ? snaps : snaps.filter((s) => s !== "notices");
 
   if (activeRide) {
     return withNotices(["nav", "notices", "trip"]);
@@ -947,6 +964,13 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { mapBoot, hasGpsFix, setHasGpsFix } = useMapBootSeed(currentLocation);
   const [offerOverlayBand, setOfferOverlayBand] = useState(280);
+  /**
+   * Ride opened from a notification. Subscribed rather than peeked: a module
+   * variable changed no dependency, so the promotion effect only fired by luck.
+   */
+  const pendingOfferOpen = useDriverStore((s) => s.pendingOfferOpen);
+  /** Why the last notification open could not surface its ride; null hides the notice. */
+  const [offerNotice, setOfferNotice] = useState<OfferNotice | null>(null);
 
   const onLocationUpdate = useCallback(
     (coords: { lat: number; lng: number }) => {
@@ -1034,37 +1058,110 @@ export default function DashboardScreen() {
     [addAvailableRide, canReceiveOffers, getOfferGateState],
   );
 
-  // Tapping a ride_offer push surfaces that ride in the overlay, even when it
-  // already sits in the deferred bottomsheet (previously nothing happened).
+  // Opening a ride_offer notification surfaces that ride in the overlay, or
+  // explains why it cannot be surfaced. No offer gate here on purpose: a driver
+  // may open an offer while offline and be brought online by accepting it, and a
+  // dead offer must produce a notice rather than silence.
+  //
+  // The tray's Accept / Decline buttons ride along in the same payload, so they
+  // can never be applied to a ride the driver has not actually been shown.
   useEffect(() => {
-    if (loading || !canReceiveOffers) return;
-    const rideId = peekPendingOfferRideId();
-    if (!rideId) return;
-    consumePendingOfferRideId();
+    if (loading || !pendingOfferOpen) return;
+    const { rideId, action } = pendingOfferOpen;
+    consumePendingOfferOpen();
+
+    // Fresh store state: promoting is synchronous, so the ride is addressable.
+    const takeAction = async () => {
+      const store = useDriverStore.getState();
+      if (action === "accept") {
+        await acceptTrackedRide({
+          rideId,
+          driverStatus,
+          isOnline: store.isOnline,
+          setIsOnline: store.setIsOnline,
+          availableRides: store.availableRides,
+          deferredRides: store.deferredRides,
+          availableRide: store.availableRide,
+          setActiveRide: store.setActiveRide,
+          removeAvailableRide: store.removeAvailableRide,
+          suppressRide: store.suppressRide,
+          acceptingRideIds: acceptingRideIdsRef.current,
+        });
+        return;
+      }
+      if (action === "decline") {
+        store.deferAvailableRide(rideId);
+        await rideService.respondOffer(rideId, "declined");
+      }
+    };
 
     const deferred = deferredRides.find((ride) => ride.id === rideId);
     if (deferred) {
-      if (isRideStillOfferable(deferred)) promoteDeferredRide(rideId);
+      if (isRideStillOfferable(deferred)) {
+        promoteDeferredRide(rideId);
+        void takeAction();
+      } else {
+        const refused = (
+          useDriverStore.getState().declinedOfferIds ?? []
+        ).includes(rideId);
+        setOfferNotice({
+          reason: refused ? "offer_declined" : "matching_closed",
+          ride: deferred,
+        });
+      }
       return;
     }
+
     const stacked = availableRides.find((ride) => ride.id === rideId);
     if (stacked) {
-      promoteTrackedRideToFront(stacked);
+      if (isRideStillOfferable(stacked)) {
+        promoteTrackedRideToFront(stacked);
+        void takeAction();
+      } else {
+        setOfferNotice({ reason: "matching_closed", ride: stacked });
+      }
       return;
     }
+
     void (async () => {
-      const ride = await rideService.fetchRideById(rideId);
-      if (!ride || !isRideStillOfferable(ride)) return;
-      promoteTrackedRideToFront(ride);
+      const fetched = await rideService.fetchDriverOfferRide(rideId);
+      const outcome = resolveOfferOpenOutcome(fetched, {
+        driverStatus,
+        activeRideId: activeRide?.id ?? null,
+        isOnline,
+        myDriverId: driverId,
+      });
+      if (outcome.kind === "overlay" && isRideStillOfferable(outcome.ride)) {
+        setOfferNotice(null);
+        promoteTrackedRideToFront(outcome.ride);
+        await takeAction();
+        return;
+      }
+      setOfferNotice(
+        outcome.kind === "notice"
+          ? outcome.notice
+          : { reason: "matching_closed", ride: outcome.ride },
+      );
     })();
   }, [
     loading,
-    canReceiveOffers,
+    pendingOfferOpen,
     deferredRides,
     availableRides,
+    driverStatus,
+    isOnline,
+    activeRide?.id,
+    driverId,
     promoteDeferredRide,
     promoteTrackedRideToFront,
   ]);
+
+  // Notices are explanations, not state — they fade out on their own.
+  useEffect(() => {
+    if (!offerNotice) return;
+    const timer = setTimeout(() => setOfferNotice(null), OFFER_NOTICE_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [offerNotice]);
 
   const notifyRideUnavailable = useCallback(() => {
     Alert.alert(t("common.info"), t("ride.noLongerAvailable"));
@@ -1087,6 +1184,8 @@ export default function DashboardScreen() {
     await acceptTrackedRide({
       rideId,
       driverStatus,
+      isOnline,
+      setIsOnline,
       availableRides,
       deferredRides,
       availableRide,
@@ -1147,8 +1246,9 @@ export default function DashboardScreen() {
     () => sliceDossierBannerStack(dossierBanners),
     [dossierBanners],
   );
-  const noticesHeight = noticesBodyHeight(dossierBanners.length);
-  const hasDossierAlert = dossierBanners.length > 0;
+  const noticeCount = dossierBanners.length + (offerNotice ? 1 : 0);
+  const noticesHeight = noticesBodyHeight(noticeCount);
+  const hasNotices = noticeCount > 0;
 
   const bottomSheetSnapLevel = useMemo(() => {
     const offerableDeferred = deferredRides.filter((r) =>
@@ -1159,10 +1259,10 @@ export default function DashboardScreen() {
       availableRidesCount: availableRides.length,
       availableRide,
       offerableDeferredCount: offerableDeferred.length,
-      hasDossierAlert,
+      hasNotices,
     });
   }, [
-    hasDossierAlert,
+    hasNotices,
     availableRide,
     availableRides.length,
     deferredRides,
@@ -1174,9 +1274,9 @@ export default function DashboardScreen() {
       resolveBottomSheetAllowedSnaps(
         activeRide,
         availableRides.length,
-        hasDossierAlert,
+        hasNotices,
       ),
-    [activeRide, availableRides.length, hasDossierAlert],
+    [activeRide, availableRides.length, hasNotices],
   );
 
   const mapRecenterBottomOffset = useMemo(
@@ -1286,6 +1386,14 @@ export default function DashboardScreen() {
             onOpenProfile={() => router.push("/(auth)/profile-setup")}
             onDismissValidated={() => setJustValidated(false)}
           />
+          {offerNotice ? (
+            <OfferNoticeCard
+              notice={offerNotice}
+              onDismiss={() => setOfferNotice(null)}
+              onOpenProfile={() => router.push("/(auth)/profile-setup")}
+              onOpenRides={() => router.push("/(tabs)/rides")}
+            />
+          ) : null}
           <DriverHomeSheetBody
             activeRide={activeRide}
             availableRide={availableRide}

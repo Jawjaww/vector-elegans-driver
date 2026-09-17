@@ -1,20 +1,48 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import i18n from '../../i18n';
 import { supabase } from '../supabase';
 import { publishPushRegisterResult } from './pushStatusStore';
-import { RIDE_OFFER_BRAND_COLOR } from './rideOfferPushContent';
+import {
+  RIDE_OFFER_ACCEPT_ACTION,
+  RIDE_OFFER_BRAND_COLOR,
+  RIDE_OFFER_CATEGORY_ID,
+  RIDE_OFFER_DECLINE_ACTION,
+} from './rideOfferPushContent';
 
 export {
-  consumePendingOfferRideId,
-  peekPendingOfferRideId,
+  consumePendingOfferOpen,
+  notificationResponseEventKey,
+  offerActionFromIdentifier,
+  queueOfferOpen,
   rideIdFromPushData,
-  setPendingOfferRideId,
   shouldOpenHomeFromPushData,
 } from './pushOpen';
 
 /** Android channel id — must match dispatch-push `channelId`. */
 export const RIDES_PUSH_CHANNEL_ID = 'rides';
+
+/**
+ * Register Accept / Decline buttons on ride_offer notifications.
+ *
+ * This is what lets a driver answer straight from the tray, locked screen
+ * included, instead of waiting for a full-screen takeover. Both titles come from
+ * the app locale, and the category id matches what dispatch-push sends.
+ */
+export async function ensureRideOfferNotificationCategory(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(RIDE_OFFER_CATEGORY_ID, [
+    {
+      identifier: RIDE_OFFER_ACCEPT_ACTION,
+      buttonTitle: i18n.t('ride.offerAccept'),
+    },
+    {
+      identifier: RIDE_OFFER_DECLINE_ACTION,
+      buttonTitle: i18n.t('ride.offerDecline'),
+      options: { isDestructive: true },
+    },
+  ]);
+}
 
 export type PushRegisterFailureReason =
   | 'permission_denied'
@@ -55,6 +83,7 @@ export async function ensureAndroidRideChannel(): Promise<void> {
 
 export async function requestRideNotificationPermission(): Promise<boolean> {
   await ensureAndroidRideChannel();
+  await ensureRideOfferNotificationCategory();
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;

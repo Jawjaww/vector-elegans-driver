@@ -1,8 +1,13 @@
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 import {
-  consumePendingOfferRideId,
-  peekPendingOfferRideId,
+  consumePendingOfferOpen,
+  notificationResponseEventKey,
+  offerActionFromIdentifier,
+  queueOfferOpen,
   rideIdFromPushData,
-  setPendingOfferRideId,
   shouldOpenHomeFromPushData,
 } from '../notifications/pushOpen';
 import { presentationForIncomingPush } from '../notifications/pushPresentation';
@@ -31,9 +36,9 @@ describe('shouldOpenHomeFromPushData', () => {
   });
 });
 
-describe('pending offer ride id from push', () => {
+describe('offer opened from a push', () => {
   afterEach(() => {
-    consumePendingOfferRideId();
+    consumePendingOfferOpen();
   });
 
   it('reads ride_id only from a non-empty string', () => {
@@ -43,13 +48,45 @@ describe('pending offer ride id from push', () => {
     expect(rideIdFromPushData({})).toBeNull();
   });
 
-  it('keeps the tapped ride until the dashboard consumes it once', () => {
-    setPendingOfferRideId('ride-1');
-    expect(peekPendingOfferRideId()).toBe('ride-1');
-    expect(peekPendingOfferRideId()).toBe('ride-1');
-    expect(consumePendingOfferRideId()).toBe('ride-1');
-    expect(peekPendingOfferRideId()).toBeNull();
-    expect(consumePendingOfferRideId()).toBeNull();
+  it('keeps the opened ride and action until consumed once', () => {
+    queueOfferOpen('ride-1', 'accept');
+    expect(consumePendingOfferOpen()).toEqual({
+      rideId: 'ride-1',
+      action: 'accept',
+    });
+    expect(consumePendingOfferOpen()).toBeNull();
+  });
+
+  it('queues a plain tap without a tray action', () => {
+    queueOfferOpen('ride-2', null);
+    expect(consumePendingOfferOpen()).toEqual({
+      rideId: 'ride-2',
+      action: null,
+    });
+  });
+
+  it('maps tray buttons to actions and a plain tap to none', () => {
+    expect(offerActionFromIdentifier('accept')).toBe('accept');
+    expect(offerActionFromIdentifier('decline')).toBe('decline');
+    expect(
+      offerActionFromIdentifier('expo.modules.notifications.actions.DEFAULT'),
+    ).toBeNull();
+  });
+
+  it('keys a tap by event so a re-offer of the same ride is not swallowed', () => {
+    const identifier = 'ride-offer-r1';
+    const firstTap = { notification: { date: 1000, request: { identifier } } };
+    const reOfferTap = { notification: { date: 2000, request: { identifier } } };
+
+    expect(notificationResponseEventKey(firstTap)).not.toBe(
+      notificationResponseEventKey(reOfferTap),
+    );
+    // Both delivery paths of the same event must still collapse to one key.
+    expect(notificationResponseEventKey(firstTap)).toBe(
+      notificationResponseEventKey({
+        notification: { date: 1000, request: { identifier } },
+      }),
+    );
   });
 });
 

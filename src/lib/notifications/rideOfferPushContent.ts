@@ -1,7 +1,13 @@
 /** Map pickup pin blue — matches web map markers. */
 export const RIDE_OFFER_BRAND_COLOR = '#3b82f6';
 
-/** Pin + arrival-flag prefixes — matches the offer card (orange pin / green flag). */
+/** Notification category — must match the `categoryId` sent by dispatch-push. */
+export const RIDE_OFFER_CATEGORY_ID = 'ride_offer';
+/** Action identifiers registered for RIDE_OFFER_CATEGORY_ID. */
+export const RIDE_OFFER_ACCEPT_ACTION = 'accept';
+export const RIDE_OFFER_DECLINE_ACTION = 'decline';
+
+/** Pin + arrival-flag prefixes — mirrors the notification body lines. */
 const PICKUP_PREFIX = '📍 ';
 const DROPOFF_PREFIX = '🏁 ';
 const DEFAULT_CTA = 'Appuyez pour accepter';

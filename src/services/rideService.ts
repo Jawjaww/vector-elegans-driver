@@ -3,6 +3,10 @@ import type { RideStatus } from '../lib/types/database.types';
 import type { Ride } from '../lib/stores/driverStore';
 import { isRideStillOfferable } from '../lib/utils/ridePickup';
 import { toAppRide, type RideRow } from '../lib/utils/toAppRide';
+import {
+  toOfferOpenFetch,
+  type OfferOpenFetch,
+} from '../lib/utils/offerOpenOutcome';
 
 export interface PendingRide {
   id: string;
@@ -176,15 +180,24 @@ class RideService {
       .filter((ride) => isRideStillOfferable(ride));
   }
 
-  /** Load one ride the driver can SELECT (open offer or assigned). */
-  async fetchRideById(rideId: string): Promise<Ride | null> {
-    const { data, error } = await supabase
-      .from('rides')
-      .select('*')
-      .eq('id', rideId)
-      .maybeSingle();
-    if (error || !data) return null;
-    return toAppRide(data);
+  /**
+   * Read the ride behind a tapped offer notification, plus that offer's state.
+   *
+   * Goes through get_driver_offer_ride instead of a plain SELECT: the rides RLS
+   * policy hides the row the moment the offer expires, which made a slightly late
+   * tap return null with no way to tell an expired offer from a network error.
+   */
+  async fetchDriverOfferRide(rideId: string): Promise<OfferOpenFetch> {
+    const { data, error } = await supabase.rpc('get_driver_offer_ride', {
+      p_ride_id: rideId,
+    });
+    if (error) {
+      return {
+        ok: false,
+        reason: isTransientNetworkError(error) ? 'network' : 'request_failed',
+      };
+    }
+    return toOfferOpenFetch(data);
   }
 
   async recordOffer(rideId: string): Promise<{ success: boolean; error?: string }> {

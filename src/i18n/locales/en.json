@@ -83,7 +83,52 @@
     "swipeToAccept": "SWIPE TO ACCEPT >>>",
     "offerCarousel": "Ride {{current}} of {{total}}",
     "preparingOffer": "Preparing offer…",
-    "swipeToDecline": "Swipe to decline"
+    "swipeToDecline": "Swipe to decline",
+    "offerAccept": "Accept",
+    "offerDecline": "Decline",
+    "offerNotice": {
+      "dismiss": "Got it",
+      "offer_expired": {
+        "title": "Window closed",
+        "body": "The response window has closed: this ride was offered to another driver."
+      },
+      "offer_declined": {
+        "title": "Ride declined",
+        "body": "You declined this ride. It will be offered to another driver."
+      },
+      "ride_taken": {
+        "title": "Ride already taken",
+        "body": "Another driver accepted this ride before you."
+      },
+      "already_accepted": {
+        "title": "Ride already accepted",
+        "body": "You already accepted this ride. Find it in your rides."
+      },
+      "matching_closed": {
+        "title": "Search ended",
+        "body": "The client is no longer looking for a driver for this ride."
+      },
+      "dossier_inactive": {
+        "title": "File inactive",
+        "body": "Your driver file is not active: you cannot accept rides right now."
+      },
+      "already_on_ride": {
+        "title": "Already on a ride",
+        "body": "Finish your current ride before accepting a new one."
+      },
+      "not_available": {
+        "title": "Ride unavailable",
+        "body": "This ride is no longer offered to you."
+      },
+      "unreachable": {
+        "title": "Check failed",
+        "body": "Could not check this ride. Check your connection and try again."
+      }
+    },
+    "offerNoticeCta": {
+      "profile": "Complete my file",
+      "currentRide": "View my ride"
+    }
   },
   "profile": {
     "title": "Profile",

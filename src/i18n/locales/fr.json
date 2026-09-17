@@ -89,7 +89,52 @@
     "loading": "Chargement...",
     "offerCarousel": "Course {{current}} sur {{total}}",
     "preparingOffer": "Préparation de l'offre…",
-    "swipeToDecline": "Glisser pour refuser"
+    "swipeToDecline": "Glisser pour refuser",
+    "offerAccept": "Accepter",
+    "offerDecline": "Refuser",
+    "offerNotice": {
+      "dismiss": "Compris",
+      "offer_expired": {
+        "title": "Délai écoulé",
+        "body": "Le temps de réponse est écoulé : la course a été proposée à un autre chauffeur."
+      },
+      "offer_declined": {
+        "title": "Course refusée",
+        "body": "Vous avez refusé cette course. Le système la proposera à un autre chauffeur."
+      },
+      "ride_taken": {
+        "title": "Course déjà prise",
+        "body": "Un autre chauffeur a accepté cette course avant vous."
+      },
+      "already_accepted": {
+        "title": "Course déjà acceptée",
+        "body": "Vous avez déjà accepté cette course. Retrouvez-la dans vos courses."
+      },
+      "matching_closed": {
+        "title": "Recherche terminée",
+        "body": "Le client ne cherche plus de chauffeur pour cette course."
+      },
+      "dossier_inactive": {
+        "title": "Dossier inactif",
+        "body": "Votre dossier n'est pas actif : vous ne pouvez pas accepter de course pour le moment."
+      },
+      "already_on_ride": {
+        "title": "Déjà en course",
+        "body": "Terminez votre course en cours avant d'en accepter une nouvelle."
+      },
+      "not_available": {
+        "title": "Course indisponible",
+        "body": "Cette course ne vous est plus proposée."
+      },
+      "unreachable": {
+        "title": "Vérification impossible",
+        "body": "Impossible de vérifier cette course. Vérifiez votre connexion et réessayez."
+      }
+    },
+    "offerNoticeCta": {
+      "profile": "Compléter mon dossier",
+      "currentRide": "Voir ma course"
+    }
   },
   "profile": {
     "title": "Profil",
