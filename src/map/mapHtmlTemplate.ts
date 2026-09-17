@@ -616,8 +616,13 @@ export function buildMapHtmlTemplate(
       return line[line.length - 1];
     }
 
+    // The puck keeps the trip route's blue on purpose, so a white ring is painted
+    // under it: the ring, not the hue, is what detaches it from the route it sits
+    // on. The ring is the same path with a wider stroke, hence the padded viewBox
+    // (path spans x 8..56 / y 4..58; the 14px stroke reaches x 1..63 / y -3..65).
     var GPS_ARROW_SVG =
-      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      '<svg width="64" height="64" viewBox="-4 -4 72 72" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="${MAP_PALETTE.driverRing}" stroke="${MAP_PALETTE.driverRing}" stroke-width="14" stroke-linejoin="round"/>' +
       '<path d="M32 4 L56 58 L32 44 L8 58 Z" fill="${MAP_PALETTE.driver}" stroke="${MAP_PALETTE.driverEdge}" stroke-width="2.5" stroke-linejoin="round"/>' +
       "</svg>";
 

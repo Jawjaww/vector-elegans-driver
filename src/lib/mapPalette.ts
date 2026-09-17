@@ -22,10 +22,14 @@ export const MAP_PALETTE = {
   arrivalEdge: "#047857",
   arrivalGlow: "rgba(16, 185, 129, 0.4)",
 
-  /** Driver live position. */
+  /** Driver live position.
+   *  `driverRing` is a plain white outline painted under the puck. The puck
+   *  deliberately shares the trip route's blue (the driver belongs to the trip),
+   *  so the ring — not the hue — is what detaches it wherever the two overlap. */
   driver: "#3b82f6",
   driverEdge: "#1d4ed8",
   driverGlow: "rgba(59, 130, 246, 0.4)",
+  driverRing: "#ffffff",
 
   /** Trip route (departure → arrival). */
   route: "#3b82f6",

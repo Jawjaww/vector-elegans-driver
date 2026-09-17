@@ -38,7 +38,12 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 16,
-    zIndex: 45,
+    // Layer scale on the home scene (see BottomSheet.styles.sceneFill):
+    // map 0 → trip HUDs 15 → offer stack 30 → this control 35 → sheet 40/41.
+    // It must stay UNDER the sheet so a raised sheet covers it, and above the
+    // HUDs so it stays tappable when they are visible. 45 put it over the
+    // sheet, where it floated on top of the sheet content.
+    zIndex: 35,
     elevation: 20,
     width: 48,
     height: 48,
