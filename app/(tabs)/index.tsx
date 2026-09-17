@@ -41,7 +41,6 @@ import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { useOverlayPermissionPrompt } from "../../src/hooks/useOverlayPermissionPrompt";
-import { bringAppToForeground } from "../../src/lib/overlay/overlayService";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisibleHeight } from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
@@ -1060,13 +1059,6 @@ export default function DashboardScreen() {
       const gate = getOfferGateState();
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
-      // An offer that lands while the driver is in another app is useless as a
-      // stacked card: bring the app forward so the existing overlay is seen.
-      // No-op when already foreground, and when the OS declines (overlay not
-      // granted or not visible) the notification remains the fallback.
-      if (AppState.currentState !== "active") {
-        bringAppToForeground();
-      }
     },
     [addAvailableRide, canReceiveOffers, getOfferGateState],
   );
