@@ -56,13 +56,18 @@ object VeOverlayController {
   private const val DISMISS_DELAY_MS = 500L
   private const val DISMISS_RETRY_MS = 1800L
 
+  /**
+   * How long to wait before concluding a requested launch was refused. Android
+   * does not report a blocked background launch: `startActivity` returns
+   * normally and the window simply never appears, so the absence of a resume is
+   * the only observable signal.
+   */
+  private const val LAUNCH_VERIFY_MS = 3000L
+
   private val mainHandler = Handler(Looper.getMainLooper())
 
   private var appContext: Context? = null
   private var started = false
-
-  /** Conservative default: until the lifecycle says otherwise, assume visible. */
-  private var appForeground = true
 
   private var bubbleView: View? = null
   private var bubbleWindowManager: WindowManager? = null
@@ -100,7 +105,11 @@ object VeOverlayController {
     appContext = application
     if (started) return
     started = true
-    ProcessLifecycleOwner.get().lifecycle.addObserver(lifecycleObserver)
+    // `Lifecycle.addObserver` is main-thread only, while JS calls this from its
+    // own thread. Registering inline threw IllegalStateException, which surfaced
+    // as a rejected module call and made expo-updates' ErrorRecovery kill the app
+    // on every launch. Everything touching the lifecycle or a window is posted.
+    mainHandler.post { ProcessLifecycleOwner.get().lifecycle.addObserver(lifecycleObserver) }
     Log.i(TAG, "controller started")
   }
 
@@ -140,10 +149,13 @@ object VeOverlayController {
       Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
       Uri.parse("package:${application.packageName}")
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    try {
-      application.startActivity(intent)
-    } catch (_: Exception) {
-      // No settings activity on this OEM build — the caller keeps its fallback.
+    // startActivity needs the main thread, and this is reached from JS.
+    mainHandler.post {
+      try {
+        application.startActivity(intent)
+      } catch (_: Exception) {
+        // No settings activity on this OEM build — the caller keeps its fallback.
+      }
     }
   }
 
@@ -153,8 +165,9 @@ object VeOverlayController {
    * Called from the FCM service before `super`, so the launch and the
    * notification presentation are both in flight when the app resumes.
    *
-   * @param data `RemoteMessage.data`, whose `tag` key expo-notifications uses as
-   *   the notification identifier when present.
+   * @param data the resolved custom payload (the parsed `body` of an Expo push,
+   *   or the flat data of a direct FCM send), whose `tag` key expo-notifications
+   *   uses as the notification identifier when present.
    * @param fallbackIdentifier `RemoteMessage.messageId`, used when no tag is sent
    *   (the current server payload sends none, so this is the normal path).
    */
@@ -181,7 +194,15 @@ object VeOverlayController {
       return
     }
 
-    mainHandler.post { attemptForeground(application) }
+    Log.i(TAG, "offer push: requesting foreground")
+    mainHandler.post {
+      // The visible overlay window is what makes the launch legal, so it must
+      // exist *before* startActivity. Deferring it to a later sync() would leave
+      // the launch without its exemption — and in a push-started process no
+      // later sync() is coming, JS never ran.
+      sync()
+      attemptForeground(application)
+    }
   }
 
   /**
@@ -207,19 +228,32 @@ object VeOverlayController {
     } catch (e: Exception) {
       Log.w(TAG, "foreground launch threw", e)
     }
+
+    // The only observable outcome. A refused launch throws nothing, so the
+    // absence of a resume after a grace period is the signal to log — and the
+    // notification is deliberately left in place, keeping the offer reachable.
+    mainHandler.postDelayed({
+      if (isAppForeground()) {
+        Log.i(TAG, "launch confirmed: lifecycle resumed")
+      } else {
+        Log.w(
+          TAG,
+          "launch refused: lifecycle never resumed — background launch blocked, " +
+            "or an OEM autostart restriction. Notification kept as the offer path."
+        )
+      }
+    }, LAUNCH_VERIFY_MS)
   }
 
   // --- Lifecycle transitions ------------------------------------------------------
 
   private fun onAppForegrounded() {
-    appForeground = true
     Log.i(TAG, "app foregrounded")
     mainHandler.post { sync() }
     scheduleOfferNotificationDismissal()
   }
 
   private fun onAppBackgrounded() {
-    appForeground = false
     Log.i(TAG, "app backgrounded")
     mainHandler.post { sync() }
   }
@@ -244,10 +278,20 @@ object VeOverlayController {
 
   // --- Bubble ---------------------------------------------------------------------
 
+  /**
+   * Read live, never cached. A process started by an FCM push has not been
+   * through ON_STOP — the app was killed, not backgrounded — so a cached flag
+   * initialised to "visible" would conclude the app is on screen, skip the pill,
+   * and lose the overlay window that unlocks the launch. That is precisely the
+   * case where the pill matters most: the driver never opened the app.
+   */
+  private fun isAppForeground(): Boolean =
+    ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+
   /** Online, away from the app, and allowed to draw over it. */
   private fun sync() {
     val context = appContext ?: return
-    val shouldShow = isDriverOnline() && !appForeground && hasPermission(context)
+    val shouldShow = isDriverOnline() && !isAppForeground() && hasPermission(context)
     val isVisible = bubbleView != null
     if (shouldShow && !isVisible) {
       showBubble(context)
