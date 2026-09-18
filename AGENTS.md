@@ -113,6 +113,29 @@ Autre piège : **`startActivity` ne signale pas un lancement bloqué**. Android 
 
 Diagnostic : `adb logcat | grep VeOverlay` (chaque étape est journalisée) et `adb logcat | grep ActivityTaskManager` (blocage BAL éventuel).
 
+### Compiler ce module — deux pièges invisibles depuis le cloud
+
+EAS ne remonte qu'un `EAS_BUILD_UNKNOWN_GRADLE_ERROR` ; Gradle **local** nomme l'erreur. Deux échecs rencontrés et corrigés, à ne pas réintroduire :
+
+1. **`expo-notifications` n'est pas un projet Gradle** dans ce SDK : il est livré en **AAR précompilé**, déclaré par le bloc `publication` de son `expo-module.config.json` (`host.exp.exponent:expo.modules.notifications`). `project(':expo-notifications')` échoue donc en « could not be found in project ':ve-overlay' ». On dépend de la **coordonnée**, résolue depuis le `local-maven-repo` du module qu'expo-autolinking lie à *tous* les projets ; la version est **lue dans le JSON**, jamais figée (une version figée pourrirait au prochain SDK). Corollaire : `firebase-messaging` et `lifecycle-process` sont déclarés `implementation` chez Expo, donc présents **uniquement dans la variante runtime** de ses métadonnées Gradle — ils ne remontent pas à notre classpath de compilation et doivent être nommés explicitement.
+2. **Un manifeste de bibliothèque ne peut pas porter un `<service>` à la racine** : AAPT2 échoue en `unexpected element <service> found in <manifest>`. Le service doit être enveloppé dans un `<application>`.
+
+Boucle locale (le JDK d'Android Studio suffit, aucun secret requis) :
+
+```bash
+cd vector-elegans
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  npx expo prebuild --platform android --no-install
+cd android && ./gradlew :ve-overlay:compileDebugKotlin   # boucle rapide sur le module
+./gradlew :app:assembleDebug                             # APK complet : app/build/outputs/apk/debug/
+# Release (= ce que produit le profil preview) : le métaspace par défaut du
+# template (512m) fait échouer les tâches lint en `OutOfMemoryError: Metaspace`.
+# EAS dispose de la marge, pas cette machine — d'où le flag explicite.
+./gradlew :app:assembleRelease -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=2g"
+```
+
+`modules/*/android/build/` est gitignoré — seul le **source** du module est versionné.
+
 ## CI / OTA (GitHub Actions)
 
 - **CI** : [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — Jest + `tsc` on push/PR to `main` (paths : `src/**`, `app/**`, `modules/**`, `app.config.js`, `app.json`, `tsconfig.json`, `package*.json`).
