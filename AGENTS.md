@@ -55,7 +55,7 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 
 Le natif Android est **généré par prebuild** sur EAS à partir de [`app.config.js`](app.config.js) (plugins, permissions, FCM, icônes). Les dossiers `android/` et `ios/` sont **gitignorés** — ne pas les committer.
 
-L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview` dans [`eas.json`](eas.json), `runtimeVersion` = `"1.0.1"` aligné sur `version` dans `app.config.js`).
+L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview` dans [`eas.json`](eas.json), `runtimeVersion` = `"1.0.2"` aligné sur `version` dans `app.config.js`).
 
 Build local natif (optionnel) : `npx expo prebuild --platform android` (recrée `android/` localement, non versionné).
 
@@ -135,6 +135,22 @@ cd android && ./gradlew :ve-overlay:compileDebugKotlin   # boucle rapide sur le 
 ```
 
 `modules/*/android/build/` est gitignoré — seul le **source** du module est versionné.
+
+### `eas build --local` — prérequis
+
+Produit le même APK qu'EAS, signé avec la **même clé de release** (donc installable en mise à jour, contrairement à un `assembleDebug` signé `Android Debug`), sans file d'attente. Deux différences avec le cloud, apprises à la dure :
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export GOOGLE_SERVICES_JSON="$PWD/google-services.json"   # sinon ENOENT au prebuild
+npx eas-cli build --local --profile preview --platform android --output ./app.apk
+```
+
+1. **`GOOGLE_SERVICES_JSON` est obligatoire.** Le fichier est gitignoré, donc absent de l'archive que le build local reçoit : sans cette variable, le prebuild meurt en `ENOENT: .../build/google-services.json`. Le cloud le fournit autrement (variable-fichier EAS), d'où l'écart. [`app.config.js`](app.config.js) lit déjà `process.env.GOOGLE_SERVICES_JSON`.
+2. **Ne pas définir `NODE_ENV=production`.** npm omet alors les `devDependencies`, or `tailwindcss` en est une et `metro.config.js` l'exige via `nativewind` → `Cannot find module 'tailwindcss/package.json'`, phase Bundle JavaScript en échec.
+
+`*.apk` / `*.aab` sont gitignorés : le build écrit l'APK à la racine du dépôt.
 
 ## CI / OTA (GitHub Actions)
 
