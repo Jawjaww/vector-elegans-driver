@@ -17,13 +17,21 @@ export function isOverlaySupported(): boolean {
 export function hasOverlayPermission(): boolean {
   const module = overlayModule();
   if (!module) return false;
-  return module.hasPermission();
+  try {
+    return module.hasPermission();
+  } catch {
+    return false;
+  }
 }
 
 /** Sends the driver to Settings > Special app access. Always preceded by an
  *  in-app rationale — Google Play requires the explanation before the redirect. */
 export function requestOverlayPermission(): void {
-  overlayModule()?.requestPermission();
+  try {
+    overlayModule()?.requestPermission();
+  } catch {
+    // Inert: the notification path still delivers offers.
+  }
 }
 
 /**
@@ -33,9 +41,17 @@ export function requestOverlayPermission(): void {
  *
  * The native side persists the value, so it keeps working after a process
  * restart by an FCM push — when this function never ran.
+ *
+ * Never throws. A native rejection here rejects the JS call, and expo-updates'
+ * ErrorRecovery turns an unhandled rejection into a process kill — which is how
+ * an overlay bug once became a force close on every launch.
  */
 export function setDriverOnline(online: boolean): void {
-  overlayModule()?.setDriverOnline(online);
+  try {
+    overlayModule()?.setDriverOnline(online);
+  } catch {
+    // Overlay inactive; offers keep arriving through notifications.
+  }
 }
 
 let lifecycleStarted = false;
