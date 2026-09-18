@@ -6,8 +6,13 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.2',
-    runtimeVersion: '1.0.2',
+    version: '1.0.5',
+    // Computed from the native project instead of hand-maintained. The
+    // fingerprint changes exactly when native code changes and stays stable for
+    // JS-only edits, so a JS fix ships over the air while a native change
+    // automatically refuses to land on an incompatible build. Bumping a literal
+    // by hand was silently wrong in both directions.
+    runtimeVersion: { policy: 'fingerprint' },
     updates: {
       url: 'https://u.expo.dev/d9eee7f2-f575-4bc6-ba03-87c1292daa75',
       checkAutomatically: 'ON_LOAD',
