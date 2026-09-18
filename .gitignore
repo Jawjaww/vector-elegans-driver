@@ -27,6 +27,10 @@ google-services.json
 /android/
 /ios/
 
+# Gradle output of a local module (source is tracked, generated output is not).
+# Kept narrower than a bare `build/`, which could match real directories.
+modules/*/android/build/
+
 # Editor swap files
 *.swp
 *~
