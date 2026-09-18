@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
   id 'com.android.library'
   id 'expo-module-gradle-plugin'
@@ -14,14 +16,33 @@ android {
   }
 }
 
+// expo-notifications ships as a precompiled AAR in this SDK (declared by the
+// `publication` block of its expo-module.config.json), so there is no
+// `:expo-notifications` Gradle project to depend on: `project(':expo-notifications')`
+// fails configuration with "could not be found". The coordinate resolves from
+// the module's local-maven-repo, which expo-autolinking links into every project.
+// The version is read from the module rather than pinned, so an SDK upgrade
+// cannot leave a stale coordinate behind.
+def notificationsPublication = new JsonSlurper()
+  .parse(file("${rootProject.projectDir}/../node_modules/expo-notifications/expo-module.config.json"))
+  .android?.publication
+
 dependencies {
-  // Needed to subclass ExpoFirebaseMessagingService (background activity launch)
-  // and to withdraw the offer notification through NotificationsService.
-  // expo-notifications declares these as `implementation`, so they are on the
-  // runtime classpath but not on ours: they have to be named explicitly.
-  // Versions match expo-notifications' own (24.0.1 / 2.2.0) so Gradle resolves
-  // upward to whatever the app already uses instead of forcing an upgrade.
-  implementation project(':expo-notifications')
-  implementation 'com.google.firebase:firebase-messaging:24.0.1'
-  implementation 'androidx.lifecycle:lifecycle-process:2.2.0'
+  // compileOnly: the app already packages these classes at runtime through
+  // autolinking, so nothing has to be shipped a second time.
+  if (notificationsPublication != null) {
+    compileOnly "${notificationsPublication.groupId}:${notificationsPublication.artifactId}:${notificationsPublication.version}"
+  } else {
+    // Fallback for an SDK that ships the module as a source project again.
+    compileOnly project(':expo-notifications')
+  }
+
+  // Types used directly (RemoteMessage, FirebaseMessagingService,
+  // ProcessLifecycleOwner) that expo-notifications declares as `implementation`.
+  // Its Gradle metadata therefore lists them in its runtime variant only, so
+  // they never reach our compile classpath transitively and must be named here.
+  // Versions mirror expo-notifications' own build.gradle; Gradle resolves upward,
+  // so a bump on its side wins without any change needed here.
+  compileOnly 'com.google.firebase:firebase-messaging:24.0.1'
+  compileOnly 'androidx.lifecycle:lifecycle-process:2.2.0'
 }
