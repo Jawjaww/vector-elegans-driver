@@ -34,3 +34,7 @@ modules/*/android/build/
 # Editor swap files
 *.swp
 *~
+
+# Build artifacts (`eas build --local` writes the APK to the repo root).
+*.apk
+*.aab
