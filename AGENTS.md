@@ -55,7 +55,16 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 
 Le natif Android est **généré par prebuild** sur EAS à partir de [`app.config.js`](app.config.js) (plugins, permissions, FCM, icônes). Les dossiers `android/` et `ios/` sont **gitignorés** — ne pas les committer.
 
-L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview` dans [`eas.json`](eas.json), `runtimeVersion` = `"1.0.2"` aligné sur `version` dans `app.config.js`).
+L’APK preview embarque le runtime natif une fois ; les correctifs **JS/TS/styles** passent ensuite via OTA (`expo-updates`, channel `preview` dans [`eas.json`](eas.json)). Le `runtimeVersion` utilise la politique **`fingerprint`** (`app.config.js`), pas un numéro écrit à la main : l’empreinte ne change **que** si le natif change (module, permission, plugin, dépendance). Conséquence pratique : une correction JS seule part en OTA sans rebuild, un changement natif impose un rebuild — et Expo refuse automatiquement un OTA incompatible au lieu de le laisser atterrir sur un APK qui n’a pas le bon code natif. Ne pas revenir à un numéro manuel : oublier de le bumper produit exactement cette panne, et le bumper pour du JS gèle les APK inutilement.
+
+Vérifier qu’un OTA atterrira bien avant de le publier (le hash est calculé hors sandbox — `os.cpus()` y retourne 0 et fait échouer l’outil) :
+
+```bash
+cd vector-elegans && node -e "
+require('@expo/fingerprint').createFingerprintAsync(process.cwd(),{platforms:['android']})
+  .then(r=>console.log(r.hash))"
+# comparer au « Using fingerprint from EXPO_UPDATES_FINGERPRINT_OVERRIDE » du dernier build
+```
 
 Build local natif (optionnel) : `npx expo prebuild --platform android` (recrée `android/` localement, non versionné).
 
@@ -107,11 +116,36 @@ override fun handleNotification(notification: Notification) {
 }
 ```
 
-Conséquence : un `setNotificationHandler` JS ne peut **pas** ramener l'app au premier plan. Le retour au premier plan vit donc dans [`VeFirebaseMessagingService`](modules/ve-overlay/android/src/main/java/expo/modules/veoverlay/VeFirebaseMessagingService.kt), déclaré avec `android:priority="1"` (celui d'Expo est à `-1`) pour être le service résolu sur `com.google.firebase.MESSAGING_EVENT`. Il étend `ExpoFirebaseMessagingService` et appelle `super`, donc la présentation de la notification reste inchangée.
+Conséquence : un `setNotificationHandler` JS ne peut **pas** ramener l'app au premier plan. Le retour au premier plan vit donc dans [`VeFirebaseMessagingService`](modules/ve-overlay/android/src/main/java/expo/modules/veoverlay/VeFirebaseMessagingService.kt), qui étend `ExpoFirebaseMessagingService` et appelle `super`, donc la présentation de la notification reste inchangée.
 
-Autre piège : **`startActivity` ne signale pas un lancement bloqué**. Android ignore silencieusement un BAL refusé, sans lever d'exception — un booléen de retour est donc un faux positif. Le succès se constate par le passage du lifecycle à `RESUMED`, et c'est ce signal qui retire la notification (avec une seconde tentative, la présentation Expo étant asynchrone). Si le constructeur bloque, la notification reste : aucune offre n'est perdue.
+### Le payload d'une offre n'est pas plat
+
+**Piège qui a coûté deux itérations.** `dispatch-push` passe par l'**API Expo**, qui transforme `title`/`body` en vraie notification et sérialise les données custom dans `data["body"]` **sous forme de chaîne JSON**. Tester `data["type"]` à plat renvoie donc toujours `null` : `onRideOfferPush` n'était jamais appelé et aucun lancement n'était tenté — la notification restait le seul chemin, ce qui rendait le tap obligatoire.
+
+Le JS reparse cette chaîne (`mapNotificationResponse.ts` : `mappedContent.data = JSON.parse(dataString)`), c'est pourquoi le tap fonctionnait. **Le natif doit faire la même chose** : parser `data["body"]` en `JSONObject` et lire `type` dedans. Le test à plat est conservé en repli pour un envoi FCM direct (sans Expo dans la chaîne). Le parseur qui l'établit côté natif : `NotificationSerializer.java` (`isValidJSONString(dataBody)` → `dataString`).
+
+### Résolution du service : ne pas se fier à `priority`
+
+Notre service est déclaré avec `android:priority="1"` (celui d'Expo est à `-1`, celui de Firebase à `-500`), mais **la priorité n'est pas un contrat**. La documentation Firebase est explicite : un seul service reçoit les messages FCM, « le premier déclaré » l'emporte, et il faut **éviter de dépendre de l'ordre ou de la priorité**. Le remède documenté est de retirer le filtre concurrent (`tools:node="remove"`).
+
+Comme l'ancien filtre ne matchait jamais, notre service n'avait **jamais rien journalisé** : l'hypothèse « priority suffit » n'était pas vérifiée. `onMessageReceived` journalise désormais **inconditionnellement** en première ligne (`push received, data keys=[…]`), avant tout filtrage. C'est la seule preuve fiable de quel service démarre. Si cette ligne n'apparaît pas dans les logs, il faut passer au `tools:node="remove"` sur le filtre d'Expo.
+
+Autre piège : **`startActivity` ne signale pas un lancement bloqué**. Android ignore silencieusement un BAL refusé, sans lever d'exception — un booléen de retour est donc un faux positif. Le succès se constate par le passage du lifecycle à `RESUMED`, et c'est ce signal qui retire la notification (avec une seconde tentative, la présentation Expo étant asynchrone). Un contrôle différé journalise désormais l'échec (`launch refused: lifecycle never resumed`). Si le constructeur bloque, la notification reste : aucune offre n'est perdue.
+
+L'état premier plan/arrière-plan est lu **en direct** (`ProcessLifecycleOwner…currentState.isAtLeast(STARTED)`), jamais mis en cache : un process démarré par un push n'a jamais traversé `ON_STOP` (l'app a été tuée, pas mise en arrière-plan), donc un booléen initialisé à « visible » conclurait à tort que l'app est à l'écran, omettrait la pastille, et perdrait l'exemption de lancement — précisément dans le cas où le chauffeur n'a rien ouvert. Pour la même raison, la pastille est ajoutée **avant** `startActivity` : la fenêtre overlay doit exister pour rendre le lancement légal.
 
 Diagnostic : `adb logcat | grep VeOverlay` (chaque étape est journalisée) et `adb logcat | grep ActivityTaskManager` (blocage BAL éventuel).
+
+### Thread principal et non-lancement d'exception
+
+**Tout ce qui touche au lifecycle ou à une fenêtre doit être posté sur le thread principal.** `Lifecycle.addObserver` est *main-thread only* ; appelé depuis le thread JS, il lève `IllegalStateException`. Ce qui a rendu la panne catastrophique plutôt que bénigne : l'exception est remontée en **promesse JS rejetée**, et `expo-updates` (`ErrorRecovery`) transforme un rejet non géré en **kill du process**. Résultat : force close à *chaque* lancement, sur `RootLayout → startOverlayLifecycle → setDriverOnline`.
+
+Deux règles qui en découlent et qui sont désormais appliquées :
+
+1. **Aucun `Function(...)` du module ne doit pouvoir lancer** : chaque corps est enveloppé (`runCatching`), une défaillance de l'overlay ne doit jamais pouvoir tuer l'app. Côté JS, `src/lib/overlay/overlayService.ts` enveloppe aussi ses appels natifs dans un `try/catch`.
+2. **Publier, jamais appeler directement** : `start()`, `requestPermission()` et tout ce qui manipule `WindowManager` passent par un `Handler(Looper.getMainLooper())`. Les SharedPreferences, en revanche, sont thread-safe (l'écriture se fait sur le thread JS volontairement, pour que l'état survive même si le process est tué juste après).
+
+Reproduire un crash de lancement sans téléphone : `emulator -avd <avd> -no-window`, `adb install -r`, puis `adb logcat | grep -E "FATAL|AndroidRuntime"`. Le crash ci-dessus a été diagnostiqué ainsi, en local.
 
 ### Compiler ce module — deux pièges invisibles depuis le cloud
 
