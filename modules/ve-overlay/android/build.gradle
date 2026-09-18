@@ -4,12 +4,24 @@ plugins {
 }
 
 group = 'expo.modules.veoverlay'
-version = '0.1.0'
+version = '0.2.0'
 
 android {
   namespace 'expo.modules.veoverlay'
   defaultConfig {
     versionCode 1
-    versionName '0.1.0'
+    versionName '0.2.0'
   }
+}
+
+dependencies {
+  // Needed to subclass ExpoFirebaseMessagingService (background activity launch)
+  // and to withdraw the offer notification through NotificationsService.
+  // expo-notifications declares these as `implementation`, so they are on the
+  // runtime classpath but not on ours: they have to be named explicitly.
+  // Versions match expo-notifications' own (24.0.1 / 2.2.0) so Gradle resolves
+  // upward to whatever the app already uses instead of forcing an upgrade.
+  implementation project(':expo-notifications')
+  implementation 'com.google.firebase:firebase-messaging:24.0.1'
+  implementation 'androidx.lifecycle:lifecycle-process:2.2.0'
 }

@@ -1,1 +1,22 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!--
+    Own FCM service, declared with a higher priority than the one shipped by
+    expo-notifications (which uses android:priority="-1"). Firebase resolves a
+    single service for com.google.firebase.MESSAGING_EVENT and picks the highest
+    priority, so this one wins. It extends ExpoFirebaseMessagingService and calls
+    super, so notification presentation is unchanged.
+
+    Being the resolved service is what makes the background activity launch
+    possible: the decision cannot be taken in JS, which is not consulted when a
+    push arrives while the app is in the background.
+  -->
+  <service
+    android:name="expo.modules.veoverlay.VeFirebaseMessagingService"
+    android:exported="false">
+    <intent-filter android:priority="1">
+      <action android:name="com.google.firebase.MESSAGING_EVENT" />
+    </intent-filter>
+  </service>
+
+</manifest>
