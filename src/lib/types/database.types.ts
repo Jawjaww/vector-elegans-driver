@@ -1030,6 +1030,10 @@ export type Database = {
           created_at: string
           dispatch_include_offline_from_wave: number
           dispatch_lead_minutes: number
+          dispatch_weight_accept: number
+          dispatch_weight_distance: number
+          dispatch_weight_online: number
+          dispatch_weight_rating: number
           driver_late_grace_minutes: number
           en_route_before_pickup_minutes: number
           gps_fresh_seconds: number
@@ -1059,6 +1063,10 @@ export type Database = {
           created_at?: string
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
+          dispatch_weight_accept?: number
+          dispatch_weight_distance?: number
+          dispatch_weight_online?: number
+          dispatch_weight_rating?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
           gps_fresh_seconds?: number
@@ -1088,6 +1096,10 @@ export type Database = {
           created_at?: string
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
+          dispatch_weight_accept?: number
+          dispatch_weight_distance?: number
+          dispatch_weight_online?: number
+          dispatch_weight_rating?: number
           driver_late_grace_minutes?: number
           en_route_before_pickup_minutes?: number
           gps_fresh_seconds?: number
@@ -1791,6 +1803,7 @@ export type Database = {
       driver_offer_stats: {
         Row: {
           accept_rate_pct: number | null
+          accept_rate_smoothed: number | null
           accepted_count: number | null
           declined_count: number | null
           driver_id: string | null
@@ -2062,6 +2075,7 @@ export type Database = {
         Returns: undefined
       }
       delete_user_by_id: { Args: { p_user_id: string }; Returns: undefined }
+      dispatch_distance_score: { Args: { p_meters: number }; Returns: number }
       dispatch_wave_gps_max_age_seconds: {
         Args: { p_snap: Json; p_wave: number }
         Returns: number
