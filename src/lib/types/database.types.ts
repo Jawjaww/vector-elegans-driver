@@ -1154,6 +1154,7 @@ export type Database = {
           created_at: string
           driver_id: string
           expires_at: string | null
+          highlight_until: string | null
           id: string
           offered_at: string
           responded_at: string | null
@@ -1168,6 +1169,7 @@ export type Database = {
           created_at?: string
           driver_id: string
           expires_at?: string | null
+          highlight_until?: string | null
           id?: string
           offered_at?: string
           responded_at?: string | null
@@ -1182,6 +1184,7 @@ export type Database = {
           created_at?: string
           driver_id?: string
           expires_at?: string | null
+          highlight_until?: string | null
           id?: string
           offered_at?: string
           responded_at?: string | null
