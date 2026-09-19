@@ -1,11 +1,5 @@
-/** Default matching heartbeat after pickup_time — must match infra snapshot. */
-export const RIDE_MATCHING_WINDOW_MS = 20 * 60 * 1000;
-
-/** Pause at deadline; one silence of the same length then system expire. */
-export const RIDE_MATCHING_SOFT_CONFIRM_MS = 20 * 60 * 1000;
-
-/** @deprecated Use RIDE_MATCHING_WINDOW_MS — kept for call-site compat */
-export const RIDE_PICKUP_GRACE_MS = RIDE_MATCHING_WINDOW_MS;
+/** Default matching heartbeat after pickup_time — must match the infra policy. */
+export const RIDE_MATCHING_WINDOW_MS = 25 * 60 * 1000;
 
 export type RideMatchingFields = {
   pickup_time?: string | null;
