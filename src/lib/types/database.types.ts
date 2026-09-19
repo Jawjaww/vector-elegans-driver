@@ -2252,6 +2252,8 @@ export type Database = {
       }
       platform_fee_policy_id: { Args: never; Returns: string }
       preview_ride_cancel_quote: { Args: { p_ride_id: string }; Returns: Json }
+      prune_dispatch_events: { Args: never; Returns: Json }
+      prune_notifications: { Args: never; Returns: Json }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
       reopen_driver_dossier: {
         Args: { p_driver_id: string; p_reason?: string }
@@ -2320,6 +2322,10 @@ export type Database = {
         }[]
       }
       set_driver_offline: { Args: never; Returns: undefined }
+      setting_positive_int: {
+        Args: { p_default: number; p_name: string }
+        Returns: number
+      }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
       storage_path_from_file_url: { Args: { p_url: string }; Returns: string }
       submit_driver_dossier: {
