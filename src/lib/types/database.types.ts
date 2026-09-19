@@ -1035,6 +1035,7 @@ export type Database = {
           id: string
           is_active: boolean
           max_open_offers: number
+          max_ride_open_offers: number
           name: string
           no_show_flat: number
           offer_batch_size: number
@@ -1046,8 +1047,6 @@ export type Database = {
           updated_at: string
           wait_grace_minutes: number
           wait_max_minutes: number
-          wave1_size: number
-          wave2_size: number
         }
         Insert: {
           cancel_after_arrival_flat?: number
@@ -1065,6 +1064,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           max_open_offers?: number
+          max_ride_open_offers?: number
           name: string
           no_show_flat?: number
           offer_batch_size?: number
@@ -1076,8 +1076,6 @@ export type Database = {
           updated_at?: string
           wait_grace_minutes?: number
           wait_max_minutes?: number
-          wave1_size?: number
-          wave2_size?: number
         }
         Update: {
           cancel_after_arrival_flat?: number
@@ -1095,6 +1093,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           max_open_offers?: number
+          max_ride_open_offers?: number
           name?: string
           no_show_flat?: number
           offer_batch_size?: number
@@ -1106,8 +1105,6 @@ export type Database = {
           updated_at?: string
           wait_grace_minutes?: number
           wait_max_minutes?: number
-          wave1_size?: number
-          wave2_size?: number
         }
         Relationships: []
       }
