@@ -6,13 +6,12 @@ import {
   isRideStillOfferable,
   resolveRideOfferPrice,
   RIDE_MATCHING_WINDOW_MS,
-  RIDE_PICKUP_GRACE_MS,
   ridePickupExpiryCutoffIso,
   shouldShowMatchingFlameBadge,
 } from '../utils/ridePickup';
 
 describe('ridePickup', () => {
-  it('isRidePickupStillOfferable respects 20 min matching heartbeat', () => {
+  it('isRidePickupStillOfferable respects the 25 min matching window', () => {
     const now = Date.now();
     expect(
       isRidePickupStillOfferable(new Date(now + 60_000).toISOString()),
@@ -27,7 +26,6 @@ describe('ridePickup', () => {
         new Date(now - RIDE_MATCHING_WINDOW_MS - 60_000).toISOString(),
       ),
     ).toBe(false);
-    expect(RIDE_PICKUP_GRACE_MS).toBe(RIDE_MATCHING_WINDOW_MS);
   });
 
   it('isRideStillOfferable uses matching_deadline_at and pause', () => {
