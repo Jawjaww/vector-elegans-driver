@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useDriverStore, Ride } from '../lib/stores/driverStore';
 import { MAP_PALETTE } from '../lib/mapPalette';
 import type { OfferCardLayout } from '../lib/utils/offerCardLayout';
+import { formatIncentiveBonusLabel } from '../lib/utils/ridePickup';
 import { NeonSwipeButton } from './NeonSwipeButton';
 import { NeonProgress } from './NeonProgress';
 import { RideOfferExtras } from './RideOfferExtras';
@@ -156,7 +157,7 @@ function OfferCardPriceHeader({
           {incentive > 0 ? (
             <View style={styles.bonusPill}>
               <Text style={styles.bonusText} numberOfLines={1}>
-                Bonus +{incentive.toFixed(0)}€
+                {formatIncentiveBonusLabel(incentive)}
               </Text>
             </View>
           ) : null}

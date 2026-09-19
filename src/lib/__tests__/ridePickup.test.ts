@@ -92,5 +92,13 @@ describe('ridePickup', () => {
     });
     expect(formatIncentiveBonusLabel(5)).toBe('Bonus +5€');
     expect(formatIncentiveBonusLabel(0)).toBe('');
+    // client_incentive is numeric(10,2): cents are reachable, and this label is
+    // the single formatter both driver surfaces use. Rounding to whole euros here
+    // would show "+3€" on the offer card and "+2.50€" in the price block.
+    expect(formatIncentiveBonusLabel(2.5)).toBe('Bonus +2.50€');
+    expect(formatIncentiveBonusLabel(2.25)).toBe('Bonus +2.25€');
+    // Defensive: a negative or non-numeric incentive must not render a chip.
+    expect(formatIncentiveBonusLabel(-3)).toBe('');
+    expect(formatIncentiveBonusLabel(Number.NaN)).toBe('');
   });
 });
