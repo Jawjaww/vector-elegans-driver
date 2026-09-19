@@ -2315,10 +2315,6 @@ export type Database = {
       }
       set_driver_offline: { Args: never; Returns: undefined }
       setup_admin_policies: { Args: { admin_id: string }; Returns: undefined }
-      should_send_ride_offer_push: {
-        Args: { p_driver_id: string; p_ride_id: string }
-        Returns: boolean
-      }
       storage_path_from_file_url: { Args: { p_url: string }; Returns: string }
       submit_driver_dossier: {
         Args: { p_driver_id: string; p_user_id: string }
