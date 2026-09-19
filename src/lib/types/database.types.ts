@@ -112,6 +112,8 @@ export type Database = {
           driver_id: string | null
           event_type: string
           id: string
+          last_seen_at: string
+          occurrences: number
           payload: Json
           ride_id: string
           wave_n: number | null
@@ -121,6 +123,8 @@ export type Database = {
           driver_id?: string | null
           event_type: string
           id?: string
+          last_seen_at?: string
+          occurrences?: number
           payload?: Json
           ride_id: string
           wave_n?: number | null
@@ -130,6 +134,8 @@ export type Database = {
           driver_id?: string | null
           event_type?: string
           id?: string
+          last_seen_at?: string
+          occurrences?: number
           payload?: Json
           ride_id?: string
           wave_n?: number | null
