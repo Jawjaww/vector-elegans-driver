@@ -1,7 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { PushNotificationsBootstrap } from '../../src/components/PushNotificationsBootstrap';
 import { DriverTabBar } from '../../src/components/DriverTabBar';
 
 type TabBarIconProps = Readonly<{ color: string; focused?: boolean; size?: number }>;
@@ -35,8 +34,6 @@ function TabsTabBar(props: Readonly<BottomTabBarProps>) {
 
 export default function TabsLayout() {
   return (
-    <>
-    <PushNotificationsBootstrap />
     <Tabs
       tabBar={TabsTabBar}
       screenOptions={{
@@ -86,6 +83,5 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
-    </>
   );
 }

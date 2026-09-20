@@ -155,6 +155,13 @@ interface DriverState {
   addAvailableRide: (ride: Ride) => void;
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
+  /**
+   * Drop stack entries that can no longer be accepted (past their matching deadline, or the
+   * client paused matching). Unlike clearAvailableRide, this keeps live offers: it is the
+   * correct reaction when the driver stops *receiving* offers but may still hold one that a
+   * notification tap handed them.
+   */
+  pruneUnofferableRides: () => void;
   deferAvailableRide: (rideId: string) => void;
   /** Swipe front to back of the overlay stack (does not defer). */
   cycleAvailableRideToBack: () => void;
@@ -244,6 +251,23 @@ export const useDriverStore = create<DriverState>()(
         }),
       clearAvailableRide: () =>
         set({ availableRide: null, availableRides: [] }),
+      pruneUnofferableRides: () =>
+        set((state) => {
+          const availableRides = state.availableRides.filter((ride) =>
+            isRideStillOfferable(ride),
+          );
+          if (availableRides.length === state.availableRides.length) {
+            return state;
+          }
+          return {
+            availableRides,
+            availableRide:
+              state.availableRide &&
+              isRideStillOfferable(state.availableRide)
+                ? state.availableRide
+                : availableRides[0] ?? null,
+          };
+        }),
       deferAvailableRide: (rideId) =>
         set((state) => {
           const ride =

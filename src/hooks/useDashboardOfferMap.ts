@@ -31,7 +31,7 @@ function clearOfferMapSession(args: {
 
 type UseDashboardOfferMapOptions = {
   activeRide: Ride | null;
-  canReceiveOffers: boolean;
+  canDisplayOffers: boolean;
   availableRides: Ride[];
   currentLocation: { lat: number; lng: number } | null;
   insets: EdgeInsets;
@@ -41,7 +41,7 @@ type UseDashboardOfferMapOptions = {
 
 export function useDashboardOfferMap({
   activeRide,
-  canReceiveOffers,
+  canDisplayOffers,
   availableRides,
   currentLocation,
   insets,
@@ -55,8 +55,14 @@ export function useDashboardOfferMap({
   const mapBackgroundReleasedRef = useRef(false);
   const seededApproachOfferIdRef = useRef<string | null>(null);
 
+  /**
+   * Display gate, deliberately narrower than "can receive offers": offline is not a reason to
+   * hide an offer. A ride handed over by a notification tap must be shown while the driver is
+   * offline, because accepting it is what brings them back online. Only an inactive dossier or
+   * an ongoing ride makes an offer unactionable.
+   */
   const showOfferCarousel = Boolean(
-    canReceiveOffers && !activeRide && availableRides.length > 0,
+    canDisplayOffers && !activeRide && availableRides.length > 0,
   );
 
   const offerRide = showOfferCarousel ? availableRides[0] ?? null : null;
@@ -106,10 +112,10 @@ export function useDashboardOfferMap({
         mapControllerRef,
       });
 
-    if (!canReceiveOffers || availableRides.length === 0) {
+    if (!canDisplayOffers || availableRides.length === 0) {
       reset();
     }
-  }, [availableRides.length, canReceiveOffers, mapControllerRef]);
+  }, [availableRides.length, canDisplayOffers, mapControllerRef]);
 
   useEffect(() => {
     if (!offerRide?.id) {
@@ -126,7 +132,7 @@ export function useDashboardOfferMap({
   }, [currentLocation, offerRide?.id]);
 
   useEffect(() => {
-    if (activeRide || !canReceiveOffers) return;
+    if (activeRide || !canDisplayOffers) return;
     if (mapRouteRide) {
       mapBackgroundReleasedRef.current = false;
       return;
@@ -136,7 +142,7 @@ export function useDashboardOfferMap({
     requestAnimationFrame(() => {
       mapControllerRef.current?.clearRoute();
     });
-  }, [activeRide, canReceiveOffers, mapRouteRide, mapControllerRef]);
+  }, [activeRide, canDisplayOffers, mapRouteRide, mapControllerRef]);
 
   return {
     activeOfferIndex,

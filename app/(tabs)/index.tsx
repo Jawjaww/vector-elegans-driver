@@ -54,6 +54,10 @@ import {
   registerAndUpsertPushToken,
   type PushRegisterResult,
 } from "../../src/lib/notifications/pushRegistration";
+import {
+  logOfferStage,
+  setOfferPipelineDriverId,
+} from "../../src/lib/notifications/offerPipelineDiag";
 import { pushRegisterFailureI18n } from "../../src/lib/notifications/pushStatusCopy";
 import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
@@ -90,9 +94,13 @@ import {
 import { RidePriceBonus } from "../../src/components/RidePriceBonus";
 import { OfferNoticeCard } from "../../src/components/OfferNoticeCard";
 import {
+  canDisplayOffers,
+  canReceiveOffers,
   resolveOfferOpenOutcome,
+  takeReadyOfferOpen,
   type OfferNotice,
 } from "../../src/lib/utils/offerOpenOutcome";
+import { acceptTrackedRide } from "../../src/lib/utils/acceptTrackedRide";
 import { useDashboardNavProgress } from "../../src/hooks/useDashboardNavProgress";
 import { useDashboardOfferMap } from "../../src/hooks/useDashboardOfferMap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -320,9 +328,11 @@ function handlePendingRideRealtimeUpdate(
 
 function usePendingRideChannel({
   canReceiveOffers,
+  isOnline,
   presentOffer,
   removeAvailableRide,
   clearAvailableRide,
+  pruneUnofferableRides,
   patchTrackedRide,
   promoteTrackedRideToFront,
   getOfferGateState,
@@ -331,9 +341,11 @@ function usePendingRideChannel({
   onUnavailable,
 }: {
   canReceiveOffers: boolean;
+  isOnline: boolean;
   presentOffer: (ride: Ride) => Promise<void>;
   removeAvailableRide: (rideId: string) => void;
   clearAvailableRide: () => void;
+  pruneUnofferableRides: () => void;
   patchTrackedRide: (ride: Ride) => void;
   promoteTrackedRideToFront: (ride: Ride) => void;
   getOfferGateState: () => OfferGateState;
@@ -347,7 +359,16 @@ function usePendingRideChannel({
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (!canReceiveOffers) {
-      clearAvailableRide();
+      if (isOnline) {
+        // Inactive dossier or an ongoing ride: nothing in the stack is actionable, so the
+        // whole thing goes.
+        clearAvailableRide();
+      } else {
+        // Offline stops *receiving* new offers, never holding one. A ride opened from a
+        // notification is shown while offline — accepting it is what comes back online — and
+        // wiping here erased the very offer the tap had just surfaced. Only dead ones go.
+        pruneUnofferableRides();
+      }
       return;
     }
 
@@ -375,6 +396,9 @@ function usePendingRideChannel({
           useDriverStore.getState().availableRides.map((r) => r.id),
       });
       if (newStackIds.length === 0) return;
+      // Reached only when the catch-up poll is what surfaced something: this marker is what
+      // separates "Realtime never delivered" from "the offer really never arrived".
+      logOfferStage("poll_tick", { count: newStackIds.length }, newStackIds[0]);
     };
 
     const handleOfferRow = (row: RideOfferRealtimeRow) => {
@@ -468,6 +492,7 @@ function usePendingRideChannel({
       }
       channel = next.subscribe((status, err) => {
         if (cancelled) return;
+        logOfferStage("channel_status", { status }, null);
         if (shouldHydrateOffersOnRealtimeStatus(status)) {
           void fetchExistingRide();
         }
@@ -502,7 +527,9 @@ function usePendingRideChannel({
     };
   }, [
     canReceiveOffers,
+    isOnline,
     clearAvailableRide,
+    pruneUnofferableRides,
     presentOffer,
     removeAvailableRide,
     patchTrackedRide,
@@ -521,51 +548,6 @@ function shouldShowTripNavigationHud(
   const waitingAtPickup =
     ride.status === "scheduled" && Boolean(ride.driver_arrived_at);
   return !waitingAtPickup;
-}
-
-async function acceptTrackedRide(args: {
-  rideId: string;
-  driverStatus: string | null;
-  isOnline: boolean;
-  setIsOnline: (online: boolean) => void;
-  availableRides: Ride[];
-  deferredRides: Ride[];
-  availableRide: Ride | null;
-  setActiveRide: (ride: Ride | null) => void;
-  removeAvailableRide: (rideId: string) => void;
-  suppressRide: (rideId: string) => void;
-  acceptingRideIds: Set<string>;
-}): Promise<void> {
-  const ride =
-    args.availableRides.find((r) => r.id === args.rideId) ||
-    args.deferredRides.find((r) => r.id === args.rideId) ||
-    (args.availableRide?.id === args.rideId ? args.availableRide : null);
-  if (!ride) return;
-  if (args.driverStatus !== "active") {
-    Alert.alert("Error", "Only active drivers can accept rides");
-    return;
-  }
-  // An offer can be opened and accepted while offline; accepting is what brings
-  // the driver online, so the wave-1 dispatcher sees them from that moment on.
-  if (!args.isOnline) args.setIsOnline(true);
-
-  args.acceptingRideIds.add(args.rideId);
-  try {
-    const result = await rideService.acceptRide(args.rideId);
-    if (!result.success) {
-      Alert.alert("Error", result.error || "Failed to accept ride");
-      args.suppressRide(args.rideId);
-      return;
-    }
-
-    args.setActiveRide({ ...ride, status: "scheduled", driver_arrived_at: null });
-    args.removeAvailableRide(args.rideId);
-    useDriverStore.setState((s) => ({
-      deferredRides: s.deferredRides.filter((r) => r.id !== args.rideId),
-    }));
-  } finally {
-    args.acceptingRideIds.delete(args.rideId);
-  }
 }
 
 function resolveBottomSheetAllowedSnaps(
@@ -730,21 +712,28 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
         void setDriverOffline();
       }
 
-      let dossier: Awaited<ReturnType<typeof refreshDossierMeta>> = null;
-      try {
-        dossier = await refreshDossierMeta(id);
-      } catch (error) {
-        console.error("[Dossier] refreshDossierMeta failed:", error);
-      }
+      // Dossier metadata only feeds the status banners, but it costs two round-trips
+      // (driver_documents + get_driver_dossier_status). Awaiting it here delayed
+      // setLoading(false) and, with it, the display of an offer opened from a notification
+      // tap: a fresh offer must not queue behind the driver's paperwork. The status itself
+      // is published above, synchronously.
+      void (async () => {
+        let dossier: Awaited<ReturnType<typeof refreshDossierMeta>> = null;
+        try {
+          dossier = await refreshDossierMeta(id);
+        } catch (error) {
+          console.error("[Dossier] refreshDossierMeta failed:", error);
+        }
 
-      if (!options?.silent) {
-        notifyDriverStatusTransition({
-          previous,
-          nextStatus,
-          dossierIsComplete: dossier?.is_complete,
-          setJustValidated,
-        });
-      }
+        if (!options?.silent) {
+          notifyDriverStatusTransition({
+            previous,
+            nextStatus,
+            dossierIsComplete: dossier?.is_complete,
+            setJustValidated,
+          });
+        }
+      })();
     },
     [refreshDossierMeta],
   );
@@ -781,6 +770,9 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
       }
 
       setDriverId(driver.id);
+      // Hand the identity to the diagnostic sink: a tap that happened before this boot
+      // resolved has been buffering its stages, and they can now be written.
+      setOfferPipelineDriverId(driver.id);
       const applyThisFetch =
         dossierStatusSyncRef.current.shouldApplyFetch(startedAt);
       if (applyThisFetch) {
@@ -929,6 +921,7 @@ export default function DashboardScreen() {
     promoteTrackedRideToFront,
     patchTrackedRide,
     clearAvailableRide,
+    pruneUnofferableRides,
     activeRide,
     setActiveRide,
   } = useDriverStore(
@@ -947,6 +940,7 @@ export default function DashboardScreen() {
       promoteTrackedRideToFront: s.promoteTrackedRideToFront,
       patchTrackedRide: s.patchTrackedRide,
       clearAvailableRide: s.clearAvailableRide,
+      pruneUnofferableRides: s.pruneUnofferableRides,
       activeRide: s.activeRide,
       setActiveRide: s.setActiveRide,
     })),
@@ -988,7 +982,19 @@ export default function DashboardScreen() {
     [setHasGpsFix],
   );
 
-  const canReceiveOffers = isOnline && driverStatus === "active" && !activeRide;
+  // Receiving: subscribe to new offers and run the catch-up poll. Offline is a hard stop.
+  const canReceive = canReceiveOffers({
+    isOnline,
+    driverStatus,
+    activeRideId: activeRide?.id ?? null,
+  });
+  // Displaying: the offer stack is rendered for any driver who can actually act on it.
+  // Deliberately NOT gated on isOnline — a ride handed over by a notification tap must be
+  // shown to an offline driver, because accepting it is what brings them back online.
+  const canDisplay = canDisplayOffers({
+    driverStatus,
+    activeRideId: activeRide?.id ?? null,
+  });
 
   const {
     setActiveOfferIndex,
@@ -1000,7 +1006,7 @@ export default function DashboardScreen() {
     tripMapPoints,
   } = useDashboardOfferMap({
     activeRide,
-    canReceiveOffers,
+    canDisplayOffers: canDisplay,
     availableRides,
     currentLocation,
     insets,
@@ -1054,14 +1060,19 @@ export default function DashboardScreen() {
 
   const presentOffer = useCallback(
     async (ride: Ride) => {
-      if (!canReceiveOffers) return;
+      if (!canReceive) return;
       if (!isRideStillOfferable(ride)) return;
       const gate = getOfferGateState();
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
+      logOfferStage("promoted", { source: "realtime" }, ride.id);
     },
-    [addAvailableRide, canReceiveOffers, getOfferGateState],
+    [addAvailableRide, canReceive, getOfferGateState],
   );
+
+  const notifyRideUnavailable = useCallback(() => {
+    Alert.alert(t("common.info"), t("ride.noLongerAvailable"));
+  }, [t]);
 
   // Opening a ride_offer notification surfaces that ride in the overlay, or
   // explains why it cannot be surfaced. No offer gate here on purpose: a driver
@@ -1071,14 +1082,26 @@ export default function DashboardScreen() {
   // The tray's Accept / Decline buttons ride along in the same payload, so they
   // can never be applied to a ride the driver has not actually been shown.
   useEffect(() => {
-    if (loading || !pendingOfferOpen) return;
-    const { rideId, action } = pendingOfferOpen;
+    // Gated on the identity the decision actually needs, never on `loading`. The boot keeps
+    // refreshing dossier metadata and the assigned ride long after these two are known, and
+    // waiting for all of it is what froze an offer behind the entire startup sequence — a
+    // fresh offer must not queue behind the driver's paperwork.
+    const readyOpen = takeReadyOfferOpen({
+      pendingOfferOpen,
+      driverStatus,
+      driverId,
+    });
+    if (!readyOpen) return;
+
+    const { rideId, action } = readyOpen;
     consumePendingOfferOpen();
+    logOfferStage("boot_ready", { action: action ?? "open" }, rideId);
 
     // Fresh store state: promoting is synchronous, so the ride is addressable.
     const takeAction = async () => {
       const store = useDriverStore.getState();
       if (action === "accept") {
+        logOfferStage("accept_tapped", { source: "notification_action" }, rideId);
         await acceptTrackedRide({
           rideId,
           driverStatus,
@@ -1090,6 +1113,8 @@ export default function DashboardScreen() {
           setActiveRide: store.setActiveRide,
           removeAvailableRide: store.removeAvailableRide,
           suppressRide: store.suppressRide,
+          promoteTrackedRideToFront: store.promoteTrackedRideToFront,
+          onUnavailable: notifyRideUnavailable,
           acceptingRideIds: acceptingRideIdsRef.current,
         });
         return;
@@ -1104,11 +1129,20 @@ export default function DashboardScreen() {
     if (deferred) {
       if (isRideStillOfferable(deferred)) {
         promoteDeferredRide(rideId);
+        logOfferStage("promoted", { source: "deferred" }, rideId);
         void takeAction();
       } else {
         const refused = (
           useDriverStore.getState().declinedOfferIds ?? []
         ).includes(rideId);
+        logOfferStage(
+          "notice",
+          {
+            reason: refused ? "offer_declined" : "matching_closed",
+            source: "deferred",
+          },
+          rideId,
+        );
         setOfferNotice({
           reason: refused ? "offer_declined" : "matching_closed",
           ride: deferred,
@@ -1121,14 +1155,22 @@ export default function DashboardScreen() {
     if (stacked) {
       if (isRideStillOfferable(stacked)) {
         promoteTrackedRideToFront(stacked);
+        logOfferStage("promoted", { source: "stack" }, rideId);
         void takeAction();
       } else {
+        logOfferStage(
+          "notice",
+          { reason: "matching_closed", source: "stack" },
+          rideId,
+        );
         setOfferNotice({ reason: "matching_closed", ride: stacked });
       }
       return;
     }
 
     void (async () => {
+      logOfferStage("fetch_started", {}, rideId);
+      const fetchStartedAt = Date.now();
       const fetched = await rideService.fetchDriverOfferRide(rideId);
       const outcome = resolveOfferOpenOutcome(fetched, {
         driverStatus,
@@ -1136,29 +1178,44 @@ export default function DashboardScreen() {
         isOnline,
         myDriverId: driverId,
       });
+      // The single most useful line when an offer does not appear: it separates "the read
+      // was slow" from "the read said the offer was dead" from "the read never landed".
+      logOfferStage(
+        "fetch_result",
+        {
+          duration_ms: Date.now() - fetchStartedAt,
+          kind: outcome.kind,
+          ...(fetched.ok
+            ? { offer_status: fetched.offer.status, alive: fetched.offer.alive }
+            : { fetch_reason: fetched.reason }),
+        },
+        rideId,
+      );
       if (outcome.kind === "overlay" && isRideStillOfferable(outcome.ride)) {
         setOfferNotice(null);
         promoteTrackedRideToFront(outcome.ride);
+        logOfferStage("promoted", { source: "fetch" }, rideId);
         await takeAction();
         return;
       }
-      setOfferNotice(
+      const notice =
         outcome.kind === "notice"
           ? outcome.notice
-          : { reason: "matching_closed", ride: outcome.ride },
-      );
+          : { reason: "matching_closed" as const, ride: outcome.ride };
+      logOfferStage("notice", { reason: notice.reason, source: "fetch" }, rideId);
+      setOfferNotice(notice);
     })();
   }, [
-    loading,
+    driverStatus,
+    driverId,
     pendingOfferOpen,
     deferredRides,
     availableRides,
-    driverStatus,
     isOnline,
     activeRide?.id,
-    driverId,
     promoteDeferredRide,
     promoteTrackedRideToFront,
+    notifyRideUnavailable,
   ]);
 
   // Notices are explanations, not state — they fade out on their own.
@@ -1168,15 +1225,13 @@ export default function DashboardScreen() {
     return () => clearTimeout(timer);
   }, [offerNotice]);
 
-  const notifyRideUnavailable = useCallback(() => {
-    Alert.alert(t("common.info"), t("ride.noLongerAvailable"));
-  }, [t]);
-
   usePendingRideChannel({
-    canReceiveOffers,
+    canReceiveOffers: canReceive,
+    isOnline,
     presentOffer,
     removeAvailableRide,
     clearAvailableRide,
+    pruneUnofferableRides,
     patchTrackedRide,
     promoteTrackedRideToFront,
     getOfferGateState,
@@ -1197,6 +1252,8 @@ export default function DashboardScreen() {
       setActiveRide,
       removeAvailableRide,
       suppressRide,
+      promoteTrackedRideToFront,
+      onUnavailable: notifyRideUnavailable,
       acceptingRideIds: acceptingRideIdsRef.current,
     });
   };

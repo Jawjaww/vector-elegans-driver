@@ -3,6 +3,7 @@ import {
   type OfferNotificationAction,
   type PendingOfferOpen,
 } from '../stores/driverStore';
+import { logOfferStage } from './offerPipelineDiag';
 import {
   RIDE_OFFER_ACCEPT_ACTION,
   RIDE_OFFER_DECLINE_ACTION,
@@ -66,6 +67,10 @@ export function queueOfferOpen(
   action: OfferNotificationAction | null,
 ): void {
   useDriverStore.getState().setPendingOfferOpen({ rideId, action });
+  // Logged here rather than at the call site so the stage cannot drift from the write it
+  // describes. Usually the very first row of a timeline, and usually buffered: a cold start
+  // from the tap has no `drivers.id` yet.
+  logOfferStage('pending_queued', { action: action ?? 'open' }, rideId);
 }
 
 /** Read the queued offer once and clear it. Returns null when nothing is queued. */

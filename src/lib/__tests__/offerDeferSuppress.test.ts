@@ -320,6 +320,48 @@ describe('driverStore defer / suppress / promote', () => {
     expect(state.availableRides.map((r) => r.id)).toEqual(['c', 'a', 'b']);
   });
 
+  it('pruneUnofferableRides drops dead offers and keeps the live one', () => {
+    const live = baseRide('prune-live');
+    const paused = baseRide('prune-paused', {
+      matching_paused_at: new Date().toISOString(),
+    });
+    useDriverStore.getState().setAvailableRides([live, paused]);
+
+    useDriverStore.getState().pruneUnofferableRides();
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['prune-live']);
+    expect(state.availableRide?.id).toBe('prune-live');
+  });
+
+  it('pruneUnofferableRides never erases a live offer (the offline tap path)', () => {
+    // Non-vacuity for the A5 fix: clearAvailableRide() — the previous reaction to "cannot
+    // receive offers" — empties this stack, which is what erased the offer a notification tap
+    // had just surfaced to an offline driver.
+    const tapped = baseRide('prune-tapped');
+    useDriverStore.getState().setAvailableRides([tapped]);
+
+    useDriverStore.getState().pruneUnofferableRides();
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['prune-tapped']);
+    expect(state.availableRide?.id).toBe('prune-tapped');
+  });
+
+  it('pruneUnofferableRides promotes the next live ride when the front one dies', () => {
+    const dead = baseRide('prune-dead', {
+      matching_paused_at: new Date().toISOString(),
+    });
+    const next = baseRide('prune-next');
+    useDriverStore.getState().setAvailableRides([dead, next]);
+
+    useDriverStore.getState().pruneUnofferableRides();
+
+    const state = useDriverStore.getState();
+    expect(state.availableRides.map((r) => r.id)).toEqual(['prune-next']);
+    expect(state.availableRide?.id).toBe('prune-next');
+  });
+
   it('seedDeferredRides fills bottomsheet without touching available offer', () => {
     const active = baseRide('seed-active');
     const a = baseRide('seed-a');

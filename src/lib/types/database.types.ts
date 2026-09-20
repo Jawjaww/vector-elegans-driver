@@ -630,6 +630,41 @@ export type Database = {
           },
         ]
       }
+      offer_pipeline_events: {
+        Row: {
+          created_at: string
+          detail: Json
+          driver_id: string
+          id: number
+          ride_id: string | null
+          stage: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          driver_id: string
+          id?: number
+          ride_id?: string | null
+          stage: string
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          driver_id?: string
+          id?: number
+          ride_id?: string | null
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offer_pipeline_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       operator_members: {
         Row: {
           created_at: string
@@ -2268,6 +2303,7 @@ export type Database = {
       preview_ride_cancel_quote: { Args: { p_ride_id: string }; Returns: Json }
       prune_dispatch_events: { Args: never; Returns: Json }
       prune_notifications: { Args: never; Returns: Json }
+      prune_offer_pipeline_events: { Args: never; Returns: Json }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
       reopen_driver_dossier: {
         Args: { p_driver_id: string; p_reason?: string }

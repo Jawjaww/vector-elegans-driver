@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppChromeBackground } from "../src/components/AppChromeBackground";
+import { PushNotificationsBootstrap } from "../src/components/PushNotificationsBootstrap";
 import "../global.css"; // ← OK, utilisé par NativeWind
 import "../src/i18n";
 import { DocumentPreviewModalHost } from "../src/lib/documentPreview";
@@ -26,6 +27,9 @@ export default function RootLayout() {
         <AppChromeBackground style={{ zIndex: -10 }} />
 
         <AppDialogProvider>
+          {/* Root-mounted, not in (tabs): a cold start from an offer notification can land
+              on an auth screen, and the tap would then never be consumed. */}
+          <PushNotificationsBootstrap />
           <Stack
             screenOptions={{
               headerShown: false,

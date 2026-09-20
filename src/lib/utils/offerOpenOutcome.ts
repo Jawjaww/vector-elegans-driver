@@ -66,6 +66,57 @@ function notice(reason: OfferNoticeReason, ride: Ride | null): OfferOpenOutcome 
 }
 
 /**
+ * Whether the offer stack may be *rendered* for this driver.
+ *
+ * Deliberately narrower than `canReceiveOffers`: online is NOT part of it. A ride handed over
+ * by a notification tap must be shown to an offline driver, because accepting it is what brings
+ * them back online — gating the display on `isOnline` is what made the app open on an empty map
+ * with a live offer in the store. Only an inactive dossier or an ongoing ride makes an offer
+ * unactionable, and both already produce their own notice.
+ */
+export function canDisplayOffers(args: {
+  driverStatus: string | null | undefined;
+  activeRideId: string | null | undefined;
+}): boolean {
+  return (args.driverStatus ?? '') === 'active' && !args.activeRideId;
+}
+
+/**
+ * Whether the driver should be *receiving* new offers: the Realtime channel and the catch-up
+ * poll. Unlike display, being online is required here — there is no point subscribing for a
+ * driver the dispatcher cannot see.
+ */
+export function canReceiveOffers(args: {
+  isOnline: boolean;
+  driverStatus: string | null | undefined;
+  activeRideId: string | null | undefined;
+}): boolean {
+  return args.isOnline && canDisplayOffers(args);
+}
+
+/**
+ * Readiness gate for a queued notification open.
+ *
+ * Only the identity the decision actually needs counts: `driverStatus` decides
+ * dossier_inactive and `driverId` decides ride_taken, so a null on either would produce a
+ * *false* notice — worse than waiting. Every other dashboard-boot signal (`loading`, the
+ * assigned-ride fetch, the dossier banners) is deliberately NOT part of this gate: waiting
+ * on them is what held a tapped offer behind the entire startup sequence, tens of seconds
+ * after the driver had already answered the notification.
+ *
+ * Returns the open unchanged when it may be processed, null when it must stay queued.
+ */
+export function takeReadyOfferOpen<T>(args: {
+  pendingOfferOpen: T | null;
+  driverStatus: string | null;
+  driverId: string | null;
+}): T | null {
+  if (!args.pendingOfferOpen) return null;
+  if (args.driverStatus === null || args.driverId === null) return null;
+  return args.pendingOfferOpen;
+}
+
+/**
  * Decide what a tapped ride_offer notification should do.
  *
  * Offline is deliberately NOT a gate: the driver may open an offer while offline

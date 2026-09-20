@@ -15,6 +15,7 @@ import {
   shouldOpenHomeFromPushData,
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
+import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
 import {
   buildRideOfferPushContent,
   isRideOfferPush,
@@ -78,8 +79,17 @@ export function useNotifications() {
       // surface it in the overlay even when it already sits in the deferred
       // bottomsheet.
       const rideId = rideIdFromPushData(data);
+      const action = offerActionFromIdentifier(actionIdentifier);
+      // Start of the chronology, and the one timestamp that must be taken here: this is the
+      // instant the tap is observed. Everything downstream sits behind the dashboard boot, so
+      // measuring from `boot_ready` would hide the very latency being investigated.
+      logOfferStage(
+        'tap_received',
+        { action: action ?? 'open', app_state: AppState.currentState },
+        rideId,
+      );
       if (rideId) {
-        queueOfferOpen(rideId, offerActionFromIdentifier(actionIdentifier));
+        queueOfferOpen(rideId, action);
       }
       router.push('/(tabs)/');
     },

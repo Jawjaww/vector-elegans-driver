@@ -230,16 +230,12 @@ class RideService {
 
   async acceptRide(rideId: string): Promise<AcceptRideResult> {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        return { success: false, error: 'Not authenticated' };
-      }
-
+      // No auth.getUser() round-trip: accept_ride(p_ride_id, p_driver_id DEFAULT NULL)
+      // resolves the driver from auth.uid(), and the hint is validated against it rather
+      // than trusted (20260913030000_ride_dispatch_engine.sql). Fetching the user here only
+      // added a network call between the Accept tap and the RPC.
       const { data, error } = await supabase.rpc('accept_ride', {
         p_ride_id: rideId,
-        p_driver_id: user.id,
       });
 
       if (error) {

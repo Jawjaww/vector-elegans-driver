@@ -1,5 +1,8 @@
 import {
+  canDisplayOffers,
+  canReceiveOffers,
   resolveOfferOpenOutcome,
+  takeReadyOfferOpen,
   toOfferOpenFetch,
   type DriverOfferState,
   type OfferOpenContext,
@@ -254,6 +257,111 @@ function resolveKey(locale: Record<string, unknown>, key: string): unknown {
       locale,
     );
 }
+
+describe('display vs receive gates', () => {
+  // The A5 regression: display used to reuse the "can receive offers" gate, which includes
+  // isOnline. A notification tap surfaces the ride into the store, the predicate said no, and
+  // the app opened on an empty map — the exact "the notification opened the app without
+  // showing the ride" report.
+  it('shows an offer to an offline driver with an active dossier', () => {
+    expect(
+      canDisplayOffers({ driverStatus: 'active', activeRideId: null }),
+    ).toBe(true);
+  });
+
+  it('hides offers from a non-active dossier or an ongoing ride', () => {
+    expect(
+      canDisplayOffers({ driverStatus: 'pending_review', activeRideId: null }),
+    ).toBe(false);
+    expect(
+      canDisplayOffers({ driverStatus: null, activeRideId: null }),
+    ).toBe(false);
+    expect(
+      canDisplayOffers({ driverStatus: 'active', activeRideId: 'ride-9' }),
+    ).toBe(false);
+  });
+
+  it('requires being online to receive, on top of being able to display', () => {
+    expect(
+      canReceiveOffers({
+        isOnline: true,
+        driverStatus: 'active',
+        activeRideId: null,
+      }),
+    ).toBe(true);
+    expect(
+      canReceiveOffers({
+        isOnline: false,
+        driverStatus: 'active',
+        activeRideId: null,
+      }),
+    ).toBe(false);
+    // Receiving is a strict subset of displaying, never a different rule.
+    expect(
+      canReceiveOffers({
+        isOnline: true,
+        driverStatus: 'pending_review',
+        activeRideId: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('takeReadyOfferOpen: the minimal readiness gate', () => {
+  const open = { rideId: 'ride-1', action: 'open' as const };
+
+  it('keeps a queued open while the identity is still unknown', () => {
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: open,
+        driverStatus: null,
+        driverId: 'd1',
+      }),
+    ).toBeNull();
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: open,
+        driverStatus: 'active',
+        driverId: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('hands the open over as soon as the identity is known', () => {
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: open,
+        driverStatus: 'active',
+        driverId: 'd1',
+      }),
+    ).toEqual(open);
+  });
+
+  // The regression this pins: the gate used to be `loading`, i.e. the whole dashboard boot —
+  // six serial round-trips including the dossier refresh and the assigned-ride fetch. Those
+  // finish long after the identity is known, so a tapped offer stayed invisible for tens of
+  // seconds. The helper only accepts the two fields the decision needs, so re-widening the
+  // gate means deliberately changing its signature.
+  it('hands the open over while the rest of the boot is still running', () => {
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: open,
+        driverStatus: 'active',
+        driverId: 'd1',
+      }),
+    ).toEqual(open);
+  });
+
+  it('processes nothing when no open was queued', () => {
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: null,
+        driverStatus: 'active',
+        driverId: 'd1',
+      }),
+    ).toBeNull();
+  });
+});
 
 const LOCALES: Array<[string, Record<string, unknown>]> = [
   ['fr', fr as Record<string, unknown>],

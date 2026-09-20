@@ -2,6 +2,13 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+// The diagnostic sink is mocked, not stubbed away: the timeline's first two stages are exactly
+// what a regression would silently drop (they were declared for a while without ever being
+// emitted), and a timeline missing its start cannot measure anything.
+jest.mock('../notifications/offerPipelineDiag', () => ({
+  logOfferStage: jest.fn(),
+}));
+
 import {
   consumePendingOfferOpen,
   notificationResponseEventKey,
@@ -10,6 +17,7 @@ import {
   rideIdFromPushData,
   shouldOpenHomeFromPushData,
 } from '../notifications/pushOpen';
+import { logOfferStage } from '../notifications/offerPipelineDiag';
 import { presentationForIncomingPush } from '../notifications/pushPresentation';
 import { pushRegisterFailureI18n } from '../notifications/pushStatusCopy';
 import {
@@ -63,6 +71,24 @@ describe('offer opened from a push', () => {
       rideId: 'ride-2',
       action: null,
     });
+  });
+
+  it('records the queued stage, so a tap timeline has a start', () => {
+    queueOfferOpen('ride-3', 'decline');
+    expect(logOfferStage).toHaveBeenCalledWith(
+      'pending_queued',
+      { action: 'decline' },
+      'ride-3',
+    );
+  });
+
+  it('records a plain tap as an open, not as a missing action', () => {
+    queueOfferOpen('ride-4', null);
+    expect(logOfferStage).toHaveBeenCalledWith(
+      'pending_queued',
+      { action: 'open' },
+      'ride-4',
+    );
   });
 
   it('maps tray buttons to actions and a plain tap to none', () => {

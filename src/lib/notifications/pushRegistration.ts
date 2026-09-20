@@ -109,6 +109,17 @@ export async function registerAndUpsertPushToken(): Promise<PushRegisterResult> 
 }
 
 async function registerAndUpsertPushTokenInner(): Promise<PushRegisterResult> {
+  // Session first, permission second. This runs from the app root, so on a cold start it
+  // fires before the driver has signed in; requesting POST_NOTIFICATIONS there would raise
+  // the system prompt over the login screen, and a prompt declined once cannot be re-asked.
+  // getSession() reads the stored session, so the check costs no round-trip.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user) {
+    return { ok: false, reason: 'not_authenticated' };
+  }
+
   const granted = await requestRideNotificationPermission();
   if (!granted) {
     console.warn('[Notifications] Permission not granted');
@@ -133,13 +144,6 @@ async function registerAndUpsertPushTokenInner(): Promise<PushRegisterResult> {
   }
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return { ok: false, reason: 'not_authenticated' };
-    }
-
     const { error } = await supabase.rpc('upsert_push_token', {
       p_token: pushToken,
       p_platform: 'expo',

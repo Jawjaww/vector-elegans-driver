@@ -20,18 +20,22 @@ describe('rideService.acceptRide', () => {
     mockGetUser.mockReset();
   });
 
-  it('returns error when unauthenticated', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } });
+  it('does not call auth.getUser(): accept_ride resolves the driver from auth.uid()', async () => {
+    // Non-vacuity: re-adding the getSession/getUser precheck would make this fail. The RPC
+    // is the single authority on identity — p_driver_id is only an optional, validated hint.
+    mockRpc.mockResolvedValue({
+      data: { success: false, error: 'Non authentifié' },
+      error: null,
+    });
+
     const result = await rideService.acceptRide('ride-1');
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('Not authenticated');
-    expect(mockRpc).not.toHaveBeenCalled();
+
+    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith('accept_ride', { p_ride_id: 'ride-1' });
+    expect(result).toEqual({ success: false, error: 'Non authentifié' });
   });
 
   it('calls accept_ride and returns scheduled on success', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'auth-user-1' } },
-    });
     mockRpc.mockResolvedValue({
       data: {
         success: true,
@@ -44,9 +48,9 @@ describe('rideService.acceptRide', () => {
 
     const result = await rideService.acceptRide('ride-1');
 
+    expect(mockGetUser).not.toHaveBeenCalled();
     expect(mockRpc).toHaveBeenCalledWith('accept_ride', {
       p_ride_id: 'ride-1',
-      p_driver_id: 'auth-user-1',
     });
     expect(result).toEqual({
       success: true,
@@ -57,9 +61,6 @@ describe('rideService.acceptRide', () => {
   });
 
   it('surfaces RPC business error', async () => {
-    mockGetUser.mockResolvedValue({
-      data: { user: { id: 'auth-user-1' } },
-    });
     mockRpc.mockResolvedValue({
       data: { success: false, error: 'Chauffeur non trouvé ou inactif' },
       error: null,
