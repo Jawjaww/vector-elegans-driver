@@ -17,7 +17,7 @@ import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
-import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState } from "../../src/lib/stores/driverStore";
+import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState, type ProvisionalOffer } from "../../src/lib/stores/driverStore";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
 import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
 import {
@@ -40,6 +40,7 @@ import { resolvePendingRideRealtimeUpdate } from "../../src/lib/utils/pendingRid
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
+import { useDriverStoreHydrated } from "../../src/hooks/useDriverStoreHydrated";
 import { useOverlayPermissionPrompt } from "../../src/hooks/useOverlayPermissionPrompt";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisibleHeight } from "../../src/components/BottomSheet";
@@ -58,6 +59,10 @@ import {
   logOfferStage,
   setOfferPipelineDriverId,
 } from "../../src/lib/notifications/offerPipelineDiag";
+import {
+  isNotificationArrival,
+  PROVISIONAL_OFFER_TTL_MS,
+} from "../../src/lib/notifications/offerPreview";
 import { pushRegisterFailureI18n } from "../../src/lib/notifications/pushStatusCopy";
 import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
@@ -97,6 +102,7 @@ import {
   canDisplayOffers,
   canReceiveOffers,
   resolveOfferOpenOutcome,
+  shouldBypassBootGate,
   takeReadyOfferOpen,
   type OfferNotice,
 } from "../../src/lib/utils/offerOpenOutcome";
@@ -582,6 +588,34 @@ function resolveMapRecenterBottomOffset(
     : NAV_SHEET_VISIBLE_H;
 }
 
+/**
+ * Steps of the dashboard boot, as published on the offer diagnostic timeline.
+ * A single `boot_ready` marker cannot say which round-trip held a notification-opened
+ * offer back, and that is the latency under investigation.
+ */
+type BootStep =
+  | "auth"
+  | "drivers"
+  | "dossier_status"
+  | "locations"
+  | "assigned_ride";
+
+/** Time one awaited boot step and publish it, whatever its outcome. */
+async function timedBootStep<T>(
+  step: BootStep,
+  run: () => PromiseLike<T>,
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await run();
+  } finally {
+    logOfferStage("boot_step", {
+      step,
+      duration_ms: Date.now() - startedAt,
+    });
+  }
+}
+
 async function hydrateAssignedRideFromServer(
   driverId: string,
   alreadyHydratedRef: { current: boolean },
@@ -602,6 +636,41 @@ async function hydrateAssignedRideFromServer(
     store.setIsOnline(true);
   }
   alreadyHydratedRef.current = true;
+}
+
+/**
+ * The part of the dashboard boot that only feeds secondary chrome: the online switch and the
+ * assigned-ride sheet.
+ *
+ * Split out of `fetchDriverStatus` so it can run after the dashboard is already allowed to
+ * render. A notification-opened offer is addressable as soon as the driver identity is known,
+ * so holding the whole screen on these two reads is exactly the delay being removed. The
+ * accepted cost is that the switch may briefly show its previous state.
+ */
+async function hydrateSecondaryDriverState(
+  driverId: string,
+  driverStatus: string | null,
+  assignedHydratedRef: { current: boolean },
+): Promise<void> {
+  try {
+    if (canDriverGoOnline(driverStatus)) {
+      const { data: loc } = await timedBootStep("locations", () =>
+        supabase
+          .from("driver_locations")
+          .select("is_online")
+          .eq("driver_id", driverId)
+          .maybeSingle(),
+      );
+      if (shouldHydrateOnlineFromServer(driverStatus, loc?.is_online)) {
+        useDriverStore.getState().setIsOnline(true);
+      }
+    }
+    await timedBootStep("assigned_ride", () =>
+      hydrateAssignedRideFromServer(driverId, assignedHydratedRef, driverStatus),
+    );
+  } catch (error) {
+    console.error("[Boot] secondary hydration failed:", error);
+  }
 }
 
 async function toggleDriverOnlineState(args: {
@@ -752,17 +821,19 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
     try {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await timedBootStep("auth", () => supabase.auth.getUser());
       if (!user) {
         router.replace("/(auth)/login");
         return;
       }
 
-      const { data: driver } = await supabase
-        .from("drivers")
-        .select("id, status, first_name, last_name")
-        .eq("user_id", user.id)
-        .single();
+      const { data: driver } = await timedBootStep("drivers", () =>
+        supabase
+          .from("drivers")
+          .select("id, status, first_name, last_name")
+          .eq("user_id", user.id)
+          .single(),
+      );
 
       if (!driver) {
         router.replace("/(auth)/profile-setup");
@@ -776,22 +847,17 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
       const applyThisFetch =
         dossierStatusSyncRef.current.shouldApplyFetch(startedAt);
       if (applyThisFetch) {
-        await applyDriverStatus(driver.status, driver.id);
+        await timedBootStep("dossier_status", () =>
+          applyDriverStatus(driver.status, driver.id),
+        );
       }
-      if (canDriverGoOnline(driver.status)) {
-        const { data: loc } = await supabase
-          .from("driver_locations")
-          .select("is_online")
-          .eq("driver_id", driver.id)
-          .maybeSingle();
-        if (shouldHydrateOnlineFromServer(driver.status, loc?.is_online)) {
-          useDriverStore.getState().setIsOnline(true);
-        }
-      }
-      await hydrateAssignedRideFromServer(
+      // Everything past the identity only feeds secondary chrome: the online switch and the
+      // assigned-ride sheet. Detached on purpose — a notification-opened offer must not wait
+      // for it, since a ride is addressable as soon as the identity is known.
+      void hydrateSecondaryDriverState(
         driver.id,
-        assignedHydratedRef,
         applyThisFetch ? driver.status : driverStatusRef.current,
+        assignedHydratedRef,
       );
     } catch (error) {
       console.error("Error:", error);
@@ -887,6 +953,57 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
   };
 }
 
+/**
+ * The offer overlay, in one place.
+ *
+ * It is rendered by the boot branch (so a card built from the notification payload can appear
+ * while the identity is still resolving) and by the dashboard tree; sharing a component keeps
+ * the two from drifting apart, and keeps the visibility rule in a single spot.
+ */
+function DashboardOfferOverlay({
+  rides,
+  provisional,
+  canShowOffers,
+  booting,
+  instantEntry,
+  onActiveIndexChange,
+  onOverlayHeightChange,
+  onAcceptRide,
+  onDeclineRide,
+}: Readonly<{
+  rides: Ride[];
+  provisional: ProvisionalOffer | null;
+  canShowOffers: boolean;
+  booting: boolean;
+  instantEntry: boolean;
+  onActiveIndexChange: (index: number) => void;
+  onOverlayHeightChange: (height: number) => void;
+  onAcceptRide: (rideId: string) => void;
+  onDeclineRide: (rideId: string, reason?: "declined" | "timeout") => void;
+}>) {
+  const visible = shouldBypassBootGate({
+    booting,
+    hasProvisionalOffer: provisional !== null,
+    canShowOffers,
+  });
+  if (!visible) return null;
+
+  return (
+    <OfferRideCarousel
+      // Real cards keep the display gate; the provisional card does not need it, since it is
+      // drawn from the payload rather than from an offer we are allowed to present.
+      rides={canShowOffers ? rides : []}
+      provisional={provisional}
+      instantEntry={instantEntry}
+      chromeVisible
+      onActiveIndexChange={onActiveIndexChange}
+      onOverlayHeightChange={onOverlayHeightChange}
+      onAcceptRide={onAcceptRide}
+      onDeclineRide={onDeclineRide}
+    />
+  );
+}
+
 export default function DashboardScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -968,6 +1085,20 @@ export default function DashboardScreen() {
    * variable changed no dependency, so the promotion effect only fired by luck.
    */
   const pendingOfferOpen = useDriverStore((s) => s.pendingOfferOpen);
+  /**
+   * Card drawn from the notification payload while the ride is being read. Kept in its own
+   * slice: it has no coordinates and no offer status, so it must never reach the offer stack.
+   */
+  const provisionalOffer = useDriverStore((s) => s.provisionalOffer);
+  /** Timestamp of the last notification tap, read as a short-lived arrival window. */
+  const offerArrivalAt = useDriverStore((s) => s.offerArrivalAt);
+  /** Arrived from the driver's own tap: present it without entry motion. */
+  const notificationArrival = isNotificationArrival(offerArrivalAt);
+  /**
+   * Persisted state (notably `activeRide`) comes back from AsyncStorage asynchronously.
+   * Nothing about an offer may be decided before it lands.
+   */
+  const storeHydrated = useDriverStoreHydrated();
   /** Why the last notification open could not surface its ride; null hides the notice. */
   const [offerNotice, setOfferNotice] = useState<OfferNotice | null>(null);
 
@@ -991,10 +1122,15 @@ export default function DashboardScreen() {
   // Displaying: the offer stack is rendered for any driver who can actually act on it.
   // Deliberately NOT gated on isOnline — a ride handed over by a notification tap must be
   // shown to an offline driver, because accepting it is what brings them back online.
-  const canDisplay = canDisplayOffers({
-    driverStatus,
-    activeRideId: activeRide?.id ?? null,
-  });
+  //
+  // It IS gated on hydration: until the persisted store has come back, `activeRide` reads
+  // null, and "no ride in progress" would then be an assumption rather than a fact.
+  const canDisplay =
+    storeHydrated &&
+    canDisplayOffers({
+      driverStatus,
+      activeRideId: activeRide?.id ?? null,
+    });
 
   const {
     setActiveOfferIndex,
@@ -1090,6 +1226,7 @@ export default function DashboardScreen() {
       pendingOfferOpen,
       driverStatus,
       driverId,
+      storeHydrated,
     });
     if (!readyOpen) return;
 
@@ -1127,6 +1264,9 @@ export default function DashboardScreen() {
 
     const deferred = deferredRides.find((ride) => ride.id === rideId);
     if (deferred) {
+      // The ride is in hand: the provisional card has served its purpose either way, whether
+      // the deck takes over or a notice explains why it cannot.
+      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (isRideStillOfferable(deferred)) {
         promoteDeferredRide(rideId);
         logOfferStage("promoted", { source: "deferred" }, rideId);
@@ -1153,6 +1293,9 @@ export default function DashboardScreen() {
 
     const stacked = availableRides.find((ride) => ride.id === rideId);
     if (stacked) {
+      // Already tracked with full data (coordinates, distance): the provisional card would
+      // only be a downgrade of the card that is already there.
+      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (isRideStillOfferable(stacked)) {
         promoteTrackedRideToFront(stacked);
         logOfferStage("promoted", { source: "stack" }, rideId);
@@ -1191,6 +1334,8 @@ export default function DashboardScreen() {
         },
         rideId,
       );
+      // The server has spoken: stop showing anything it did not confirm.
+      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (outcome.kind === "overlay" && isRideStillOfferable(outcome.ride)) {
         setOfferNotice(null);
         promoteTrackedRideToFront(outcome.ride);
@@ -1209,6 +1354,7 @@ export default function DashboardScreen() {
     driverStatus,
     driverId,
     pendingOfferOpen,
+    storeHydrated,
     deferredRides,
     availableRides,
     isOnline,
@@ -1224,6 +1370,17 @@ export default function DashboardScreen() {
     const timer = setTimeout(() => setOfferNotice(null), OFFER_NOTICE_TTL_MS);
     return () => clearTimeout(timer);
   }, [offerNotice]);
+
+  // Safety net for the provisional card: the normal path replaces it within one round-trip,
+  // but a read that never lands must not leave a live Accept button on screen forever.
+  useEffect(() => {
+    if (!provisionalOffer) return;
+    const rideId = provisionalOffer.rideId;
+    const timer = setTimeout(() => {
+      useDriverStore.getState().clearProvisionalOffer(rideId);
+    }, PROVISIONAL_OFFER_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [provisionalOffer]);
 
   usePendingRideChannel({
     canReceiveOffers: canReceive,
@@ -1346,6 +1503,27 @@ export default function DashboardScreen() {
     [activeRide, activeRide?.status, activeRide?.driver_arrived_at, noticesHeight],
   );
 
+  // The offer overlay is rendered by both branches below; see `DashboardOfferOverlay` for the
+  // single visibility rule it applies. Nothing branches here on purpose: the element is the
+  // same, only the surface it is painted over changes.
+  const offerCarouselElement = (
+    <DashboardOfferOverlay
+      rides={availableRides}
+      provisional={provisionalOffer}
+      canShowOffers={showOfferCarousel}
+      booting={loading}
+      instantEntry={notificationArrival}
+      onActiveIndexChange={setActiveOfferIndex}
+      onOverlayHeightChange={setOfferOverlayBand}
+      onAcceptRide={(rideId) => {
+        void handleAcceptRide(rideId);
+      }}
+      onDeclineRide={(rideId, reason) => {
+        void handleDeclineRide(rideId, reason ?? "declined");
+      }}
+    />
+  );
+
   if (loading) {
     return (
       <View
@@ -1353,12 +1531,14 @@ export default function DashboardScreen() {
         style={{ backgroundColor: "transparent" }}
       >
         <ActivityIndicator size="large" color="#10b981" />
+        {/* The boot no longer stands between the driver and the ride they just tapped. */}
+        {offerCarouselElement}
       </View>
     );
   }
 
   return (
-    <AnimatedPage>
+    <AnimatedPage instant={notificationArrival}>
       <View
         ref={mapHostViewRef}
         style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}
@@ -1413,20 +1593,7 @@ export default function DashboardScreen() {
           </>
         ) : null}
 
-        {showOfferCarousel ? (
-          <OfferRideCarousel
-            rides={availableRides}
-            chromeVisible
-            onActiveIndexChange={setActiveOfferIndex}
-            onOverlayHeightChange={setOfferOverlayBand}
-            onAcceptRide={(rideId) => {
-              void handleAcceptRide(rideId);
-            }}
-            onDeclineRide={(rideId, reason) => {
-              void handleDeclineRide(rideId, reason ?? "declined");
-            }}
-          />
-        ) : null}
+        {offerCarouselElement}
 
         {/* Content Overlay — zIndex 40, above offer stack (30) when raised */}
         <BottomSheet

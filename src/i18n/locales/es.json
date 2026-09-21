@@ -82,6 +82,7 @@
     "pickupLabel": "Recogida",
     "dropoffLabel": "Destino",
     "swipeToAccept": "DESLIZAR PARA ACEPTAR >>>",
+    "preparingOffer": "Preparando la oferta…",
     "offerAccept": "Aceptar",
     "offerDecline": "Rechazar",
     "offerNotice": {

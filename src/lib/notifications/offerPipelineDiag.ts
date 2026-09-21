@@ -15,6 +15,13 @@ export const OFFER_PIPELINE_STAGES = [
   'tap_received',
   /** The ride id was written to the driver store's pendingOfferOpen. */
   'pending_queued',
+  /**
+   * One awaited step of the dashboard boot, with its wall-clock duration.
+   * `step` is `auth` | `drivers` | `dossier_status` | `locations` | `assigned_ride`.
+   * Exists because `boot_ready` alone cannot say which of the boot round-trips cost the
+   * time, and that is the very latency being investigated.
+   */
+  'boot_step',
   /** The dashboard boot exposed the identity (driver id + status) the pipeline needs. */
   'boot_ready',
   /** The notification-open effect started reading the offer. */
@@ -23,6 +30,12 @@ export const OFFER_PIPELINE_STAGES = [
   'fetch_result',
   /** The ride was pushed to the front of the offer stack. */
   'promoted',
+  /**
+   * The offer card laid out with a non-zero size, i.e. the driver can actually see it.
+   * The gap between `promoted` and this stage is the part the boot gate and the entry
+   * animations used to hide: the ride was in the store but not on screen.
+   */
+  'offer_painted',
   /** No overlay was shown; `reason` carries the OfferNoticeReason. */
   'notice',
   /** Realtime channel status change (SUBSCRIBED, TIMED_OUT, CHANNEL_ERROR, CLOSED). */

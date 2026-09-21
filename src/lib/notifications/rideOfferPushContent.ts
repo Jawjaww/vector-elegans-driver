@@ -29,13 +29,13 @@ export function isRideOfferPush(data: Record<string, unknown>): boolean {
   return data.type === 'ride_offer' || typeof data.ride_id === 'string';
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function formatPriceLabel(data: Record<string, unknown>): string | null {
+export function formatPriceLabel(data: Record<string, unknown>): string | null {
   const fromLabel = readString(data.price_label);
   if (fromLabel) return fromLabel;
 

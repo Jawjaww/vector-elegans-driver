@@ -44,6 +44,12 @@ export interface OfferRideCardProps {
   onAccept: () => void;
   onDecline: () => void;
   onTimeout?: () => void;
+  /**
+   * Skip the staggered entry animation. Set when the card is the answer to a notification
+   * tap: the driver is already looking at the screen, and the cascade delays the Accept
+   * button by ~420 ms for nothing.
+   */
+  instantEntry?: boolean;
 }
 
 const formatPrice = (price: number | null) => {
@@ -103,12 +109,21 @@ function OfferCardApproach({
   visible,
   label,
   approachText,
-}: Readonly<{ visible: boolean; label: string; approachText: string }>) {
+  instantEntry,
+}: Readonly<{
+  visible: boolean;
+  label: string;
+  approachText: string;
+  instantEntry: boolean;
+}>) {
   if (!visible) {
     return <View style={styles.approachPlaceholder} />;
   }
   return (
-    <Animated.View entering={FadeInDown.duration(220).delay(0)} style={styles.approachContainer}>
+    <Animated.View
+      entering={instantEntry ? undefined : FadeInDown.duration(220).delay(0)}
+      style={styles.approachContainer}
+    >
       <View style={styles.approachContent}>
         <Feather name="map-pin" size={13} color="#fb923c" />
         <Text style={styles.approachLabel}>{label}</Text>
@@ -129,6 +144,7 @@ function OfferCardPriceHeader({
   showProgress,
   startKey,
   onExpire,
+  instantEntry,
 }: Readonly<{
   visible: boolean;
   offerPrice: number;
@@ -138,12 +154,16 @@ function OfferCardPriceHeader({
   showProgress: boolean;
   startKey: number;
   onExpire?: () => void;
+  instantEntry: boolean;
 }>) {
   if (!visible) {
     return <View style={styles.headerPlaceholder} />;
   }
   return (
-    <Animated.View entering={FadeInDown.duration(220).delay(80)} style={styles.cardHeader}>
+    <Animated.View
+      entering={instantEntry ? undefined : FadeInDown.duration(220).delay(80)}
+      style={styles.cardHeader}
+    >
       <View style={styles.headerContent}>
         <View style={styles.priceContainer}>
           <Text
@@ -188,16 +208,21 @@ function OfferCardTripDetails({
   visible,
   ride,
   pickupWhen,
+  instantEntry,
 }: Readonly<{
   visible: boolean;
   ride: Ride;
   pickupWhen: string | null;
+  instantEntry: boolean;
 }>) {
   if (!visible) {
     return <View style={styles.detailsPlaceholder} />;
   }
   return (
-    <Animated.View entering={FadeInDown.duration(220).delay(140)} style={styles.details}>
+    <Animated.View
+      entering={instantEntry ? undefined : FadeInDown.duration(220).delay(140)}
+      style={styles.details}
+    >
       <RideOfferExtras
         options={ride.options}
         vehicleType={ride.vehicle_type}
@@ -237,6 +262,7 @@ function OfferCardActions({
   nextPeek,
   onAccept,
   onDecline,
+  instantEntry,
 }: Readonly<{
   visible: boolean;
   declineLabel: string;
@@ -244,12 +270,16 @@ function OfferCardActions({
   nextPeek?: { price: number; distanceKm: number } | null;
   onAccept: () => void;
   onDecline: () => void;
+  instantEntry: boolean;
 }>) {
   if (!visible) {
     return <View style={styles.actionsPlaceholder} />;
   }
   return (
-    <Animated.View entering={FadeInDown.duration(220).delay(200)} style={styles.actionsContainer}>
+    <Animated.View
+      entering={instantEntry ? undefined : FadeInDown.duration(220).delay(200)}
+      style={styles.actionsContainer}
+    >
       {nextPeek ? (
         <>
           <View style={styles.stackDivider} />
@@ -280,6 +310,7 @@ export function OfferRideCard({
   onAccept,
   onDecline,
   onTimeout,
+  instantEntry = false,
 }: Readonly<OfferRideCardProps>) {
   const { t } = useTranslation();
   const { currentLocation } = useDriverStore();
@@ -352,18 +383,21 @@ export function OfferRideCard({
           showProgress={isActive}
           startKey={startKey}
           onExpire={onTimeout || onDecline}
+          instantEntry={instantEntry}
         />
 
         <OfferCardApproach
           visible={chromeVisible}
           label={t('ride.approach')}
           approachText={approachText}
+          instantEntry={instantEntry}
         />
 
         <OfferCardTripDetails
           visible={chromeVisible}
           ride={ride}
           pickupWhen={formatPickupDateTime(ride.pickup_time)}
+          instantEntry={instantEntry}
         />
 
         <OfferCardActions
@@ -373,6 +407,7 @@ export function OfferRideCard({
           nextPeek={isActive ? nextPeek : null}
           onAccept={onAccept}
           onDecline={onDecline}
+          instantEntry={instantEntry}
         />
       </View>
     </View>

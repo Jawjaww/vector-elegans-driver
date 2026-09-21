@@ -2,6 +2,7 @@ import {
   useDriverStore,
   type OfferNotificationAction,
   type PendingOfferOpen,
+  type ProvisionalOffer,
 } from '../stores/driverStore';
 import { logOfferStage } from './offerPipelineDiag';
 import {
@@ -65,12 +66,28 @@ export function offerActionFromIdentifier(
 export function queueOfferOpen(
   rideId: string,
   action: OfferNotificationAction | null,
+  preview: ProvisionalOffer | null = null,
 ): void {
-  useDriverStore.getState().setPendingOfferOpen({ rideId, action });
+  const state = useDriverStore.getState();
+  state.setPendingOfferOpen({ rideId, action });
+  // The offer now on its way was requested by the driver's own tap: mark the arrival so the
+  // dashboard can present it without waiting for the boot and without entry motion.
+  state.setOfferArrivalAt(Date.now());
+  // Only worth showing when nothing better is already in hand: a ride the dashboard already
+  // tracks carries coordinates, distance and approach time, which the payload does not.
+  const alreadyTracked =
+    state.activeRide?.id === rideId ||
+    state.availableRides.some((ride) => ride.id === rideId) ||
+    state.deferredRides.some((ride) => ride.id === rideId);
+  state.setProvisionalOffer(alreadyTracked ? null : preview);
   // Logged here rather than at the call site so the stage cannot drift from the write it
   // describes. Usually the very first row of a timeline, and usually buffered: a cold start
   // from the tap has no `drivers.id` yet.
-  logOfferStage('pending_queued', { action: action ?? 'open' }, rideId);
+  logOfferStage(
+    'pending_queued',
+    { action: action ?? 'open', provisional: !alreadyTracked && preview !== null },
+    rideId,
+  );
 }
 
 /** Read the queued offer once and clear it. Returns null when nothing is queued. */

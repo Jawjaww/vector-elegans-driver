@@ -77,7 +77,7 @@ describe('offer opened from a push', () => {
     queueOfferOpen('ride-3', 'decline');
     expect(logOfferStage).toHaveBeenCalledWith(
       'pending_queued',
-      { action: 'decline' },
+      { action: 'decline', provisional: false },
       'ride-3',
     );
   });
@@ -86,7 +86,7 @@ describe('offer opened from a push', () => {
     queueOfferOpen('ride-4', null);
     expect(logOfferStage).toHaveBeenCalledWith(
       'pending_queued',
-      { action: 'open' },
+      { action: 'open', provisional: false },
       'ride-4',
     );
   });

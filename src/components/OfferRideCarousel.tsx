@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ride, useDriverStore } from '../lib/stores/driverStore';
 import {
   OFFER_STACK_LIFT_CAP,
+  OFFER_STACK_VISIBLE_MAX,
   offerStackExtraHeight,
   offerStackPeekX,
   offerStackPeekY,
@@ -28,13 +29,34 @@ import {
   offerDeckClearance,
 } from '../lib/utils/offerCardLayout';
 import { useOfferDismissGesture } from '../hooks/useOfferDismissGesture';
+import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import type { ProvisionalOffer } from '../lib/stores/driverStore';
 import { NAV_SHEET_VISIBLE_H } from './BottomSheet';
 import { OfferRideCard, OFFER_CARD_WIDTH } from './OfferRideCard';
+import { ProvisionalOfferCard } from './ProvisionalOfferCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+/**
+ * Ride ids whose first on-screen layout has already been recorded.
+ *
+ * Module scope, not a ref: the carousel is unmounted and remounted when the dashboard boot
+ * resolves, and a ref would then log a second "first paint" for the same ride. Only the
+ * first paint is the latency the driver experiences. Bounded because a session only ever
+ * sees a handful of offers.
+ */
+const paintedRideIds = new Set<string>();
+const MAX_PAINTED_TRACKED = 20;
+
 interface OfferRideCarouselProps {
   rides: Ride[];
+  /**
+   * Card painted from the notification payload while the ride is still being read. Sits in
+   * front of the deck and does not join it: it has no coordinates, no status and no TTL.
+   */
+  provisional?: ProvisionalOffer | null;
+  /** Disable entry motion on the cards (notification arrival). */
+  instantEntry?: boolean;
   chromeVisible?: boolean;
   onActiveIndexChange?: (index: number) => void;
   onOverlayHeightChange?: (height: number) => void;
@@ -57,6 +79,7 @@ function OfferStackLayer({
   onAccept,
   onDecline,
   onTimeout,
+  instantEntry,
 }: Readonly<{
   ride: Ride;
   depth: number;
@@ -72,6 +95,7 @@ function OfferStackLayer({
   onAccept: () => void;
   onDecline: () => void;
   onTimeout: () => void;
+  instantEntry: boolean;
 }>) {
   const restStyle = offerStackRestStyle(depth, stackCardLeft, stackExtra);
   const restScale = offerStackScale(depth);
@@ -107,6 +131,7 @@ function OfferStackLayer({
       onAccept={onAccept}
       onDecline={onDecline}
       onTimeout={onTimeout}
+      instantEntry={instantEntry}
     />
   );
 
@@ -129,6 +154,8 @@ function OfferStackLayer({
 
 export function OfferRideCarousel({
   rides,
+  provisional = null,
+  instantEntry = false,
   chromeVisible = true,
   onActiveIndexChange,
   onOverlayHeightChange,
@@ -141,7 +168,11 @@ export function OfferRideCarousel({
     (s) => s.cycleAvailableRideToBack,
   );
   const dragProgress = useSharedValue(0);
-  const frontRideId = rides[0]?.id ?? null;
+  // The provisional card is what is on screen when it exists: it is the ride the driver just
+  // tapped, and the deck behind it is not yet the subject.
+  const hasProvisional = provisional !== null;
+  const depthOffset = hasProvisional ? 1 : 0;
+  const frontRideId = provisional?.rideId ?? rides[0]?.id ?? null;
   const canCycle = rides.length >= 2;
 
   const cardLayout = useMemo(
@@ -149,13 +180,19 @@ export function OfferRideCarousel({
     [insets.bottom, insets.top],
   );
 
-  const visibleRides = useMemo(() => visibleOfferStack(rides), [rides]);
-  const stackExtra = offerStackExtraHeight(visibleRides.length);
-  const stackCardLeft = (SCREEN_WIDTH - OFFER_CARD_WIDTH) / 2;
-  const sheetClearance = offerDeckClearance(
-    NAV_SHEET_VISIBLE_H,
-    visibleRides.length,
+  // The provisional card occupies the front slot, so one fewer real card fits in the deck.
+  const visibleRides = useMemo(
+    () =>
+      visibleOfferStack(
+        rides,
+        hasProvisional ? OFFER_STACK_VISIBLE_MAX - 1 : OFFER_STACK_VISIBLE_MAX,
+      ),
+    [rides, hasProvisional],
   );
+  const deckSize = visibleRides.length + depthOffset;
+  const stackExtra = offerStackExtraHeight(deckSize);
+  const stackCardLeft = (SCREEN_WIDTH - OFFER_CARD_WIDTH) / 2;
+  const sheetClearance = offerDeckClearance(NAV_SHEET_VISIBLE_H, deckSize);
 
   useEffect(() => {
     onActiveIndexChangeRef.current = onActiveIndexChange;
@@ -177,16 +214,28 @@ export function OfferRideCarousel({
       const h = event.nativeEvent.layout.height;
       if (h > 0) {
         onOverlayHeightChange?.(h + sheetClearance);
+        // The offer layer now has a non-zero size on screen. This is the boundary that
+        // separates "the ride is in the store" from "the driver can see it" — the gap the
+        // boot gate and the entry animations used to hide.
+        if (frontRideId && !paintedRideIds.has(frontRideId)) {
+          if (paintedRideIds.size >= MAX_PAINTED_TRACKED) paintedRideIds.clear();
+          paintedRideIds.add(frontRideId);
+          logOfferStage(
+            'offer_painted',
+            { source: instantEntry ? 'notification' : 'in_app', provisional: hasProvisional },
+            frontRideId,
+          );
+        }
       }
     },
-    [onOverlayHeightChange, sheetClearance],
+    [onOverlayHeightChange, sheetClearance, frontRideId, instantEntry, hasProvisional],
   );
 
-  if (rides.length === 0) return null;
+  if (rides.length === 0 && !provisional) return null;
 
   // Rear → front so the swipable card paints above the deck.
   const layers = [...visibleRides]
-    .map((item, index) => ({ item, depth: index }))
+    .map((item, index) => ({ item, depth: index + depthOffset }))
     .reverse();
 
   return (
@@ -220,8 +269,26 @@ export function OfferRideCarousel({
               onAccept={() => onAcceptRide(item.id)}
               onDecline={() => handleDecline(item.id, 'declined')}
               onTimeout={() => handleDecline(item.id, 'timeout')}
+              instantEntry={instantEntry}
             />
           ))}
+          {provisional ? (
+            <View
+              key={provisional.rideId}
+              style={[
+                styles.layer,
+                offerStackRestStyle(0, stackCardLeft, stackExtra),
+              ]}
+              pointerEvents="box-none"
+            >
+              <ProvisionalOfferCard
+                preview={provisional}
+                cardWidth={OFFER_CARD_WIDTH}
+                layout={cardLayout}
+                onAccept={() => onAcceptRide(provisional.rideId)}
+              />
+            </View>
+          ) : null}
         </View>
       </View>
     </View>

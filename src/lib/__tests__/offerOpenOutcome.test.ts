@@ -2,6 +2,7 @@ import {
   canDisplayOffers,
   canReceiveOffers,
   resolveOfferOpenOutcome,
+  shouldBypassBootGate,
   takeReadyOfferOpen,
   toOfferOpenFetch,
   type DriverOfferState,
@@ -316,6 +317,7 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
         pendingOfferOpen: open,
         driverStatus: null,
         driverId: 'd1',
+        storeHydrated: true,
       }),
     ).toBeNull();
     expect(
@@ -323,6 +325,21 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
         pendingOfferOpen: open,
         driverStatus: 'active',
         driverId: null,
+        storeHydrated: true,
+      }),
+    ).toBeNull();
+  });
+
+  // The persisted store comes back from AsyncStorage after the first render, and until it
+  // does `activeRide` reads null — which the outcome resolver takes as "no ride in progress".
+  // Deciding early would surface an offer on top of a ride the driver is already driving.
+  it('keeps a queued open until the persisted store has rehydrated', () => {
+    expect(
+      takeReadyOfferOpen({
+        pendingOfferOpen: open,
+        driverStatus: 'active',
+        driverId: 'd1',
+        storeHydrated: false,
       }),
     ).toBeNull();
   });
@@ -333,6 +350,7 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
         pendingOfferOpen: open,
         driverStatus: 'active',
         driverId: 'd1',
+        storeHydrated: true,
       }),
     ).toEqual(open);
   });
@@ -340,14 +358,15 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
   // The regression this pins: the gate used to be `loading`, i.e. the whole dashboard boot —
   // six serial round-trips including the dossier refresh and the assigned-ride fetch. Those
   // finish long after the identity is known, so a tapped offer stayed invisible for tens of
-  // seconds. The helper only accepts the two fields the decision needs, so re-widening the
-  // gate means deliberately changing its signature.
+  // seconds. The helper only accepts the fields the decision needs, so re-widening the gate
+  // means deliberately changing its signature.
   it('hands the open over while the rest of the boot is still running', () => {
     expect(
       takeReadyOfferOpen({
         pendingOfferOpen: open,
         driverStatus: 'active',
         driverId: 'd1',
+        storeHydrated: true,
       }),
     ).toEqual(open);
   });
@@ -358,8 +377,36 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
         pendingOfferOpen: null,
         driverStatus: 'active',
         driverId: 'd1',
+        storeHydrated: true,
       }),
     ).toBeNull();
+  });
+});
+
+describe('shouldBypassBootGate: what the overlay may show, and when', () => {
+  const base = { booting: false, hasProvisionalOffer: false, canShowOffers: false };
+
+  it('shows a real offer once the boot is over', () => {
+    expect(shouldBypassBootGate({ ...base, canShowOffers: true })).toBe(true);
+  });
+
+  it('stays hidden when there is nothing to show', () => {
+    expect(shouldBypassBootGate(base)).toBe(false);
+  });
+
+  it('lets a provisional card through the boot gate', () => {
+    expect(
+      shouldBypassBootGate({ ...base, booting: true, hasProvisionalOffer: true }),
+    ).toBe(true);
+  });
+
+  // The regression this pins: the whole screen used to sit behind `if (loading)`, so a real
+  // offer could not be painted until the boot resolved — but painting one before the identity
+  // and the persisted store are known means guessing.
+  it('never paints a real offer while the boot is still running', () => {
+    expect(
+      shouldBypassBootGate({ ...base, booting: true, canShowOffers: true }),
+    ).toBe(false);
   });
 });
 

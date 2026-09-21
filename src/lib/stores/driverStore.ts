@@ -76,6 +76,32 @@ export type PendingOfferOpen = {
   action: OfferNotificationAction | null;
 };
 
+/**
+ * Contents the driver can act on straight from the notification payload, before the server
+ * has been asked anything.
+ *
+ * Kept deliberately *outside* `availableRides`: a provisional entry has no coordinates and no
+ * offer status, so `isRideStillOfferable`, `canPresentRideOffer` and `pruneUnofferableRides`
+ * would all reject it. Mixing it in would create a phantom ride to clean up everywhere; as a
+ * separate slice it can only ever be read by the card that renders it.
+ */
+export type ProvisionalOffer = {
+  rideId: string;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  priceLabel: string | null;
+};
+
+/**
+ * When a ride_offer notification was tapped, or null if none was this session.
+ *
+ * A timestamp rather than a boolean on purpose. "Do not animate this arrival" has to hold
+ * across a dashboard remount (the offer paints during the boot, then the real tree mounts),
+ * and a flag would have to be cleared by whichever component happened to know the handover
+ * was over — coordination that breaks silently. A short window expires on its own.
+ */
+export type OfferArrivalAt = number | null;
+
 /** Pure helper — used by presentOffer + Jest */
 export function canPresentRideOffer(
   rideId: string,
@@ -146,6 +172,16 @@ interface DriverState {
    * dashboard even when it is already mounted behind the notification shade.
    */
   pendingOfferOpen: PendingOfferOpen | null;
+  /**
+   * What the notification payload could tell us about the ride being opened, shown until the
+   * server confirms or refutes it. Cleared as soon as the read resolves.
+   */
+  provisionalOffer: ProvisionalOffer | null;
+  /**
+   * When the last ride_offer notification was tapped. Read through `isNotificationArrival`:
+   * during the window that follows, the arrived offer is presented without entry motion.
+   */
+  offerArrivalAt: OfferArrivalAt;
   stats: DriverStats;
   currentLocation: Location | null;
   setIsOnline: (online: boolean) => void;
@@ -177,6 +213,10 @@ interface DriverState {
   completeRide: (ride: Ride) => void;
   setCurrentLocation: (location: Location | null) => void;
   setPendingOfferOpen: (value: PendingOfferOpen | null) => void;
+  setProvisionalOffer: (value: ProvisionalOffer | null) => void;
+  /** Drop the provisional card, but only while it still describes `rideId`. */
+  clearProvisionalOffer: (rideId: string) => void;
+  setOfferArrivalAt: (value: OfferArrivalAt) => void;
 }
 
 export const useDriverStore = create<DriverState>()(
@@ -450,6 +490,16 @@ export const useDriverStore = create<DriverState>()(
         }),
       pendingOfferOpen: null,
       setPendingOfferOpen: (value) => set({ pendingOfferOpen: value }),
+      provisionalOffer: null,
+      setProvisionalOffer: (value) => set({ provisionalOffer: value }),
+      clearProvisionalOffer: (rideId) =>
+        set((state) =>
+          state.provisionalOffer?.rideId === rideId
+            ? { provisionalOffer: null }
+            : state,
+        ),
+      offerArrivalAt: null,
+      setOfferArrivalAt: (value) => set({ offerArrivalAt: value }),
     }),
     {
       name: 'driver-storage',

@@ -16,6 +16,7 @@ import {
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
 import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import { previewFromPushData } from '../lib/notifications/offerPreview';
 import {
   buildRideOfferPushContent,
   isRideOfferPush,
@@ -89,7 +90,7 @@ export function useNotifications() {
         rideId,
       );
       if (rideId) {
-        queueOfferOpen(rideId, action);
+        queueOfferOpen(rideId, action, previewFromPushData(data, rideId));
       }
       router.push('/(tabs)/');
     },

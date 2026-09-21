@@ -95,6 +95,28 @@ export function canReceiveOffers(args: {
 }
 
 /**
+ * Whether the offer overlay has anything to show right now.
+ *
+ * The single visibility rule, used by the boot branch and by the dashboard tree alike, so the
+ * two cannot drift apart.
+ *
+ * `booting` is the dashboard's own spinner state, which gates the whole screen. Only a
+ * provisional card may be painted through it: that card is drawn from the notification payload
+ * and therefore needs nothing the boot provides. A real offer must keep respecting the display
+ * gate (`canShowOffers`) — before the identity and the persisted store are known, that gate
+ * cannot answer, and showing a real offer then would be a guess.
+ */
+export function shouldBypassBootGate(args: {
+  booting: boolean;
+  hasProvisionalOffer: boolean;
+  canShowOffers: boolean;
+}): boolean {
+  if (args.hasProvisionalOffer) return true;
+  if (args.booting) return false;
+  return args.canShowOffers;
+}
+
+/**
  * Readiness gate for a queued notification open.
  *
  * Only the identity the decision actually needs counts: `driverStatus` decides
@@ -104,14 +126,23 @@ export function canReceiveOffers(args: {
  * on them is what held a tapped offer behind the entire startup sequence, tens of seconds
  * after the driver had already answered the notification.
  *
+ * `storeHydrated` is the one exception, and it is not a boot step: the persisted store comes
+ * back from AsyncStorage, and until it does `activeRide` reads `null` — which
+ * `resolveOfferOpenOutcome` takes as "no ride in progress". Deciding before hydration would
+ * surface, and let the driver accept, an offer on top of a ride they are already driving.
+ * It resolves in milliseconds and in parallel with the identity fetch, so it costs nothing
+ * on the path it protects.
+ *
  * Returns the open unchanged when it may be processed, null when it must stay queued.
  */
 export function takeReadyOfferOpen<T>(args: {
   pendingOfferOpen: T | null;
   driverStatus: string | null;
   driverId: string | null;
+  storeHydrated: boolean;
 }): T | null {
   if (!args.pendingOfferOpen) return null;
+  if (!args.storeHydrated) return null;
   if (args.driverStatus === null || args.driverId === null) return null;
   return args.pendingOfferOpen;
 }
