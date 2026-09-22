@@ -73,19 +73,19 @@ export function queueOfferOpen(
   // The offer now on its way was requested by the driver's own tap: mark the arrival so the
   // dashboard can present it without waiting for the boot and without entry motion.
   state.setOfferArrivalAt(Date.now());
-  // Only worth showing when nothing better is already in hand: a ride the dashboard already
-  // tracks carries coordinates, distance and approach time, which the payload does not.
-  const alreadyTracked =
-    state.activeRide?.id === rideId ||
-    state.availableRides.some((ride) => ride.id === rideId) ||
-    state.deferredRides.some((ride) => ride.id === rideId);
-  state.setProvisionalOffer(alreadyTracked ? null : preview);
+  // Set even when the ride is already tracked. "Already tracked" only means a copy exists
+  // somewhere in the store; it says nothing about whether the dashboard can paint it yet, and
+  // the case that matters here is precisely the one where it cannot — the app was in the
+  // background, the offer arrived through Realtime, and the boot, the hydration gate and the
+  // display gate still stand between that copy and the screen. The provisional card needs none
+  // of them, and the overlay drops it the moment the real deck holds the same ride.
+  state.setProvisionalOffer(preview);
   // Logged here rather than at the call site so the stage cannot drift from the write it
   // describes. Usually the very first row of a timeline, and usually buffered: a cold start
   // from the tap has no `drivers.id` yet.
   logOfferStage(
     'pending_queued',
-    { action: action ?? 'open', provisional: !alreadyTracked && preview !== null },
+    { action: action ?? 'open', provisional: preview !== null },
     rideId,
   );
 }

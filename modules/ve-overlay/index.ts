@@ -21,6 +21,18 @@ export type VeOverlayNativeModule = {
    * the pill's visibility from it, so this is the only input it needs.
    */
   setDriverOnline(online: boolean): void;
+  /**
+   * Payload of the offer push that woke the app, read once.
+   *
+   * A silent wake resumes the launcher activity, which carries no extras and produces no
+   * `NotificationResponse`: without this the ride would have to be rediscovered by the
+   * dashboard boot. Null on the tray path, where the response object already carries it.
+   */
+  consumePendingOfferPush(): Record<string, string> | null;
+  /** Native decision log since the last read, oldest first, one `timestamp|event|detail` per line. */
+  drainDiagnostics(): string;
+  /** Live native state: overlay permission, persisted online flag, pill visibility. */
+  describeState(): Record<string, boolean>;
 };
 
 export default requireOptionalNativeModule<VeOverlayNativeModule>('VeOverlay');

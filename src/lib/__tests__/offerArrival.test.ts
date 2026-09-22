@@ -172,24 +172,27 @@ describe('queueOfferOpen: the arrival is written before any network', () => {
     expect(isNotificationArrival(state.offerArrivalAt)).toBe(true);
   });
 
-  // A tracked ride carries coordinates, distance and approach time; the payload carries none
-  // of them, so the provisional card could only downgrade what is already on screen.
-  it('skips the provisional card when the ride is already in the stack', () => {
+  // The regression this pins: a ride already present in the store was treated as a ride
+  // already on screen, and the placeholder was skipped. "Tracked" only means a copy exists —
+  // the boot, the hydration gate and the display gate still stand between that copy and the
+  // driver, and that is exactly the case the placeholder exists for. Yielding to the real card
+  // is the overlay's job, keyed on the deck actually holding that ride.
+  it('keeps the provisional card when the ride is already in the stack', () => {
     useDriverStore.setState({ availableRides: [makeRide('ride-1')] });
     queueOfferOpen('ride-1', null, preview);
-    expect(useDriverStore.getState().provisionalOffer).toBeNull();
+    expect(useDriverStore.getState().provisionalOffer).toEqual(preview);
   });
 
-  it('skips the provisional card when the ride is already the active ride', () => {
+  it('keeps the provisional card when the ride is already the active ride', () => {
     useDriverStore.setState({ activeRide: makeRide('ride-1') });
     queueOfferOpen('ride-1', null, preview);
-    expect(useDriverStore.getState().provisionalOffer).toBeNull();
+    expect(useDriverStore.getState().provisionalOffer).toEqual(preview);
   });
 
-  it('skips the provisional card when the ride is only deferred', () => {
+  it('keeps the provisional card when the ride is only deferred', () => {
     useDriverStore.setState({ deferredRides: [makeRide('ride-1')] });
     queueOfferOpen('ride-1', null, preview);
-    expect(useDriverStore.getState().provisionalOffer).toBeNull();
+    expect(useDriverStore.getState().provisionalOffer).toEqual(preview);
   });
 
   it('clears a provisional card only while it still describes the same ride', () => {
@@ -220,6 +223,14 @@ describe('the diagnostic vocabulary covers the boot and the paint', () => {
   it('declares boot_step and offer_painted', () => {
     expect(OFFER_PIPELINE_STAGES).toContain('boot_step');
     expect(OFFER_PIPELINE_STAGES).toContain('offer_painted');
+  });
+
+  // The other half of the delay happens before JS exists, and neither entry point had any
+  // vocabulary: a silent wake was indistinguishable from a tap, and the native decision log
+  // had nowhere to land.
+  it('declares silent_wake and native_diag', () => {
+    expect(OFFER_PIPELINE_STAGES).toContain('silent_wake');
+    expect(OFFER_PIPELINE_STAGES).toContain('native_diag');
   });
 });
 
@@ -267,9 +278,22 @@ describe('the boot no longer stands between the tap and the ride', () => {
     expect(dashboard).toContain('<DashboardOfferOverlay');
     expect(dashboard).toContain('canShowOffers={showOfferCarousel}');
     expect(dashboard).toContain('booting={loading}');
-    // The boot gate and the display gate must stay composed: a provisional card is shown
-    // through the boot, real cards keep the display gate.
-    expect(dashboard).toContain('rides={canShowOffers ? rides : []}');
+    // The boot gate and the display gate stay composed: the placeholder is shown through the
+    // boot, and it yields only once the deck holds that same ride (pinned separately below).
+    expect(dashboard).toContain('const deckRides = canShowOffers ? rides : [];');
+  });
+
+  it('drops the placeholder as soon as the deck holds the same ride', () => {
+    // The real card carries coordinates, distance and approach time; the payload carries none
+    // of them, so the placeholder must never stay in front of it. Keyed on the ride rather than
+    // on `canShowOffers` alone: a deck showing some other offer is no reason to drop the only
+    // thing describing this one.
+    expect(dashboard).toMatch(
+      /deckRides\.some\(\(ride\) => ride\.id === provisional\.rideId\)/,
+    );
+    expect(dashboard).toContain('hasProvisionalOffer: provisionalCard !== null');
+    expect(dashboard).toContain('rides={deckRides}');
+    expect(dashboard).toContain('provisional={provisionalCard}');
   });
 
   it('decides nothing about an offer before the persisted store is back', () => {
@@ -313,5 +337,54 @@ describe('the entry animations can be skipped on arrival', () => {
     const dashboard = readSource(join('app', '(tabs)', 'index.tsx'));
     expect(dashboard).toContain('PROVISIONAL_OFFER_TTL_MS');
     expect(dashboard).toContain('clearProvisionalOffer(rideId)');
+  });
+});
+
+describe('the silent wake hands the ride to JS', () => {
+  const notifications = readSource(join('src', 'hooks', 'useNotifications.ts'));
+  const overlay = readSource(join('src', 'lib', 'overlay', 'overlayService.ts'));
+
+  // A silent wake resumes the launcher activity: no extras, no NotificationResponse, nothing
+  // for the tap path to read. Without this read the offer goes back to being rediscovered by
+  // the boot — the very latency the wake was built to remove.
+  it('reads the payload the native side kept', () => {
+    expect(notifications).toContain('consumeNativeOfferPush()');
+    expect(notifications).toContain(
+      "handleNotificationOpen(payload, null, 'silent_wake')",
+    );
+    expect(overlay).toContain('consumePendingOfferPush');
+  });
+
+  it('reads it on mount and on every return to the foreground', () => {
+    // Declared once, called from the effect that reads it at mount and from the AppState
+    // listener: both are needed, since the payload can land before JS exists or while it is
+    // merely in the background.
+    const calls = notifications.match(/consumeSilentWake\(\)/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // The hook's synchronous read returns null when the native modules were not yet initialised
+  // at the first layout effect, and nothing re-read it afterwards: a cold-start tap could be
+  // dropped for good.
+  it('re-reads the pending response asynchronously', () => {
+    expect(notifications).toContain('getLastNotificationResponseAsync()');
+  });
+
+  // The native side keeps a copy of every offer payload it was woken by, and the tray path
+  // carries the same ride plus the tray action: without the window, the actionless copy could
+  // queue the ride again and overwrite an Accept with a plain open.
+  it('cannot queue the same push twice', () => {
+    expect(notifications).toContain('DOUBLE_QUEUE_WINDOW_MS');
+    expect(notifications).toMatch(/queuedRideIds\.current\.get\(rideId\)/);
+    expect(notifications).toMatch(
+      /queuedRideIds\.current\.set\(rideId, Date\.now\(\)\)/,
+    );
+  });
+
+  // The native log is the only trace of the part of the delay that happens before JS exists.
+  it('forwards the native decision log to the pipeline', () => {
+    expect(notifications).toContain('drainOverlayDiagnostics()');
+    expect(notifications).toMatch(/logOfferStage\('native_diag'/);
+    expect(notifications).toContain('native_at');
   });
 });

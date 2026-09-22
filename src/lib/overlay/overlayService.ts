@@ -54,6 +54,45 @@ export function setDriverOnline(online: boolean): void {
   }
 }
 
+/**
+ * Payload of the offer push that woke the app, read once, or null on the tray path.
+ *
+ * A silent wake resumes the launcher activity without producing a `NotificationResponse`, so
+ * this is the only thing that carries the ride. Read on mount and on every return to the
+ * foreground; null is the normal answer when the app was opened any other way.
+ */
+export function consumeNativeOfferPush(): Record<string, string> | null {
+  const module = overlayModule();
+  if (!module) return null;
+  try {
+    return module.consumePendingOfferPush();
+  } catch {
+    return null;
+  }
+}
+
+/** Native decision log since the last read. Empty when the overlay is unsupported. */
+export function drainOverlayDiagnostics(): string {
+  const module = overlayModule();
+  if (!module) return '';
+  try {
+    return module.drainDiagnostics();
+  } catch {
+    return '';
+  }
+}
+
+/** Live native state, or null when the overlay is unsupported. */
+export function getOverlayState(): Record<string, boolean> | null {
+  const module = overlayModule();
+  if (!module) return null;
+  try {
+    return module.describeState();
+  } catch {
+    return null;
+  }
+}
+
 let lifecycleStarted = false;
 
 /** Started once from the root layout so the online state is mirrored even when

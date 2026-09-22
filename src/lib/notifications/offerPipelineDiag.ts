@@ -13,6 +13,19 @@
 export const OFFER_PIPELINE_STAGES = [
   /** The FCM response handler ran, before any store write. */
   'tap_received',
+  /**
+   * The native side brought the app forward on its own, without a tap and without showing a
+   * notification. Distinguished from `tap_received` because the two have different causes when
+   * they are slow: a tap is already inside JS, whereas a silent wake also crossed the process
+   * start and the Activity launch.
+   */
+  'silent_wake',
+  /**
+   * One decision taken in Kotlin, replayed from the bounded native log. Carries `native_at`
+   * (the device clock when it happened) so the delay before JS ever ran stays measurable, and
+   * the live native state (`hasPermission`, `driverOnline`, `appForeground`, `pillVisible`).
+   */
+  'native_diag',
   /** The ride id was written to the driver store's pendingOfferOpen. */
   'pending_queued',
   /**

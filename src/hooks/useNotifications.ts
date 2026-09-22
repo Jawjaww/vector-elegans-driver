@@ -18,6 +18,12 @@ import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/noti
 import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
 import { previewFromPushData } from '../lib/notifications/offerPreview';
 import {
+  consumeNativeOfferPush,
+  drainOverlayDiagnostics,
+  getOverlayState,
+} from '../lib/overlay/overlayService';
+import type { OfferNotificationAction } from '../lib/stores/driverStore';
+import {
   buildRideOfferPushContent,
   isRideOfferPush,
   RIDE_OFFER_BRAND_COLOR,
@@ -63,6 +69,24 @@ Notifications.setNotificationHandler({
   },
 });
 
+/**
+ * The two ways an offer can reach the driver without them choosing it in-app, and what tells
+ * them apart in the timeline: a tap is already inside JS, whereas a silent wake also crossed
+ * the process start and the Activity launch.
+ */
+type OfferOpenStage = 'tap_received' | 'silent_wake';
+
+/**
+ * How long a ride counts as already queued.
+ *
+ * The native controller keeps a copy of every offer payload it was woken by, and on the tray
+ * path the response carries the same ride *plus* the tray action. Without this window the
+ * actionless native copy could queue the ride a second time and overwrite an Accept with a
+ * plain open. Bounded rather than permanent so a genuine re-offer of the same ride, minutes
+ * later, is still surfaced.
+ */
+const DOUBLE_QUEUE_WINDOW_MS = 10_000;
+
 export function useNotifications() {
   const router = useRouter();
   const notificationListener = useRef<Notifications.EventSubscription | null>(
@@ -73,19 +97,31 @@ export function useNotifications() {
   const lastHandledEventKey = useRef<string | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
+  /**
+   * Ride ids queued in this session, with the instant, so one push cannot be queued twice.
+   * See `DOUBLE_QUEUE_WINDOW_MS`.
+   */
+  const queuedRideIds = useRef(new Map<string, number>());
+
   const handleNotificationOpen = useCallback(
-    (data: Record<string, unknown>, actionIdentifier: string) => {
+    (
+      data: Record<string, unknown>,
+      action: OfferNotificationAction | null,
+      stage: OfferOpenStage,
+    ) => {
       if (!shouldOpenHomeFromPushData(data)) return;
       // Remember the opened ride (and the tray action) so the dashboard can
       // surface it in the overlay even when it already sits in the deferred
       // bottomsheet.
       const rideId = rideIdFromPushData(data);
-      const action = offerActionFromIdentifier(actionIdentifier);
+      if (rideId) {
+        queuedRideIds.current.set(rideId, Date.now());
+      }
       // Start of the chronology, and the one timestamp that must be taken here: this is the
-      // instant the tap is observed. Everything downstream sits behind the dashboard boot, so
-      // measuring from `boot_ready` would hide the very latency being investigated.
+      // instant the arrival is observed. Everything downstream sits behind the dashboard boot,
+      // so measuring from `boot_ready` would hide the very latency being investigated.
       logOfferStage(
-        'tap_received',
+        stage,
         { action: action ?? 'open', app_state: AppState.currentState },
         rideId,
       );
@@ -106,16 +142,86 @@ export function useNotifications() {
       lastHandledEventKey.current = eventKey;
       const data = readNotificationData(response.notification);
       console.log('[Notifications] Opened from push:', data);
-      handleNotificationOpen(data, response.actionIdentifier);
+      handleNotificationOpen(
+        data,
+        offerActionFromIdentifier(response.actionIdentifier),
+        'tap_received',
+      );
       Notifications.clearLastNotificationResponse();
     },
     [handleNotificationOpen],
   );
 
+  /**
+   * Take the payload the native side kept when it brought the app forward on its own.
+   *
+   * A silent wake resumes the launcher activity, so it produces no `NotificationResponse` at
+   * all: this is the only thing that carries the ride, and without it the offer would have to
+   * be rediscovered by the dashboard boot. Null is the normal answer on every other path.
+   */
+  const consumeSilentWake = useCallback(() => {
+    const payload = consumeNativeOfferPush();
+    if (!payload) return;
+    const rideId = rideIdFromPushData(payload);
+    if (rideId) {
+      const queuedAt = queuedRideIds.current.get(rideId);
+      if (
+        queuedAt !== undefined &&
+        Date.now() - queuedAt < DOUBLE_QUEUE_WINDOW_MS
+      ) {
+        return;
+      }
+      if (queuedRideIds.current.size > 50) queuedRideIds.current.clear();
+    }
+    // No tap and no notification, so there is no tray action to carry.
+    handleNotificationOpen(payload, null, 'silent_wake');
+  }, [handleNotificationOpen]);
+
+  /**
+   * Replay the native decision log into the offer pipeline, then clear it.
+   *
+   * This is the only window onto the part of the delay that happens before JS exists — whether
+   * the push woke the service at all, whether a launch was requested, and whether Android
+   * granted it. The stored `native_at` is the device clock at the moment it happened, which
+   * `t_ms` (measured from module evaluation) cannot express.
+   */
+  const reportNativeDiagnostics = useCallback(() => {
+    const raw = drainOverlayDiagnostics();
+    if (!raw) return;
+    const state = getOverlayState();
+    for (const line of raw.split('\n')) {
+      const [at, event, ...rest] = line.split('|');
+      if (!event) continue;
+      // Rejoined rather than taken as a single element: a detail containing a separator would
+      // otherwise be silently truncated.
+      const detail = rest.join('|');
+      logOfferStage('native_diag', {
+        event,
+        ...(detail ? { detail } : {}),
+        ...(state ?? {}),
+        native_at: Number(at),
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (!lastNotificationResponse) return;
     openFromResponse(lastNotificationResponse);
   }, [lastNotificationResponse, openFromResponse]);
+
+  useEffect(() => {
+    // Native read first: on a cold start from a silent wake it is the only source of the ride,
+    // and everything it triggers is a synchronous store write.
+    reportNativeDiagnostics();
+    consumeSilentWake();
+    // The synchronous read behind `useLastNotificationResponse` comes back empty when the
+    // native modules were not yet initialised at the first layout effect, and nothing re-reads
+    // it afterwards. The async form reads the same pending response; the event key keeps it
+    // idempotent when the hook already handled it.
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) openFromResponse(response);
+    });
+  }, [consumeSilentWake, openFromResponse, reportNativeDiagnostics]);
 
   useEffect(() => {
     void registerAndUpsertPushToken();
@@ -132,6 +238,10 @@ export function useNotifications() {
       const wasBackground = appState.current.match(/inactive|background/);
       appState.current = next;
       if (wasBackground && next === 'active') {
+        // Coming back is exactly when a silent wake has just landed: the native side stored
+        // the payload before asking for the launch.
+        reportNativeDiagnostics();
+        consumeSilentWake();
         void registerAndUpsertPushToken();
       }
     });
@@ -157,7 +267,7 @@ export function useNotifications() {
         responseListener.current.remove();
       }
     };
-  }, [openFromResponse]);
+  }, [consumeSilentWake, openFromResponse, reportNativeDiagnostics]);
 
   return {
     requestPermissions: requestRideNotificationPermission,

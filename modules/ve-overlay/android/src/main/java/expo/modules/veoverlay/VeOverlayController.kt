@@ -57,6 +57,17 @@ object VeOverlayController {
   private const val DISMISS_RETRY_MS = 1800L
 
   /**
+   * Bounded native decision log, one `timestamp|event|detail` line per entry.
+   *
+   * A refused background launch throws nothing and leaves no trace anywhere else: the app
+   * simply never appears, and from JS the symptom is indistinguishable from a slow boot. The
+   * log is what makes the difference readable, including on a device with no adb cable —
+   * JS drains it and forwards it to `offer_pipeline_events`.
+   */
+  private const val KEY_DIAGNOSTICS = "diag_events"
+  private const val MAX_DIAGNOSTIC_EVENTS = 40
+
+  /**
    * How long to wait before concluding a requested launch was refused. Android
    * does not report a blocked background launch: `startActivity` returns
    * normally and the window simply never appears, so the absence of a resume is
@@ -86,6 +97,18 @@ object VeOverlayController {
   /** FCM identifier of the offer notification awaiting removal, if any. */
   @Volatile
   private var pendingOfferNotificationId: String? = null
+
+  /**
+   * Payload of the last offer push that asked for a silent wake, waiting to be read by JS.
+   *
+   * Resuming the launcher activity carries no extras and produces no `NotificationResponse`,
+   * so without this the JS side would have to rediscover the ride through its boot and the
+   * Realtime channel — precisely the latency the wake exists to remove. The FCM service runs
+   * in the app process, so a field on this singleton is already visible to the Activity that
+   * starts next.
+   */
+  @Volatile
+  private var pendingOfferPush: Map<String, String>? = null
 
   /**
    * The pill must appear when the app is away and disappear when it is back.
@@ -126,7 +149,7 @@ object VeOverlayController {
       .edit()
       .putBoolean(KEY_DRIVER_ONLINE, online)
       .apply()
-    Log.i(TAG, "driver online=$online")
+    recordDiagnostic("driver_online", online.toString())
     mainHandler.post { sync() }
   }
 
@@ -179,22 +202,31 @@ object VeOverlayController {
     start(context)
     val application = context.applicationContext
 
+    // Handed to JS whatever the launch decides: the ride is known here and would otherwise
+    // have to be rediscovered by the boot.
+    pendingOfferPush = data
+
     // Same identifier rule as FirebaseMessagingDelegate.getNotificationIdentifier.
     val identifier = data["tag"] ?: fallbackIdentifier
     if (identifier != null) {
       pendingOfferNotificationId = identifier
     }
 
+    recordDiagnostic("push_received", "ride_id=${data["ride_id"]}")
+
     if (!isDriverOnline()) {
-      Log.i(TAG, "offer push: no launch, driver offline")
-      return
-    }
-    if (!hasPermission(application)) {
-      Log.i(TAG, "offer push: no launch, overlay permission missing")
+      recordDiagnostic("no_launch", "driver_offline")
       return
     }
 
-    Log.i(TAG, "offer push: requesting foreground")
+    // The permission is recorded, not used as a veto. Refusing to even try is what made this
+    // path invisible: it produced no launch, no log and no evidence, and on a ROM that honours
+    // another exemption (an autostart grant, a running foreground service) it would have
+    // worked. Attempting it costs one `startActivity` that Android silently drops when it
+    // refuses, and it is what turns "never attempted" into a readable verdict.
+    val exemption = if (hasPermission(application)) "pill" else "none"
+    recordDiagnostic("launch_requested", "exemption=$exemption")
+
     mainHandler.post {
       // The visible overlay window is what makes the launch legal, so it must
       // exist *before* startActivity. Deferring it to a later sync() would leave
@@ -214,7 +246,7 @@ object VeOverlayController {
   private fun attemptForeground(context: Context) {
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     if (launchIntent == null) {
-      Log.w(TAG, "no launch intent for package")
+      recordDiagnostic("launch_impossible", "no_launcher_intent")
       return
     }
     launchIntent.addFlags(
@@ -226,7 +258,7 @@ object VeOverlayController {
       context.startActivity(launchIntent)
       Log.i(TAG, "foreground launch requested")
     } catch (e: Exception) {
-      Log.w(TAG, "foreground launch threw", e)
+      recordDiagnostic("launch_threw", e.message ?: "unknown")
     }
 
     // The only observable outcome. A refused launch throws nothing, so the
@@ -234,12 +266,13 @@ object VeOverlayController {
     // notification is deliberately left in place, keeping the offer reachable.
     mainHandler.postDelayed({
       if (isAppForeground()) {
-        Log.i(TAG, "launch confirmed: lifecycle resumed")
+        recordDiagnostic("launch_confirmed")
       } else {
-        Log.w(
-          TAG,
-          "launch refused: lifecycle never resumed — background launch blocked, " +
-            "or an OEM autostart restriction. Notification kept as the offer path."
+        // The single most important line when the app never comes up: it means the request
+        // was made and Android dropped it, which no JS-side measure can fix.
+        recordDiagnostic(
+          "launch_refused",
+          "background_launch_blocked_or_oem_autostart_restriction"
         )
       }
     }, LAUNCH_VERIFY_MS)
@@ -248,13 +281,13 @@ object VeOverlayController {
   // --- Lifecycle transitions ------------------------------------------------------
 
   private fun onAppForegrounded() {
-    Log.i(TAG, "app foregrounded")
+    recordDiagnostic("app_foregrounded")
     mainHandler.post { sync() }
     scheduleOfferNotificationDismissal()
   }
 
   private fun onAppBackgrounded() {
-    Log.i(TAG, "app backgrounded")
+    recordDiagnostic("app_backgrounded")
     mainHandler.post { sync() }
   }
 
@@ -333,13 +366,13 @@ object VeOverlayController {
       windowManager.addView(view, params)
       bubbleView = view
       bubbleWindowManager = windowManager
-      Log.i(TAG, "pill shown")
+      recordDiagnostic("pill_shown")
     } catch (e: Exception) {
       // addView throws when the permission was revoked between the check and the
       // call, or when the window token is refused. Stay hidden.
       bubbleView = null
       bubbleWindowManager = null
-      Log.w(TAG, "could not show pill", e)
+      recordDiagnostic("pill_failed", e.message ?: "unknown")
     }
   }
 
@@ -410,6 +443,80 @@ object VeOverlayController {
         else -> false
       }
     }
+  }
+
+  // --- Hand-off to JS and diagnostics ---------------------------------------------
+
+  /**
+   * Payload of the offer push that woke the app, read once.
+   *
+   * Null on the tray path: a tapped notification carries its own response object, and a second
+   * copy here would only risk surfacing the same offer twice.
+   */
+  fun consumePendingOfferPush(): Map<String, String>? {
+    val payload = pendingOfferPush ?: return null
+    pendingOfferPush = null
+    return payload
+  }
+
+  /**
+   * Live native state, so the dashboard can explain a wake that did not happen.
+   *
+   * `hasPermission` is reported but no longer gates the launch: it says whether the pill could
+   * be shown, which is the exemption the launch depends on, not a decision taken here.
+   */
+  fun describeState(): Map<String, Boolean> {
+    val context = appContext
+    return mapOf(
+      "hasPermission" to (context != null && hasPermission(context)),
+      "driverOnline" to isDriverOnline(),
+      "appForeground" to isAppForeground(),
+      "pillVisible" to (bubbleView != null)
+    )
+  }
+
+  /**
+   * Append one decision to the bounded log, and mirror it to logcat.
+   *
+   * Never throws: a diagnostic must not be able to break the launch it describes.
+   */
+  fun recordDiagnostic(event: String, detail: String? = null) {
+    Log.i(TAG, if (detail == null) "diag: $event" else "diag: $event ($detail)")
+    val context = appContext ?: return
+    val line = "${System.currentTimeMillis()}|$event" +
+      (detail?.let { "|$it" } ?: "")
+    try {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val previous = prefs.getString(KEY_DIAGNOSTICS, null)
+        ?.split('\n')
+        ?.filter { it.isNotBlank() }
+        ?: emptyList()
+      val kept = previous.takeLast(MAX_DIAGNOSTIC_EVENTS - 1) + line
+      prefs.edit().putString(KEY_DIAGNOSTICS, kept.joinToString("\n")).apply()
+    } catch (e: Exception) {
+      Log.w(TAG, "could not record diagnostic", e)
+    }
+  }
+
+  /** Read the log and clear it, oldest event first. Empty when nothing was recorded. */
+  fun drainDiagnostics(): String {
+    val context = appContext ?: return ""
+    val content = try {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_DIAGNOSTICS, null)
+    } catch (e: Exception) {
+      Log.w(TAG, "could not drain diagnostics", e)
+      null
+    } ?: return ""
+    try {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(KEY_DIAGNOSTICS)
+        .apply()
+    } catch (e: Exception) {
+      Log.w(TAG, "could not clear diagnostics", e)
+    }
+    return content
   }
 
   // --- Helpers --------------------------------------------------------------------

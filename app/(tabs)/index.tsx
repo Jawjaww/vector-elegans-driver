@@ -981,9 +981,19 @@ function DashboardOfferOverlay({
   onAcceptRide: (rideId: string) => void;
   onDeclineRide: (rideId: string, reason?: "declined" | "timeout") => void;
 }>) {
+  const deckRides = canShowOffers ? rides : [];
+  // The provisional card is a stand-in for a ride the dashboard cannot paint yet — it carries
+  // no coordinates, no distance and no approach time. It must therefore yield as soon as the
+  // deck actually holds that ride, or it would be a downgrade of the card next to it. Keyed on
+  // the ride rather than on `canShowOffers` alone: a deck showing some *other* offer is no
+  // reason to drop the only thing describing this one.
+  const provisionalCard =
+    provisional !== null && deckRides.some((ride) => ride.id === provisional.rideId)
+      ? null
+      : provisional;
   const visible = shouldBypassBootGate({
     booting,
-    hasProvisionalOffer: provisional !== null,
+    hasProvisionalOffer: provisionalCard !== null,
     canShowOffers,
   });
   if (!visible) return null;
@@ -992,8 +1002,8 @@ function DashboardOfferOverlay({
     <OfferRideCarousel
       // Real cards keep the display gate; the provisional card does not need it, since it is
       // drawn from the payload rather than from an offer we are allowed to present.
-      rides={canShowOffers ? rides : []}
-      provisional={provisional}
+      rides={deckRides}
+      provisional={provisionalCard}
       instantEntry={instantEntry}
       chromeVisible
       onActiveIndexChange={onActiveIndexChange}
@@ -1264,14 +1274,16 @@ export default function DashboardScreen() {
 
     const deferred = deferredRides.find((ride) => ride.id === rideId);
     if (deferred) {
-      // The ride is in hand: the provisional card has served its purpose either way, whether
-      // the deck takes over or a notice explains why it cannot.
-      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (isRideStillOfferable(deferred)) {
+        // The placeholder is deliberately left in place: the deck only takes over once the
+        // display gate has passed, and until then it is the only card describing this ride.
         promoteDeferredRide(rideId);
         logOfferStage("promoted", { source: "deferred" }, rideId);
         void takeAction();
       } else {
+        // A dead offer: the placeholder must go, or it would keep offering an Accept for
+        // something the notice right below says is gone.
+        useDriverStore.getState().clearProvisionalOffer(rideId);
         const refused = (
           useDriverStore.getState().declinedOfferIds ?? []
         ).includes(rideId);
@@ -1293,14 +1305,14 @@ export default function DashboardScreen() {
 
     const stacked = availableRides.find((ride) => ride.id === rideId);
     if (stacked) {
-      // Already tracked with full data (coordinates, distance): the provisional card would
-      // only be a downgrade of the card that is already there.
-      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (isRideStillOfferable(stacked)) {
+        // Already tracked with full data, but "tracked" is not "painted": the deck still has
+        // to pass the display gate, and the placeholder is the only card until it does.
         promoteTrackedRideToFront(stacked);
         logOfferStage("promoted", { source: "stack" }, rideId);
         void takeAction();
       } else {
+        useDriverStore.getState().clearProvisionalOffer(rideId);
         logOfferStage(
           "notice",
           { reason: "matching_closed", source: "stack" },
@@ -1334,15 +1346,18 @@ export default function DashboardScreen() {
         },
         rideId,
       );
-      // The server has spoken: stop showing anything it did not confirm.
-      useDriverStore.getState().clearProvisionalOffer(rideId);
       if (outcome.kind === "overlay" && isRideStillOfferable(outcome.ride)) {
+        // Promotion, not clearing: the placeholder holds the screen until the deck can paint,
+        // and the overlay drops it the moment that ride is in the deck.
         setOfferNotice(null);
         promoteTrackedRideToFront(outcome.ride);
         logOfferStage("promoted", { source: "fetch" }, rideId);
         await takeAction();
         return;
       }
+      // The server has spoken and the offer is not presentable: stop showing anything it did
+      // not confirm.
+      useDriverStore.getState().clearProvisionalOffer(rideId);
       const notice =
         outcome.kind === "notice"
           ? outcome.notice

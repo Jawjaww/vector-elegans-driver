@@ -41,5 +41,26 @@ class VeOverlayModule : Module() {
       }.onFailure { Log.w("VeOverlay", "setDriverOnline failed", it) }
       Unit
     }
+
+    /**
+     * Payload of the offer push that woke the app, read once.
+     *
+     * Null on the tray path: a tapped notification brings its own response object, and a
+     * second copy here would only risk surfacing the same offer twice.
+     */
+    Function("consumePendingOfferPush") {
+      runCatching { VeOverlayController.consumePendingOfferPush() }.getOrNull()
+    }
+
+    /** Native decision log, oldest event first, cleared by the read. Never throws. */
+    Function("drainDiagnostics") {
+      runCatching { VeOverlayController.drainDiagnostics() }.getOrNull() ?: ""
+    }
+
+    /** Live native state: overlay permission, persisted online flag, pill visibility. */
+    Function("describeState") {
+      runCatching { VeOverlayController.describeState() }.getOrNull()
+        ?: emptyMap<String, Boolean>()
+    }
   }
 }
