@@ -1973,6 +1973,13 @@ export type Database = {
         Args: { p_reason?: string; p_ride_id: string }
         Returns: Json
       }
+      admin_driver_account_emails: {
+        Args: { p_driver_ids: string[] }
+        Returns: {
+          driver_id: string
+          email: string
+        }[]
+      }
       admin_reassign_ride: {
         Args: { p_driver_id: string; p_ride_id: string }
         Returns: Json
