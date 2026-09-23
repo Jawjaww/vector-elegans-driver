@@ -6,7 +6,7 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.7',
+    version: '1.0.8',
     // Computed from the native project instead of hand-maintained. The
     // fingerprint changes exactly when native code changes and stays stable for
     // JS-only edits, so a JS fix ships over the air while a native change
@@ -49,7 +49,7 @@ module.exports = {
       // builds a week apart — the exact blindness that let an APK without the fix pass for
       // the build under test. It is also what Android compares to allow an in-place update,
       // so it must only ever increase.
-      versionCode: 10007,
+      versionCode: 10008,
       permissions: [
         'android.permission.INTERNET',
         'android.permission.ACCESS_COARSE_LOCATION',
