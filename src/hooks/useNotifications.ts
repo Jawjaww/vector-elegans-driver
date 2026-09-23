@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
@@ -16,6 +17,7 @@ import {
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
 import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import { acknowledgeOfferPush } from '../lib/notifications/offerPushAck';
 import { previewFromPushData } from '../lib/notifications/offerPreview';
 import {
   consumeNativeOfferPush,
@@ -87,6 +89,40 @@ type OfferOpenStage = 'tap_received' | 'silent_wake';
  */
 const DOUBLE_QUEUE_WINDOW_MS = 10_000;
 
+/**
+ * Whether the mount-time native read already ran in this JS runtime.
+ *
+ * Module scope on purpose, not a `useRef`: the flood this pins was twenty-one `no_payload`
+ * rows in five seconds, which means the read ran per mount rather than once, and a ref is
+ * reset by the very remount that caused it. The underlying remount is not identified here.
+ *
+ * Running it only once cannot miss anything, because the first read *consumes* the native
+ * payload: every later read in the same runtime is guaranteed to answer "no payload" and can
+ * only bury the one row that matters. A payload landing later is still picked up — that is the
+ * AppState listener on the return to the foreground, which is untouched.
+ */
+let initialNativeReadDone = false;
+
+/**
+ * The JS bundle this runtime is executing, for the pipeline log.
+ *
+ * The APK identity arrives separately, through the native `process_start` entry. Read
+ * defensively: this is observability, and it must never be the thing that breaks a cold
+ * start. `expo-updates` answers nulls rather than throwing when updates are disabled.
+ */
+function readBuildIdentity(): Record<string, unknown> {
+  try {
+    return {
+      updateId: Updates.updateId,
+      runtimeVersion: Updates.runtimeVersion,
+      channel: Updates.channel,
+      embedded: Updates.isEmbeddedLaunch,
+    };
+  } catch {
+    return { updateId: null, unavailable: true };
+  }
+}
+
 export function useNotifications() {
   const router = useRouter();
   const notificationListener = useRef<Notifications.EventSubscription | null>(
@@ -128,6 +164,10 @@ export function useNotifications() {
       if (rideId) {
         queueOfferOpen(rideId, action, previewFromPushData(data, rideId));
       }
+      // The one place both paths converge — a tray tap and a silent wake — which is exactly
+      // what makes it the right place to report receipt: beyond this point the server could no
+      // longer tell "woken" from "never started".
+      acknowledgeOfferPush(data);
       router.push('/(tabs)/');
     },
     [router],
@@ -157,11 +197,19 @@ export function useNotifications() {
    *
    * A silent wake resumes the launcher activity, so it produces no `NotificationResponse` at
    * all: this is the only thing that carries the ride, and without it the offer would have to
-   * be rediscovered by the dashboard boot. Null is the normal answer on every other path.
+   * be rediscovered by the dashboard boot. Null is the normal answer on every other path —
+   * but it is no longer a silent one, see below.
    */
   const consumeSilentWake = useCallback(() => {
     const payload = consumeNativeOfferPush();
-    if (!payload) return;
+    if (!payload) {
+      // Recorded rather than swallowed. "There was never a payload" and "the payload was
+      // skipped as already queued" used to produce the exact same observation — no
+      // `silent_wake` row at all — which made a never-started FCM service look identical to
+      // a working wake. One row per check is the price of telling those apart.
+      logOfferStage('silent_wake', { outcome: 'no_payload' });
+      return;
+    }
     const rideId = rideIdFromPushData(payload);
     if (rideId) {
       const queuedAt = queuedRideIds.current.get(rideId);
@@ -169,6 +217,7 @@ export function useNotifications() {
         queuedAt !== undefined &&
         Date.now() - queuedAt < DOUBLE_QUEUE_WINDOW_MS
       ) {
+        logOfferStage('silent_wake', { outcome: 'already_queued' }, rideId);
         return;
       }
       if (queuedRideIds.current.size > 50) queuedRideIds.current.clear();
@@ -198,7 +247,8 @@ export function useNotifications() {
       logOfferStage('native_diag', {
         event,
         ...(detail ? { detail } : {}),
-        ...(state ?? {}),
+        // Spreading `null` is a no-op, so no `?? {}` fallback is needed here.
+        ...state,
         native_at: Number(at),
       });
     }
@@ -210,17 +260,32 @@ export function useNotifications() {
   }, [lastNotificationResponse, openFromResponse]);
 
   useEffect(() => {
-    // Native read first: on a cold start from a silent wake it is the only source of the ride,
+    // Once per JS runtime: see `initialNativeReadDone`. A remount must not re-ask the native
+    // side a question whose answer it has already consumed.
+    if (initialNativeReadDone) return;
+    initialNativeReadDone = true;
+    logOfferStage('app_build', readBuildIdentity());
+    // Native read next: on a cold start from a silent wake it is the only source of the ride,
     // and everything it triggers is a synchronous store write.
     reportNativeDiagnostics();
     consumeSilentWake();
-    // The synchronous read behind `useLastNotificationResponse` comes back empty when the
-    // native modules were not yet initialised at the first layout effect, and nothing re-reads
-    // it afterwards. The async form reads the same pending response; the event key keeps it
-    // idempotent when the hook already handled it.
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
+    // The read behind `useLastNotificationResponse` happens at the hook's first render and comes
+    // back empty when the native modules were not up yet, and nothing re-reads it afterwards.
+    // Read the same pending response again here, from the effect, where the modules are loaded;
+    // the event key keeps it idempotent when the hook already handled it.
+    //
+    // Wrapped on purpose. This replaces the deprecated async form, which was a bare promise
+    // wrapper around this very call and turned an unavailable native module into a rejection
+    // that `void` dropped. The synchronous call throws instead, and the read sits on the cold
+    // start path: a breadcrumb must not be able to break it.
+    try {
+      const response = Notifications.getLastNotificationResponse();
       if (response) openFromResponse(response);
-    });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[Notifications] last response unavailable:', error);
+      }
+    }
   }, [consumeSilentWake, openFromResponse, reportNativeDiagnostics]);
 
   useEffect(() => {

@@ -23,7 +23,9 @@ import android.view.WindowManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.service.NotificationsService
+import expo.modules.notifications.service.delegates.FirebaseMessagingDelegate
 import kotlin.math.abs
 
 private const val BUBBLE_WIDTH_DP = 52f
@@ -75,6 +77,33 @@ object VeOverlayController {
    */
   private const val LAUNCH_VERIFY_MS = 3000L
 
+  /**
+   * How long the tray entry of an offer is held back while the wake is in flight.
+   *
+   * Presenting it immediately is what made the notification the *first* way an offer reached
+   * the driver instead of the last resort: on every arrival, the tray entry appeared at the
+   * same instant as the wake, so the driver's attention was pulled to a banner describing a
+   * ride the app was already about to show. The hold is what makes the notification a
+   * fallback — and the offer window is 90 s wide, so two seconds of patience costs nothing.
+   *
+   * Above the observed cold start (≈1.1–1.5 s from process start to `app_foregrounded`),
+   * so the common slow launch still withdraws the banner before the driver reads it rather
+   * than flashing one. A launch granted after this delay is not lost: the offer is still
+   * withdrawn on resume, and the payload reaches the app either way.
+   */
+  private const val OFFER_PRESENTATION_FALLBACK_MS = 2000L
+
+  /**
+   * Who asked for the return to the foreground.
+   *
+   * Both the FCM push and a tap on the pill reach `attemptForeground`, and while the
+   * log did not say which, a `launch_confirmed` read like proof that the push had
+   * arrived — when it could equally have been a pill tap. That ambiguity is what
+   * hid a service that was never started, so every record now carries its origin.
+   */
+  private const val LAUNCH_ORIGIN_PUSH = "push"
+  private const val LAUNCH_ORIGIN_PILL = "pill"
+
   private val mainHandler = Handler(Looper.getMainLooper())
 
   private var appContext: Context? = null
@@ -99,6 +128,15 @@ object VeOverlayController {
   private var pendingOfferNotificationId: String? = null
 
   /**
+   * Tray entry of an offer, held back while a wake is in flight.
+   *
+   * Held as the `RemoteMessage` plus the runnable that presents it, rather than as a flag:
+   * cancelling means `removeCallbacks` on exactly the pending work, so a superseded offer can
+   * never be presented by an older timer, and a resume can only ever withdraw its own.
+   */
+  private var pendingPresentation: Runnable? = null
+
+  /**
    * Payload of the last offer push that asked for a silent wake, waiting to be read by JS.
    *
    * Resuming the launcher activity carries no extras and produces no `NotificationResponse`,
@@ -111,13 +149,26 @@ object VeOverlayController {
   private var pendingOfferPush: Map<String, String>? = null
 
   /**
+   * The launch whose outcome is not yet known, and when it was asked for.
+   *
+   * Resolved by the lifecycle observer the moment the app actually resumes, instead of by
+   * sampling the state once after a fixed delay. The sample was wrong in both directions:
+   * it reported `launch_refused` for a launch that had succeeded and bounced back to the
+   * background before the deadline (measured: resumed 127 ms after the request, sampled 3 s
+   * later), and it could not say how long the driver had waited.
+   */
+  @Volatile
+  private var pendingLaunchOrigin: String? = null
+  private var pendingLaunchRequestedAt = 0L
+
+  /**
    * The pill must appear when the app is away and disappear when it is back.
    * `ProcessLifecycleOwner` is the same signal expo-notifications uses for
    * `isAppInForeground()`, so the two agree by construction.
    */
   private val lifecycleObserver = LifecycleEventObserver { _, event ->
     when (event) {
-      Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> onAppForegrounded()
+      Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> onAppForegrounded(event)
       Lifecycle.Event.ON_STOP -> onAppBackgrounded()
       else -> Unit
     }
@@ -128,6 +179,11 @@ object VeOverlayController {
     appContext = application
     if (started) return
     started = true
+    // First line of the log, so every later record carries the identity of the process that
+    // wrote it. The native log survives an APK update — it lives in SharedPreferences — so
+    // without this a record from an older build reads exactly like a fresh one, and a whole
+    // diagnostic run can be spent on a line the installed build never produced.
+    recordDiagnostic("process_start", buildIdentity(application))
     // `Lifecycle.addObserver` is main-thread only, while JS calls this from its
     // own thread. Registering inline threw IllegalStateException, which surfaced
     // as a rejected module call and made expo-updates' ErrorRecovery kill the app
@@ -185,20 +241,25 @@ object VeOverlayController {
   // --- Ride offer push ------------------------------------------------------------
 
   /**
-   * Called from the FCM service before `super`, so the launch and the
-   * notification presentation are both in flight when the app resumes.
+   * Handles an offer push that reached the FCM service.
+   *
+   * Called before the caller presents anything, and its answer decides whether that
+   * presentation should be held back: a wake is only worth requesting when the app is away,
+   * so this is also the point where that is decided.
    *
    * @param data the resolved custom payload (the parsed `body` of an Expo push,
    *   or the flat data of a direct FCM send), whose `tag` key expo-notifications
    *   uses as the notification identifier when present.
    * @param fallbackIdentifier `RemoteMessage.messageId`, used when no tag is sent
    *   (the current server payload sends none, so this is the normal path).
+   * @return true when a wake was requested, so the caller must hold the tray entry back
+   *   until this controller either cancels it (the app resumed) or replays it (it did not).
    */
   fun onRideOfferPush(
     context: Context,
     data: Map<String, String>,
     fallbackIdentifier: String?
-  ) {
+  ): Boolean {
     start(context)
     val application = context.applicationContext
 
@@ -216,7 +277,15 @@ object VeOverlayController {
 
     if (!isDriverOnline()) {
       recordDiagnostic("no_launch", "driver_offline")
-      return
+      return false
+    }
+
+    // Nothing to wake: Expo's own path is already the shortest one here, and holding the
+    // banner back would only delay the branded notification the app shows itself while the
+    // driver is looking at it.
+    if (isAppForeground()) {
+      recordDiagnostic("no_launch", "app_foreground")
+      return false
     }
 
     // The permission is recorded, not used as a veto. Refusing to even try is what made this
@@ -224,17 +293,116 @@ object VeOverlayController {
     // another exemption (an autostart grant, a running foreground service) it would have
     // worked. Attempting it costs one `startActivity` that Android silently drops when it
     // refuses, and it is what turns "never attempted" into a readable verdict.
-    val exemption = if (hasPermission(application)) "pill" else "none"
-    recordDiagnostic("launch_requested", "exemption=$exemption")
-
     mainHandler.post {
       // The visible overlay window is what makes the launch legal, so it must
       // exist *before* startActivity. Deferring it to a later sync() would leave
       // the launch without its exemption — and in a push-started process no
       // later sync() is coming, JS never ran.
       sync()
-      attemptForeground(application)
+      attemptForeground(application, LAUNCH_ORIGIN_PUSH)
     }
+    return true
+  }
+
+  /**
+   * Hold back the tray entry of an offer push while the wake is in flight.
+   *
+   * The notification is Expo's fallback, not its entry point: it is replayed through the same
+   * delegate Expo would have used, so the payload, the channel and the tray action are
+   * byte-for-byte the ones that path produces. Called by the FCM service only when
+   * [onRideOfferPush] answered true.
+   */
+  fun holdOfferPresentation(remoteMessage: RemoteMessage, rideId: String?) {
+    cancelPendingPresentation("superseded", quiet = true)
+    val runnable = Runnable {
+      pendingPresentation = null
+      presentOfferFallback(remoteMessage, rideId)
+    }
+    pendingPresentation = runnable
+    mainHandler.postDelayed(runnable, OFFER_PRESENTATION_FALLBACK_MS)
+  }
+
+  /**
+   * Present the held-back offer, because the wake did not bring the app forward.
+   *
+   * Through Expo's own delegate and with the **application** context, not the service
+   * instance: `onMessageReceived` returning is what stops that service, and presenting from a
+   * component Android has already torn down would be presenting from something dead. The
+   * delegate only needs a context to broadcast the notification event, which an application
+   * context does for the whole life of the process.
+   */
+  private fun presentOfferFallback(remoteMessage: RemoteMessage, rideId: String?) {
+    val context = appContext ?: return
+    try {
+      FirebaseMessagingDelegate(context).onMessageReceived(remoteMessage)
+      recordDiagnostic("fallback_presented", "ride_id=$rideId")
+    } catch (e: Exception) {
+      recordDiagnostic("fallback_failed", e.message ?: "unknown")
+    }
+  }
+
+  /**
+   * Drop a held-back presentation. `quiet` when it is being replaced rather than resolved:
+   * a superseded hold is bookkeeping, and one line per push is already enough.
+   */
+  private fun cancelPendingPresentation(reason: String, quiet: Boolean = false) {
+    val pending = pendingPresentation ?: return
+    pendingPresentation = null
+    mainHandler.removeCallbacks(pending)
+    if (!quiet) {
+      recordDiagnostic("fallback_cancelled", reason)
+    }
+  }
+
+  /**
+   * Concludes a launch that nothing ever came back from.
+   *
+   * The fallback path, for the case the lifecycle never reports. A refused launch throws
+   * nothing, so the absence of a resume after a grace period is all that is left to go on.
+   */
+  private val launchVerdict = Runnable {
+    val origin = pendingLaunchOrigin ?: return@Runnable
+    if (isAppForeground()) {
+      confirmLaunch(origin)
+    } else {
+      pendingLaunchOrigin = null
+      // The single most important line when the app never comes up: it means the request
+      // was made and Android dropped it, which no JS-side measure can fix.
+      recordDiagnostic(
+        "launch_refused",
+        "origin=$origin background_launch_blocked_or_oem_autostart_restriction"
+      )
+    }
+  }
+
+  /**
+   * The app resumed, so the request worked — recorded with how long the driver waited.
+   *
+   * `latency_ms` runs from the request to the resume: it is the number that answers "how long
+   * between the push and the ride on screen". It cannot be recovered from the log afterwards,
+   * because the entries are drained by JS at boot and the driver sees them minutes later.
+   */
+  private fun confirmLaunch(origin: String) {
+    if (pendingLaunchOrigin == null) return
+    pendingLaunchOrigin = null
+    mainHandler.removeCallbacks(launchVerdict)
+    recordDiagnostic(
+      "launch_confirmed",
+      "origin=$origin latency_ms=${System.currentTimeMillis() - pendingLaunchRequestedAt}"
+    )
+  }
+
+  /**
+   * Turn an outstanding request into a confirmation, now that the app is on screen.
+   *
+   * The verdict used to be sampled once, three seconds after the request, and that sample
+   * lied: it reported a refusal for a launch that had succeeded and returned to the
+   * background before the deadline (resumed 127 ms after the request, sampled 3 s later).
+   * The resume is the fact; the sample is only a fallback for when there is none.
+   */
+  private fun resolveLaunchVerdict() {
+    val origin = pendingLaunchOrigin ?: return
+    confirmLaunch(origin)
   }
 
   /**
@@ -243,12 +411,20 @@ object VeOverlayController {
    * simply never appears. Success is proven by the lifecycle reaching RESUMED,
    * which is what triggers the notification dismissal.
    */
-  private fun attemptForeground(context: Context) {
+  private fun attemptForeground(context: Context, origin: String) {
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     if (launchIntent == null) {
-      recordDiagnostic("launch_impossible", "no_launcher_intent")
+      recordDiagnostic("launch_impossible", "origin=$origin no_launcher_intent")
       return
     }
+    // Armed before the request, so the resume it causes can resolve it. Recorded here rather
+    // than at the call site, so no path can request a launch without saying who asked for it.
+    pendingLaunchOrigin = origin
+    pendingLaunchRequestedAt = System.currentTimeMillis()
+    recordDiagnostic(
+      "launch_requested",
+      "origin=$origin exemption=${if (hasPermission(context)) "pill" else "none"}"
+    )
     launchIntent.addFlags(
       Intent.FLAG_ACTIVITY_NEW_TASK or
         Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
@@ -256,32 +432,33 @@ object VeOverlayController {
     )
     try {
       context.startActivity(launchIntent)
-      Log.i(TAG, "foreground launch requested")
+      Log.i(TAG, "foreground launch requested by $origin")
     } catch (e: Exception) {
-      recordDiagnostic("launch_threw", e.message ?: "unknown")
+      recordDiagnostic("launch_threw", "origin=$origin ${e.message ?: "unknown"}")
     }
 
-    // The only observable outcome. A refused launch throws nothing, so the
-    // absence of a resume after a grace period is the signal to log — and the
-    // notification is deliberately left in place, keeping the offer reachable.
-    mainHandler.postDelayed({
-      if (isAppForeground()) {
-        recordDiagnostic("launch_confirmed")
-      } else {
-        // The single most important line when the app never comes up: it means the request
-        // was made and Android dropped it, which no JS-side measure can fix.
-        recordDiagnostic(
-          "launch_refused",
-          "background_launch_blocked_or_oem_autostart_restriction"
-        )
-      }
-    }, LAUNCH_VERIFY_MS)
+    // Re-armed rather than stacked: a second request replaces the first, so the pending
+    // verdict always describes the most recent launch.
+    mainHandler.removeCallbacks(launchVerdict)
+    mainHandler.postDelayed(launchVerdict, LAUNCH_VERIFY_MS)
   }
 
   // --- Lifecycle transitions ------------------------------------------------------
 
-  private fun onAppForegrounded() {
-    recordDiagnostic("app_foregrounded")
+  /**
+   * The app is on screen again, by any route — the wake we asked for, a tap on the pill, or
+   * the driver opening it.
+   *
+   * ON_START and ON_RESUME both land here and are kept apart in the log: the event name is
+   * what says whether the app reached `RESUMED` or stopped at `STARTED`, which is the
+   * difference between a window the driver can touch and one that is only being prepared.
+   */
+  private fun onAppForegrounded(event: Lifecycle.Event) {
+    recordDiagnostic("app_foregrounded", event.name)
+    // Ordered before the dismissal and the sync, so a confirmed launch cannot appear in the
+    // log after the fallback it made unnecessary.
+    resolveLaunchVerdict()
+    cancelPendingPresentation(event.name)
     mainHandler.post { sync() }
     scheduleOfferNotificationDismissal()
   }
@@ -435,7 +612,7 @@ object VeOverlayController {
 
         MotionEvent.ACTION_UP -> {
           if (!dragging) {
-            appContext?.let { attemptForeground(it) }
+            appContext?.let { attemptForeground(it, LAUNCH_ORIGIN_PILL) }
           }
           true
         }
@@ -520,6 +697,28 @@ object VeOverlayController {
   }
 
   // --- Helpers --------------------------------------------------------------------
+
+  /**
+   * `versionName` and `versionCode` of the running package.
+   *
+   * Asked to the package manager rather than passed in as a constant: a constant would have
+   * to be updated by hand at every version bump, and the one bump that got missed would make
+   * the log lie in the exact situation the log exists for.
+   */
+  private fun buildIdentity(context: Context): String {
+    return try {
+      val info = context.packageManager.getPackageInfo(context.packageName, 0)
+      val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.longVersionCode
+      } else {
+        @Suppress("DEPRECATION")
+        info.versionCode.toLong()
+      }
+      "version=${info.versionName} code=$code"
+    } catch (e: Exception) {
+      "version=unreadable (${e.message ?: "package manager refused"})"
+    }
+  }
 
   private fun obtainWindowContext(context: Context): Context? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return context

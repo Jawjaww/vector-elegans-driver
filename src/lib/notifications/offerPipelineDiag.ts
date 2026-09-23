@@ -26,8 +26,22 @@ export const OFFER_PIPELINE_STAGES = [
    * the live native state (`hasPermission`, `driverOnline`, `appForeground`, `pillVisible`).
    */
   'native_diag',
+  /**
+   * Which JS bundle this runtime is actually executing. The native `process_start` entry
+   * carries the APK's `versionName`/`versionCode`; this is the other half of the identity —
+   * the OTA update the device downloaded. An APK can be current while a stale bundle runs
+   * underneath it, and nothing else in the pipeline can see that.
+   */
+  'app_build',
   /** The ride id was written to the driver store's pendingOfferOpen. */
   'pending_queued',
+  /**
+   * The device reported receiving the offer push, so the server's fallback sweep can leave it
+   * alone. `outcome` is `ok` | `no_id` | `error` | `threw`. This is the only evidence that
+   * separates "the app was woken" from "the app never started", and the two are otherwise
+   * indistinguishable on the server — hence a row here rather than a swallowed promise.
+   */
+  'push_acked',
   /**
    * One awaited step of the dashboard boot, with its wall-clock duration.
    * `step` is `auth` | `drivers` | `dossier_status` | `locations` | `assigned_ride`.
