@@ -9,6 +9,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -49,6 +52,16 @@ object VeOverlayController {
   private const val TAG = "VeOverlay"
   private const val PREFS = "ve_overlay_prefs"
   private const val KEY_DRIVER_ONLINE = "driver_online"
+
+  /**
+   * The ringtone the driver chose.
+   *
+   * Three states in one key, and `contains` is what tells them apart: absent means never chosen
+   * (use the system notification sound), an empty string means the driver chose "None", and
+   * anything else is the picked URI. Storing "None" as absence would hand the default back to a
+   * driver who asked for silence.
+   */
+  private const val KEY_OFFER_SOUND_URI = "offer_sound_uri"
 
   /**
    * Expo presents asynchronously (`NotificationsService.receive` posts to a
@@ -94,6 +107,16 @@ object VeOverlayController {
   private const val OFFER_PRESENTATION_FALLBACK_MS = 2000L
 
   /**
+   * How long the offer rings, matching the front card's own countdown.
+   *
+   * `COUNTDOWN_SECONDS` in `OfferRideCard.tsx` is 20, and that is the window the card spends in
+   * front of the driver — past it the offer moves to the back of the stack. Ringing beyond that
+   * would alert for a ride the driver has already let pass. The two numbers are one decision
+   * taken in two places, so they are named against each other here rather than in silence.
+   */
+  private const val OFFER_RING_WINDOW_MS = 20_000L
+
+  /**
    * Who asked for the return to the foreground.
    *
    * Both the FCM push and a tap on the pill reach `attemptForeground`, and while the
@@ -135,6 +158,20 @@ object VeOverlayController {
    * never be presented by an older timer, and a resume can only ever withdraw its own.
    */
   private var pendingPresentation: Runnable? = null
+
+  /**
+   * The sound the driver is hearing right now, if any.
+   *
+   * A `MediaPlayer` rather than a `Ringtone`: `Ringtone.isLooping` only exists from API 28 and
+   * `stop()` on a non-looping one is unreliable, whereas `MediaPlayer` gives an explicit loop
+   * and an explicit stop on every version we ship to. Held as a field because stopping needs the
+   * same instance that started: a second `getRingtone` would hand back a different object and
+   * the sound would keep playing with nothing able to reach it.
+   */
+  private var offerRingPlayer: MediaPlayer? = null
+
+  /** Bounded independently of JS: the ring must end even if no client ever says so. */
+  private val stopOfferRingRunnable = Runnable { stopOfferRing("window_elapsed") }
 
   /**
    * Payload of the last offer push that asked for a silent wake, waiting to be read by JS.
@@ -206,6 +243,11 @@ object VeOverlayController {
       .putBoolean(KEY_DRIVER_ONLINE, online)
       .apply()
     recordDiagnostic("driver_online", online.toString())
+    // Going offline means no more offers: a ring still playing would be asking the driver to
+    // answer something they have just switched off.
+    if (!online) {
+      stopOfferRing("driver_offline")
+    }
     mainHandler.post { sync() }
   }
 
@@ -381,6 +423,11 @@ object VeOverlayController {
    * `latency_ms` runs from the request to the resume: it is the number that answers "how long
    * between the push and the ride on screen". It cannot be recovered from the log afterwards,
    * because the entries are drained by JS at boot and the driver sees them minutes later.
+   *
+   * Deliberately silent: a confirmed launch proves the wake landed, not that an offer is on
+   * screen. The ring used to start here, which is how it came to sound for offers that had died
+   * in flight, for a pill tap, and for a driver who simply opened the app. It is now armed from
+   * JS, where the offer's liveness is known — see `offerRing.ts` and `startOfferRing`.
    */
   private fun confirmLaunch(origin: String) {
     if (pendingLaunchOrigin == null) return
@@ -390,6 +437,171 @@ object VeOverlayController {
       "launch_confirmed",
       "origin=$origin latency_ms=${System.currentTimeMillis() - pendingLaunchRequestedAt}"
     )
+  }
+
+  // --- Offer ring -----------------------------------------------------------------
+
+  /**
+   * The stored choice, or null when the driver never chose.
+   *
+   * `contains` rather than a null check: the key exists with an empty value when the driver
+   * picked "None", and that is a decision to be honoured, not a missing preference.
+   */
+  fun offerSoundPreference(): String? {
+    val context = appContext ?: return null
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    if (!prefs.contains(KEY_OFFER_SOUND_URI)) return null
+    return prefs.getString(KEY_OFFER_SOUND_URI, "") ?: ""
+  }
+
+  /** Record the driver's pick. An empty string is "None", not a reset. */
+  fun setOfferSoundPreference(uri: String) {
+    val context = appContext ?: return
+    context.applicationContext
+      .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      .edit()
+      .putString(KEY_OFFER_SOUND_URI, uri)
+      .apply()
+    recordDiagnostic("sound_picked", if (uri.isEmpty()) "silent" else uri)
+  }
+
+  /** Forget the choice, going back to the system notification sound. */
+  fun clearOfferSoundPreference() {
+    val context = appContext ?: return
+    context.applicationContext
+      .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      .edit()
+      .remove(KEY_OFFER_SOUND_URI)
+      .apply()
+    recordDiagnostic("sound_picked", "reset")
+  }
+
+  /**
+   * Ring, because on this path nothing else will.
+   *
+   * The wake deliberately draws no notification, so the Android channel never fires and the
+   * system has nothing to play — this is the only feedback the driver gets that an offer has
+   * arrived, and without it the app simply appeared. The other two paths already ring: an
+   * arrival while the app is in front goes through `rides` (which carries a sound), and a
+   * refused launch replays the held-back notification on that same channel.
+   *
+   * Called from JS, **not** from `confirmLaunch`: the launch proves the wake landed, and the
+   * ring must not start for an offer that is dead, for a pill tap, or for a driver who opened
+   * the app themselves. The gate that decides lives in
+   * `src/lib/notifications/offerRing.ts`; this function only plays.
+   *
+   * `USAGE_NOTIFICATION_EVENT` is what makes this respectful rather than intrusive: the sound
+   * follows the driver's notification volume, and silent mode and do-not-disturb are honoured.
+   * A bare `Ringtone.play()` would ring at 3 a.m. for a driver who had silenced their phone,
+   * which is the kind of thing that gets an app uninstalled.
+   */
+  fun startOfferRing() {
+    // `MediaPlayer` must be built and driven from the thread that owns it, and the module
+    // Function that arms the ring runs on the JS thread. Marshalled rather than trusting every
+    // caller to be on the right one — same reasoning as `stopOfferRing`.
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+      mainHandler.post { startOfferRing() }
+      return
+    }
+    if (offerRingPlayer != null) return
+    val context = appContext ?: return
+    val preference = offerSoundPreference()
+    // The driver asked for silence. That is an answer, not a failure.
+    if (preference != null && preference.isEmpty()) {
+      recordDiagnostic("ring_skipped", "reason=silent_setting")
+      return
+    }
+    if (preference != null) {
+      // A picked `content://` URI can stop being readable — the ringtone picker grants no
+      // persistable permission, so the grant does not survive a reboot. Losing the custom sound
+      // is a far smaller loss than a missed offer, so the default is tried next.
+      if (playOfferRing(context, Uri.parse(preference))) return
+      recordDiagnostic("ring_default_fallback", "reason=chosen_unplayable")
+    }
+    playOfferRing(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+  }
+
+  /**
+   * Build, prepare and loop one player. Returns false when nothing could be played.
+   *
+   * Synchronous on purpose so the caller can fall back: `prepareAsync` reports its failures on
+   * a listener, which is too late to try another URI.
+   */
+  private fun playOfferRing(context: Context, uri: Uri?): Boolean {
+    // Null when the driver chose "None" in the *system* settings, which is also an answer.
+    if (uri == null) return false
+    val player = MediaPlayer()
+    try {
+      player.setAudioAttributes(
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+      )
+      player.setDataSource(context, uri)
+      // Looping, because a single tone is easy to miss in a car and the offer carries a
+      // deadline. The runnable below bounds it, not the tone's own length.
+      player.isLooping = true
+      // Synchronous so an unreadable URI fails here, where there is still a fallback to try,
+      // rather than on a listener that can no longer take another URI.
+      player.prepare()
+    } catch (e: Exception) {
+      recordDiagnostic("ring_unplayable", e.message ?: "unknown")
+      // Released here rather than left to the caller: a player that failed to prepare still
+      // holds a codec, and leaking one per failed attempt would eventually exhaust them.
+      player.release()
+      return false
+    }
+    offerRingPlayer = player
+    try {
+      player.start()
+    } catch (e: Exception) {
+      recordDiagnostic("ring_failed", e.message ?: "unknown")
+      // Cleared as well as released, or a later attempt would see a player that is not playing
+      // and refuse to ring at all.
+      offerRingPlayer = null
+      player.release()
+      return false
+    }
+    recordDiagnostic("ring_playing", "window_ms=$OFFER_RING_WINDOW_MS")
+    mainHandler.removeCallbacks(stopOfferRingRunnable)
+    mainHandler.postDelayed(stopOfferRingRunnable, OFFER_RING_WINDOW_MS)
+    return true
+  }
+
+  /**
+   * Stop the ring. Idempotent, and safe when nothing was ringing.
+   *
+   * Four independent callers, because none of them can be trusted alone: the driver's own
+   * answer through the module (`accepted` / `declined`), JS when the offer dies
+   * (`offer_dead` — the one case Kotlin cannot see), the bounded runnable for an offer nobody
+   * answered, and the app leaving the foreground. JS may never run, and a driver may pocket the
+   * phone without touching anything.
+   */
+  fun stopOfferRing(reason: String) {
+    // `MediaPlayer` must be driven from the thread that owns it — it was created on the main
+    // one. The module Function that answers an offer runs on the JS thread, so the call is
+    // marshalled rather than trusting every caller to be on the right thread.
+    if (Looper.myLooper() != Looper.getMainLooper()) {
+      mainHandler.post { stopOfferRing(reason) }
+      return
+    }
+    mainHandler.removeCallbacks(stopOfferRingRunnable)
+    val player = offerRingPlayer ?: return
+    offerRingPlayer = null
+    try {
+      if (player.isPlaying) player.stop()
+    } catch (e: Exception) {
+      Log.w(TAG, "could not stop the offer ringtone", e)
+    }
+    try {
+      // Released whichever way it stopped: a MediaPlayer holds a codec, and leaking one per
+      // offer would eventually exhaust them.
+      player.release()
+    } catch (e: Exception) {
+      Log.w(TAG, "could not release the offer ringtone", e)
+    }
+    recordDiagnostic("ring_stopped", reason)
   }
 
   /**
@@ -465,6 +677,9 @@ object VeOverlayController {
 
   private fun onAppBackgrounded() {
     recordDiagnostic("app_backgrounded")
+    // The driver has left the offer, so the ring must not follow them: nothing is on screen to
+    // answer it, and the held-back notification path takes over from here.
+    stopOfferRing("app_backgrounded")
     mainHandler.post { sync() }
   }
 

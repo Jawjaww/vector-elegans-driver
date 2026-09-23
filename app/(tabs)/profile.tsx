@@ -8,6 +8,17 @@ import { useCallback, useState } from 'react';
 import { DossierSystemTestRunner } from '../../src/components/DossierSystemTestRunner';
 import { DriverAvatar } from '../../src/components/DriverAvatar';
 import { resolveAvatarPreviewUrl } from '../../src/lib/avatarPreview';
+import {
+  getOfferSound,
+  isOverlaySupported,
+  pickOfferSound,
+} from '../../src/lib/overlay/overlayService';
+import {
+  offerSoundLabel,
+  rideChannelSound,
+  type OfferSoundState,
+} from '../../src/lib/notifications/offerSound';
+import { applyRideChannelSound } from '../../src/lib/notifications/pushRegistration';
 
 type ProfileCard = {
   displayName: string;
@@ -32,6 +43,16 @@ export default function ProfileScreen() {
     email: '',
     avatarUri: null,
   });
+  /**
+   * The driver's chosen ringtone.
+   *
+   * Only meaningful with the native module: the picker and the persisted preference are Android
+   * overlay-module features, and the row is hidden entirely when `isOverlaySupported()` is false
+   * rather than shown disabled. On iOS the notification sound is a system decision the app
+   * cannot offer a choice over.
+   */
+  const offerSoundSupported = isOverlaySupported();
+  const [offerSound, setOfferSound] = useState<OfferSoundState>({ kind: 'default' });
 
   const loadProfile = useCallback(async () => {
     const {
@@ -62,8 +83,41 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadProfile();
+      setOfferSound(getOfferSound());
     }, [loadProfile]),
   );
+
+  /**
+   * Let the driver pick the sound their offers make.
+   *
+   * Nothing here blocks on the picker: the row is fire-and-forget and updates only once the
+   * answer lands. A picker whose result never arrives (the host Activity is destroyed mid-pick,
+   * which expo-modules-core documents as unsupported) must leave the screen usable rather than
+   * stuck behind a promise that never settles.
+   */
+  const handlePickOfferSound = useCallback(async () => {
+    const result = await pickOfferSound();
+    if (result.outcome === 'unavailable') {
+      Alert.alert(
+        'Indisponible',
+        "Ce téléphone ne propose pas de sélecteur de sonnerie. La sonnerie de notification du système reste utilisée. Vous pouvez la choisir dans les réglages Android.",
+      );
+      return;
+    }
+    if (result.outcome === 'cancelled') return;
+
+    const next = getOfferSound();
+    setOfferSound(next);
+    // The tap path plays through the `rides` channel, which must carry the same sound or the
+    // driver would hear different tones depending on how the offer arrived.
+    const applied = await applyRideChannelSound(rideChannelSound(next));
+    if (applied === 'recreated') {
+      Alert.alert(
+        'Sonnerie mise à jour',
+        "Android a recréé le canal de notification des courses, ce qui réinitialise ses réglages personnalisés (importance, vibration). Le son choisi est bien appliqué.",
+      );
+    }
+  }, []);
 
   const handleSignOut = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -99,6 +153,16 @@ export default function ProfileScreen() {
         ),
     },
     { icon: 'settings', label: 'Settings', action: () => {} },
+    ...(offerSoundSupported
+      ? [
+          {
+            icon: 'volume-2' as const,
+            label: "Sonnerie d'offre",
+            detail: offerSoundLabel(offerSound),
+            action: () => void handlePickOfferSound(),
+          },
+        ]
+      : []),
     { icon: 'help-circle', label: 'Help', action: () => {} },
     ...(__DEV__
       ? [
@@ -166,9 +230,16 @@ export default function ProfileScreen() {
               <View className="w-10 h-10 rounded-full items-center justify-center mr-4">
                 <Feather name={item.icon as any} size={20} color="#94a3b8" />
               </View>
-              <Text className="flex-1 text-white font-semibold text-base">
-                {item.label}
-              </Text>
+              <View className="flex-1">
+                <Text className="text-white font-semibold text-base">
+                  {item.label}
+                </Text>
+                {item.detail ? (
+                  <Text className="mt-0.5 text-xs text-slate-400">
+                    {item.detail}
+                  </Text>
+                ) : null}
+              </View>
               <Feather name="chevron-right" size={20} color="#475569" />
             </Pressable>
           ))}

@@ -20,6 +20,7 @@ import {
 import { queueOfferOpen } from '../notifications/pushOpen';
 import { OFFER_PIPELINE_STAGES } from '../notifications/offerPipelineDiag';
 import { useDriverStore, type Ride } from '../stores/driverStore';
+import { visibleProvisionalOffer } from '../utils/homeSheetSnap';
 
 /** Jest runs from the app root (`vector-elegans/`). */
 const REPO_ROOT = process.cwd();
@@ -148,6 +149,7 @@ describe('queueOfferOpen: the arrival is written before any network', () => {
       pendingOfferOpen: null,
       provisionalOffer: null,
       offerArrivalAt: null,
+      offerArrivalSource: null,
       availableRides: [],
       deferredRides: [],
       activeRide: null,
@@ -170,6 +172,22 @@ describe('queueOfferOpen: the arrival is written before any network', () => {
     expect(state.provisionalOffer).toEqual(preview);
     expect(state.offerArrivalAt).toBeGreaterThanOrEqual(before);
     expect(isNotificationArrival(state.offerArrivalAt)).toBe(true);
+  });
+
+  // The ring's whole decision rests on this, and it is not recoverable later: both paths end in
+  // the same queued open, so an unwritten source would be read as "no arrival" and the offer
+  // would arrive in silence.
+  it('records which path brought the arrival', () => {
+    queueOfferOpen('ride-1', null, preview, 'silent_wake');
+    expect(useDriverStore.getState().offerArrivalSource).toBe('wake');
+
+    queueOfferOpen('ride-2', null, preview, 'tap_received');
+    expect(useDriverStore.getState().offerArrivalSource).toBe('tap');
+
+    // Defaulted rather than left unset: a caller that forgets the argument must not silently
+    // claim a wake, because that is the one value that arms a sound.
+    queueOfferOpen('ride-3', null, preview);
+    expect(useDriverStore.getState().offerArrivalSource).toBe('tap');
   });
 
   // The regression this pins: a ride already present in the store was treated as a ride
@@ -273,7 +291,7 @@ describe('the boot no longer stands between the tap and the ride', () => {
 
   it('paints a provisional card through the boot gate', () => {
     expect(dashboard).toContain('shouldBypassBootGate({');
-    expect(dashboard).toContain('provisional={provisionalOffer}');
+    expect(dashboard).toContain('provisional={visibleProvisional}');
     // One shared element, rendered by the boot branch and by the dashboard tree.
     expect(dashboard).toContain('<DashboardOfferOverlay');
     expect(dashboard).toContain('canShowOffers={showOfferCarousel}');
@@ -288,12 +306,27 @@ describe('the boot no longer stands between the tap and the ride', () => {
     // of them, so the placeholder must never stay in front of it. Keyed on the ride rather than
     // on `canShowOffers` alone: a deck showing some other offer is no reason to drop the only
     // thing describing this one.
-    expect(dashboard).toMatch(
-      /deckRides\.some\(\(ride\) => ride\.id === provisional\.rideId\)/,
+    //
+    // The rule moved into `visibleProvisionalOffer` when the sheet needed to read the same
+    // answer; asserting the behaviour there is stronger than asserting the shape of the
+    // expression that happened to hold it.
+    const preview = {
+      rideId: 'ride-1',
+      pickupAddress: '12 rue Oberkampf',
+      dropoffAddress: 'CDG 2E',
+      priceLabel: '38,50 €',
+    };
+    expect(visibleProvisionalOffer(preview, ['other-ride'])).toEqual(preview);
+    expect(visibleProvisionalOffer(preview, [preview.rideId])).toBeNull();
+    expect(visibleProvisionalOffer(null, [preview.rideId])).toBeNull();
+    // And the dashboard resolves it once, for the overlay and for the sheet alike.
+    expect(dashboard).toContain(
+      'visibleProvisionalOffer(provisionalOffer, deckOfferIds)',
     );
-    expect(dashboard).toContain('hasProvisionalOffer: provisionalCard !== null');
-    expect(dashboard).toContain('rides={deckRides}');
-    expect(dashboard).toContain('provisional={provisionalCard}');
+    expect(dashboard).toContain('provisional={visibleProvisional}');
+    expect(dashboard).toContain(
+      'hasProvisionalOffer: visibleProvisional !== null',
+    );
   });
 
   it('decides nothing about an offer before the persisted store is back', () => {

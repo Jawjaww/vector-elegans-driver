@@ -102,6 +102,17 @@ export type ProvisionalOffer = {
  */
 export type OfferArrivalAt = number | null;
 
+/**
+ * Which path produced the arrival: a tap on the tray entry, or the silent wake.
+ *
+ * Recorded beside `offerArrivalAt` rather than derived later, because nothing downstream can
+ * still tell them apart: both end in the same queued open. The distinction decides the ring —
+ * the wake deliberately draws no notification, so the system plays nothing and the app is the
+ * only thing that can make a sound, whereas a tap already played the `rides` channel and
+ * ringing on top of it would be a second sound for one offer.
+ */
+export type OfferArrivalSource = 'wake' | 'tap';
+
 /** Pure helper — used by presentOffer + Jest */
 export function canPresentRideOffer(
   rideId: string,
@@ -182,6 +193,11 @@ interface DriverState {
    * during the window that follows, the arrived offer is presented without entry motion.
    */
   offerArrivalAt: OfferArrivalAt;
+  /**
+   * Whether that arrival came from a tap or from the silent wake. Read by the ring gate; see
+   * `resolveOfferRingAction`.
+   */
+  offerArrivalSource: OfferArrivalSource | null;
   stats: DriverStats;
   currentLocation: Location | null;
   setIsOnline: (online: boolean) => void;
@@ -217,6 +233,7 @@ interface DriverState {
   /** Drop the provisional card, but only while it still describes `rideId`. */
   clearProvisionalOffer: (rideId: string) => void;
   setOfferArrivalAt: (value: OfferArrivalAt) => void;
+  setOfferArrivalSource: (value: OfferArrivalSource | null) => void;
 }
 
 export const useDriverStore = create<DriverState>()(
@@ -500,6 +517,8 @@ export const useDriverStore = create<DriverState>()(
         ),
       offerArrivalAt: null,
       setOfferArrivalAt: (value) => set({ offerArrivalAt: value }),
+      offerArrivalSource: null,
+      setOfferArrivalSource: (value) => set({ offerArrivalSource: value }),
     }),
     {
       name: 'driver-storage',

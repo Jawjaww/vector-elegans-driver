@@ -37,11 +37,23 @@ import {
   shouldSyncDriverStatus,
 } from "../../src/lib/utils/dossierStatusSync";
 import { resolvePendingRideRealtimeUpdate } from "../../src/lib/utils/pendingRideRealtime";
+import {
+  offerSetToken,
+  resolveBottomSheetAllowedSnaps,
+  resolveDriverHomeSnapLevel,
+  visibleProvisionalOffer,
+} from "../../src/lib/utils/homeSheetSnap";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { useDriverStoreHydrated } from "../../src/hooks/useDriverStoreHydrated";
 import { useOverlayPermissionPrompt } from "../../src/hooks/useOverlayPermissionPrompt";
+import { ringOffer, stopOfferRing } from "../../src/lib/overlay/overlayService";
+import {
+  isTerminalRingAction,
+  resolveOfferLiveness,
+  resolveOfferRingAction,
+} from "../../src/lib/notifications/offerRing";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisibleHeight } from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
@@ -142,34 +154,6 @@ function bannerAccentBackground(accent: string): string {
   if (accent === "#fb7185") return "rgba(251, 113, 133, 0.2)";
   if (accent === "#34d399") return "rgba(52, 211, 153, 0.2)";
   return "rgba(251, 191, 36, 0.2)";
-}
-
-function resolveDriverHomeSnapLevel(input: {
-  activeRide: { status: string; driver_arrived_at?: string | null } | null;
-  availableRidesCount: number;
-  availableRide: unknown;
-  offerableDeferredCount: number;
-  hasNotices: boolean;
-}): SheetSnapLevel {
-  const {
-    activeRide,
-    availableRidesCount,
-    availableRide,
-    offerableDeferredCount,
-    hasNotices,
-  } = input;
-
-  if (activeRide) {
-    const waitingAtPickup =
-      activeRide.status === "scheduled" &&
-      Boolean(activeRide.driver_arrived_at);
-    return waitingAtPickup ? "trip" : "nav";
-  }
-  // Overlay offer cards sit above the nav palier — notices stay reachable by drag.
-  if (availableRidesCount > 0) return "nav";
-  if (hasNotices) return "notices";
-  if (availableRide || offerableDeferredCount > 0) return "rides";
-  return "peek";
 }
 
 function isDriverBecameActive(
@@ -554,26 +538,6 @@ function shouldShowTripNavigationHud(
   const waitingAtPickup =
     ride.status === "scheduled" && Boolean(ride.driver_arrived_at);
   return !waitingAtPickup;
-}
-
-function resolveBottomSheetAllowedSnaps(
-  activeRide: Ride | null,
-  availableRidesCount: number,
-  hasNotices: boolean,
-): readonly SheetSnapLevel[] {
-  const withNotices = (
-    snaps: SheetSnapLevel[],
-  ): readonly SheetSnapLevel[] =>
-    hasNotices ? snaps : snaps.filter((s) => s !== "notices");
-
-  if (activeRide) {
-    return withNotices(["nav", "notices", "trip"]);
-  }
-  // Overlay cards: keep default snap at `nav` but still allow drag to sheet sections.
-  if (availableRidesCount > 0) {
-    return withNotices(["nav", "online", "notices", "rides", "stats"]);
-  }
-  return withNotices(["peek", "online", "notices", "rides", "stats"]);
 }
 
 function resolveMapRecenterBottomOffset(
@@ -982,18 +946,12 @@ function DashboardOfferOverlay({
   onDeclineRide: (rideId: string, reason?: "declined" | "timeout") => void;
 }>) {
   const deckRides = canShowOffers ? rides : [];
-  // The provisional card is a stand-in for a ride the dashboard cannot paint yet — it carries
-  // no coordinates, no distance and no approach time. It must therefore yield as soon as the
-  // deck actually holds that ride, or it would be a downgrade of the card next to it. Keyed on
-  // the ride rather than on `canShowOffers` alone: a deck showing some *other* offer is no
-  // reason to drop the only thing describing this one.
-  const provisionalCard =
-    provisional !== null && deckRides.some((ride) => ride.id === provisional.rideId)
-      ? null
-      : provisional;
+  // `provisional` arrives already resolved against the deck: the parent applies
+  // `visibleProvisionalOffer` once, and the sheet rule reads the same answer. Re-deriving it here
+  // is what would let the two drift apart.
   const visible = shouldBypassBootGate({
     booting,
-    hasProvisionalOffer: provisionalCard !== null,
+    hasProvisionalOffer: provisional !== null,
     canShowOffers,
   });
   if (!visible) return null;
@@ -1003,7 +961,7 @@ function DashboardOfferOverlay({
       // Real cards keep the display gate; the provisional card does not need it, since it is
       // drawn from the payload rather than from an offer we are allowed to present.
       rides={deckRides}
-      provisional={provisionalCard}
+      provisional={provisional}
       instantEntry={instantEntry}
       chromeVisible
       onActiveIndexChange={onActiveIndexChange}
@@ -1102,6 +1060,8 @@ export default function DashboardScreen() {
   const provisionalOffer = useDriverStore((s) => s.provisionalOffer);
   /** Timestamp of the last notification tap, read as a short-lived arrival window. */
   const offerArrivalAt = useDriverStore((s) => s.offerArrivalAt);
+  /** Which path brought it: only a silent wake has no sound of its own. See the ring gate. */
+  const offerArrivalSource = useDriverStore((s) => s.offerArrivalSource);
   /** Arrived from the driver's own tap: present it without entry motion. */
   const notificationArrival = isNotificationArrival(offerArrivalAt);
   /**
@@ -1386,6 +1346,78 @@ export default function DashboardScreen() {
     return () => clearTimeout(timer);
   }, [offerNotice]);
 
+  /**
+   * Whether an offerable ride is in the deck — the "the card is on screen" half of the ring's
+   * condition. Read through the same predicate the sheet and the overlay use, so an offer the
+   * driver cannot act on is not offered a sound either.
+   */
+  const hasLiveOffer = useMemo(
+    () => availableRides.some((ride) => isRideStillOfferable(ride)),
+    [availableRides],
+  );
+
+  const offerLiveness = useMemo(
+    () =>
+      resolveOfferLiveness({
+        hasLiveOffer,
+        hasProvisionalCard: provisionalOffer !== null,
+        hasNotice: offerNotice !== null,
+      }),
+    [hasLiveOffer, provisionalOffer, offerNotice],
+  );
+
+  /**
+   * The arrival the ring has already acted on.
+   *
+   * Latched per arrival rather than per render: the decision is re-evaluated as the offer moves
+   * from `pending` to `live`, and without a latch the ring would be re-armed on every pass.
+   * Transient refusals are deliberately not latched — see `isTerminalRingAction`.
+   */
+  const ringHandledArrivalAt = useRef<number | null>(null);
+
+  /**
+   * Ring, and only here.
+   *
+   * The sound used to start from the native `confirmLaunch()`, which proves a wake landed and
+   * nothing about whether an offer is on screen — so it rang for offers that died in flight, for
+   * a pill tap, and for a driver opening the app themselves. The gate is `resolveOfferRingAction`,
+   * which knows the one thing Kotlin cannot: whether an offer is painted and still alive.
+   *
+   * The cost is the delay between the resume and the confirmation of the offer (~0.3–1 s on a
+   * cold start). Paid on purpose: a sound that can be wrong is worse than a sound that is late.
+   */
+  useEffect(() => {
+    if (offerArrivalAt === null) return;
+    const action = resolveOfferRingAction({
+      arrivalSource: offerArrivalSource,
+      isOnline,
+      liveness: offerLiveness,
+      handledArrival: ringHandledArrivalAt.current === offerArrivalAt,
+    });
+    // "Not yet" is not "never": the deck may still be loading or the server may not have
+    // answered, and latching those would leave the offer on screen in silence.
+    if (!isTerminalRingAction(action)) return;
+
+    ringHandledArrivalAt.current = offerArrivalAt;
+    const rideId = pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
+    if (action.kind === 'ring') {
+      ringOffer();
+      logOfferStage('ring_armed', {}, rideId);
+      return;
+    }
+    if (action.kind === 'stop') {
+      stopOfferRing(action.reason);
+    }
+    logOfferStage('ring_skipped', { reason: action.reason }, rideId);
+  }, [
+    offerArrivalAt,
+    offerArrivalSource,
+    offerLiveness,
+    isOnline,
+    pendingOfferOpen?.rideId,
+    provisionalOffer?.rideId,
+  ]);
+
   // Safety net for the provisional card: the normal path replaces it within one round-trip,
   // but a read that never lands must not leave a live Accept button on screen forever.
   useEffect(() => {
@@ -1413,6 +1445,10 @@ export default function DashboardScreen() {
   });
 
   const handleAcceptRide = async (rideId: string) => {
+    // The driver has answered, so the alert has done its job. Stopped here rather than in the
+    // carousel because this is also the funnel for the tray action: accepting from the
+    // notification shade never goes through the card.
+    stopOfferRing("accepted");
     await acceptTrackedRide({
       rideId,
       driverStatus,
@@ -1434,6 +1470,9 @@ export default function DashboardScreen() {
     rideId: string,
     reason: "declined" | "timeout" = "declined",
   ) => {
+    // Both ways of declining land here — the button and the card's own countdown — so the ring
+    // is stopped by the answer rather than by the native window whenever there is an answer.
+    stopOfferRing(reason === "timeout" ? "timed_out" : "declined");
     // Soft refuse / timeout (Refuser button or countdown) — not swipe
     deferAvailableRide(rideId);
     await rideService.respondOffer(rideId, reason);
@@ -1484,13 +1523,47 @@ export default function DashboardScreen() {
   const noticesHeight = noticesBodyHeight(noticeCount);
   const hasNotices = noticeCount > 0;
 
+  // The offered rides, and the provisional card once it has yielded to the real one. Both the
+  // sheet rule and the overlay read these, so "a card is on screen" has a single meaning.
+  const deckOfferIds = useMemo(
+    () => (showOfferCarousel ? availableRides.map((r) => r.id) : []),
+    [showOfferCarousel, availableRides],
+  );
+
+  const visibleProvisional = useMemo(
+    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds),
+    [provisionalOffer, deckOfferIds],
+  );
+
+  // Whether an offer card is actually painted, from the very rule the overlay applies. The sheet
+  // rule reads it rather than a raw `availableRides.length`: an offer the driver may not be
+  // shown must not collapse the sheet and hide the banner explaining why nothing is displayed.
+  const offerCardVisible = useMemo(
+    () =>
+      shouldBypassBootGate({
+        booting: loading,
+        hasProvisionalOffer: visibleProvisional !== null,
+        canShowOffers: showOfferCarousel,
+      }),
+    [loading, visibleProvisional, showOfferCarousel],
+  );
+
+  /**
+   * Identity of the offered rides, for the sheet's collapse trigger. See `offerSetToken`: a
+   * reorder must not move the sheet, an arrival must.
+   */
+  const offerToken = useMemo(
+    () => offerSetToken(deckOfferIds, visibleProvisional),
+    [deckOfferIds, visibleProvisional],
+  );
+
   const bottomSheetSnapLevel = useMemo(() => {
     const offerableDeferred = deferredRides.filter((r) =>
       isRideStillOfferable(r),
     );
     return resolveDriverHomeSnapLevel({
       activeRide,
-      availableRidesCount: availableRides.length,
+      hasPresentableOffer: offerCardVisible,
       availableRide,
       offerableDeferredCount: offerableDeferred.length,
       hasNotices,
@@ -1498,7 +1571,7 @@ export default function DashboardScreen() {
   }, [
     hasNotices,
     availableRide,
-    availableRides.length,
+    offerCardVisible,
     deferredRides,
     activeRide,
   ]);
@@ -1507,10 +1580,10 @@ export default function DashboardScreen() {
     () =>
       resolveBottomSheetAllowedSnaps(
         activeRide,
-        availableRides.length,
+        offerCardVisible,
         hasNotices,
       ),
-    [activeRide, availableRides.length, hasNotices],
+    [activeRide, offerCardVisible, hasNotices],
   );
 
   const mapRecenterBottomOffset = useMemo(
@@ -1524,7 +1597,7 @@ export default function DashboardScreen() {
   const offerCarouselElement = (
     <DashboardOfferOverlay
       rides={availableRides}
-      provisional={provisionalOffer}
+      provisional={visibleProvisional}
       canShowOffers={showOfferCarousel}
       booting={loading}
       instantEntry={notificationArrival}
@@ -1615,6 +1688,7 @@ export default function DashboardScreen() {
           snapLevel={bottomSheetSnapLevel}
           allowedSnaps={bottomSheetAllowedSnaps}
           noticesHeight={noticesHeight}
+          collapseToken={offerToken}
         >
           <OnlineStatusRow
             duty={resolveDriverDuty(isOnline, activeRide)}
