@@ -157,11 +157,19 @@ export function useNotifications() {
    *
    * A silent wake resumes the launcher activity, so it produces no `NotificationResponse` at
    * all: this is the only thing that carries the ride, and without it the offer would have to
-   * be rediscovered by the dashboard boot. Null is the normal answer on every other path.
+   * be rediscovered by the dashboard boot. Null is the normal answer on every other path —
+   * but it is no longer a silent one, see below.
    */
   const consumeSilentWake = useCallback(() => {
     const payload = consumeNativeOfferPush();
-    if (!payload) return;
+    if (!payload) {
+      // Recorded rather than swallowed. "There was never a payload" and "the payload was
+      // skipped as already queued" used to produce the exact same observation — no
+      // `silent_wake` row at all — which made a never-started FCM service look identical to
+      // a working wake. One row per check is the price of telling those apart.
+      logOfferStage('silent_wake', { outcome: 'no_payload' });
+      return;
+    }
     const rideId = rideIdFromPushData(payload);
     if (rideId) {
       const queuedAt = queuedRideIds.current.get(rideId);
@@ -169,6 +177,7 @@ export function useNotifications() {
         queuedAt !== undefined &&
         Date.now() - queuedAt < DOUBLE_QUEUE_WINDOW_MS
       ) {
+        logOfferStage('silent_wake', { outcome: 'already_queued' }, rideId);
         return;
       }
       if (queuedRideIds.current.size > 50) queuedRideIds.current.clear();

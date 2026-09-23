@@ -15,7 +15,8 @@
     "format:check": "prettier --check .",
     "test:ci": "jest --ci --coverage --watchAll=false",
     "test:staged": "jest --bail --findRelatedTests",
-    "update:preview": "eas update --channel preview --environment preview --message"
+    "update:preview": "eas update --channel preview --environment preview --message",
+    "build:local:apk": "./scripts/build-local-apk.sh"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

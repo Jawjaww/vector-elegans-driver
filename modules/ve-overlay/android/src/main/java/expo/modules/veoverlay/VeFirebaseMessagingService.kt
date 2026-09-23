@@ -22,11 +22,12 @@ private const val TAG = "VeOverlay"
 class VeFirebaseMessagingService : ExpoFirebaseMessagingService() {
   override fun onMessageReceived(remoteMessage: RemoteMessage) {
     try {
-      // Logged unconditionally, before any filtering. When several services
-      // declare MESSAGING_EVENT only one is started, and Firebase documents that
-      // the *first declared* wins — intent-filter priority is not a contract.
-      // This line is the only reliable proof of which service is running: the
-      // earlier filters never matched, so this service never logged anything.
+      // Logged unconditionally, before any filtering. When several services declare
+      // MESSAGING_EVENT only one is started, and Firebase documents that the *first
+      // declared* wins — intent-filter priority is not a contract. The module manifest
+      // now removes the two competitors outright so this is the only candidate, but
+      // this line stays: it is the only reliable proof of which service actually ran,
+      // and its absence is what proved the competitors had been winning all along.
       Log.i(TAG, "push received, data keys=${remoteMessage.data.keys}")
 
       val data = rideOfferData(remoteMessage)

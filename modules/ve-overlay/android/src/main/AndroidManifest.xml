@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
 
   <!--
     A library manifest only contributes children of <application>; a bare
@@ -8,12 +9,34 @@
   <application>
 
     <!--
-      Own FCM service, declared with a higher priority than the one shipped by
-      expo-notifications (which uses android:priority="-1"). Firebase resolves a
-      single service for com.google.firebase.MESSAGING_EVENT and picks the highest
-      priority, so this one wins. It extends ExpoFirebaseMessagingService and calls
-      super, so notification presentation is unchanged.
+      Only one service receives `com.google.firebase.MESSAGING_EVENT`, and Firebase
+      documents that the **first declared** wins: `android:priority` is not a contract.
+      The merged manifest declared three, ours last:
 
+        expo.modules.notifications.service.ExpoFirebaseMessagingService   priority -1     1st
+        com.google.firebase.messaging.FirebaseMessagingService            priority -500   2nd
+        expo.modules.veoverlay.VeFirebaseMessagingService                 priority  1     3rd
+
+      Declaring `android:priority="1"` and trusting it left this service permanently
+      unused: it was never started, so the offer push was never seen, no launch was
+      ever requested, and the only way to reach an offer stayed the notification.
+      The competitors are therefore removed outright, which is the remedy Firebase
+      documents. Both declare nothing but this one action, so removing them costs
+      nothing else.
+
+      Our service extends ExpoFirebaseMessagingService and calls `super`, so
+      presentation is untouched — only the class that receives the message changes.
+      Notification presentation itself lives in `NotificationsService`, a separate
+      receiver that is left alone.
+    -->
+    <service
+      android:name="expo.modules.notifications.service.ExpoFirebaseMessagingService"
+      tools:node="remove" />
+    <service
+      android:name="com.google.firebase.messaging.FirebaseMessagingService"
+      tools:node="remove" />
+
+    <!--
       Being the resolved service is what makes the background activity launch
       possible: the decision cannot be taken in JS, which is not consulted when a
       push arrives while the app is in the background.
@@ -21,7 +44,7 @@
     <service
       android:name="expo.modules.veoverlay.VeFirebaseMessagingService"
       android:exported="false">
-      <intent-filter android:priority="1">
+      <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
       </intent-filter>
     </service>

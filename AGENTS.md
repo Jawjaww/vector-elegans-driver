@@ -127,11 +127,30 @@ Conséquence : un `setNotificationHandler` JS ne peut **pas** ramener l'app au p
 
 Le JS reparse cette chaîne (`mapNotificationResponse.ts` : `mappedContent.data = JSON.parse(dataString)`), c'est pourquoi le tap fonctionnait. **Le natif doit faire la même chose** : parser `data["body"]` en `JSONObject` et lire `type` dedans. Le test à plat est conservé en repli pour un envoi FCM direct (sans Expo dans la chaîne). Le parseur qui l'établit côté natif : `NotificationSerializer.java` (`isValidJSONString(dataBody)` → `dataString`).
 
-### Résolution du service : ne pas se fier à `priority`
+### Résolution du service : `priority` ne suffit pas, les concurrents sont retirés
 
-Notre service est déclaré avec `android:priority="1"` (celui d'Expo est à `-1`, celui de Firebase à `-500`), mais **la priorité n'est pas un contrat**. La documentation Firebase est explicite : un seul service reçoit les messages FCM, « le premier déclaré » l'emporte, et il faut **éviter de dépendre de l'ordre ou de la priorité**. Le remède documenté est de retirer le filtre concurrent (`tools:node="remove"`).
+Notre service est déclaré avec `android:priority="1"` (celui d'Expo est à `-1`, celui de Firebase à `-500`), mais **la priorité n'est pas un contrat**. La documentation Firebase est explicite : un seul service reçoit les messages FCM, « le premier déclaré » l'emporte, et il faut **éviter de dépendre de l'ordre ou de la priorité**.
 
-Comme l'ancien filtre ne matchait jamais, notre service n'avait **jamais rien journalisé** : l'hypothèse « priority suffit » n'était pas vérifiée. `onMessageReceived` journalise désormais **inconditionnellement** en première ligne (`push received, data keys=[…]`), avant tout filtrage. C'est la seule preuve fiable de quel service démarre. Si cette ligne n'apparaît pas dans les logs, il faut passer au `tools:node="remove"` sur le filtre d'Expo.
+**Mesuré le 23/09 — l'hypothèse « priority suffit » est tombée.** Le manifeste fusionné déclarait trois services sur `com.google.firebase.MESSAGING_EVENT`, le nôtre **en dernier** :
+
+| Service | `priority` | Position |
+|---------|-----------|----------|
+| `expo.modules.notifications.service.ExpoFirebaseMessagingService` | -1 | 1er |
+| `com.google.firebase.messaging.FirebaseMessagingService` | -500 | 2e |
+| `expo.modules.veoverlay.VeFirebaseMessagingService` | 1 | 3e |
+
+Notre service n'était donc **jamais démarré**, et tout le réveil silencieux avec lui. Deux témoins indépendants l'ont établi :
+
+- `push_received`, journalisé **inconditionnellement en première ligne** de `onMessageReceived`, était **absent** des 23 enregistrements natifs d'une session de 8 minutes contenant deux offres — alors que `pill_shown`, `app_backgrounded` et `launch_confirmed` y figuraient ;
+- `onAppForegrounded()` retire la notification via `pendingOfferNotificationId`, un champ que **seul `onRideOfferPush` renseigne**. Or la notification était encore là 41 s après le retour au premier plan, et c'est le tap dessus qui a affiché la course.
+
+**Correctif appliqué** : les deux déclarations concurrentes sont retirées par `tools:node="remove"` dans le manifeste du module. Elles ne déclarent **que** cette action, donc le retrait ne coûte rien d'autre ; `NotificationsService` (la présentation de la notification) est un receiver distinct et reste en place. Notre service étendant `ExpoFirebaseMessagingService` et appelant `super`, la présentation est inchangée — seule la classe qui reçoit le message change. Le `android:priority` est **supprimé** : le conserver aurait perpétué la fausse garantie.
+
+Garde-fou : `src/lib/__tests__/fcmServiceResolution.test.ts` échoue si un marqueur de retrait disparaît ou si `android:priority` revient. Non-vacuité éprouvée : retirer les marqueurs fait tomber deux assertions, et elles seules.
+
+**Le journal ne savait pas dire *qui* avait demandé le lancement.** `attemptForeground` a **deux** appelants — le push **et le tap sur la pastille**. Tant que l'enregistrement ne nommait pas l'origine, un `launch_confirmed` se lisait comme la preuve que le push était arrivé, alors qu'il pouvait tout aussi bien être un tap sur la pastille : c'est précisément cette ambiguïté qui a masqué un service jamais démarré pendant une session de diagnostic entière. Chaque enregistrement porte désormais `origin=push|pill`.
+
+Même leçon côté JS : `consumeSilentWake` enregistre désormais son **silence** (`outcome=no_payload` / `already_queued`). « Il n'y a jamais eu de payload » et « le payload a été ignoré » produisaient la même observation — aucune ligne `silent_wake` — et un réveil mort était indiscernable d'un réveil qui fonctionne.
 
 Autre piège : **`startActivity` ne signale pas un lancement bloqué**. Android ignore silencieusement un BAL refusé, sans lever d'exception — un booléen de retour est donc un faux positif. Le succès se constate par le passage du lifecycle à `RESUMED`, et c'est ce signal qui retire la notification (avec une seconde tentative, la présentation Expo étant asynchrone). Un contrôle différé journalise désormais l'échec (`launch refused: lifecycle never resumed`). Si le constructeur bloque, la notification reste : aucune offre n'est perdue.
 
@@ -183,8 +202,10 @@ Produit le même APK qu'EAS, signé avec la **même clé de release** (donc inst
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 export GOOGLE_SERVICES_JSON="$PWD/google-services.json"   # sinon ENOENT au prebuild
-npx eas-cli build --local --profile preview-local --platform android --output ./app.apk
+./scripts/build-local-apk.sh                              # ou : npm run build:local:apk
 ```
+
+Le script nomme l'APK d'après la version qu'il contient (`ve-driver-<version>-local.apk`), lue dans `app.config.js` — il n'y a donc pas de second exemplaire du numéro à maintenir. **Ne pas revenir à un `--output ./app.apk` fixe** : deux builds séparés de plusieurs jours portaient alors le même nom, un APK périmé était indiscernable d'un neuf, et c'est ce qui a fait tester une nuit durant une application qui ne contenait pas le code à éprouver.
 
 1. **`GOOGLE_SERVICES_JSON` est obligatoire.** Le fichier est gitignoré, donc absent de l'archive que le build local reçoit : sans cette variable, le prebuild meurt en `ENOENT: .../build/google-services.json`. Le cloud le fournit autrement (variable-fichier EAS), d'où l'écart. [`app.config.js`](app.config.js) lit déjà `process.env.GOOGLE_SERVICES_JSON`.
 2. **Ne pas définir `NODE_ENV=production`.** npm omet alors les `devDependencies`, or `tailwindcss` en est une et `metro.config.js` l'exige via `nativewind` → `Cannot find module 'tailwindcss/package.json'`, phase Bundle JavaScript en échec.

@@ -6,7 +6,7 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.5',
+    version: '1.0.6',
     // Computed from the native project instead of hand-maintained. The
     // fingerprint changes exactly when native code changes and stays stable for
     // JS-only edits, so a JS fix ships over the air while a native change

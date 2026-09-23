@@ -75,6 +75,17 @@ object VeOverlayController {
    */
   private const val LAUNCH_VERIFY_MS = 3000L
 
+  /**
+   * Who asked for the return to the foreground.
+   *
+   * Both the FCM push and a tap on the pill reach `attemptForeground`, and while the
+   * log did not say which, a `launch_confirmed` read like proof that the push had
+   * arrived — when it could equally have been a pill tap. That ambiguity is what
+   * hid a service that was never started, so every record now carries its origin.
+   */
+  private const val LAUNCH_ORIGIN_PUSH = "push"
+  private const val LAUNCH_ORIGIN_PILL = "pill"
+
   private val mainHandler = Handler(Looper.getMainLooper())
 
   private var appContext: Context? = null
@@ -224,16 +235,13 @@ object VeOverlayController {
     // another exemption (an autostart grant, a running foreground service) it would have
     // worked. Attempting it costs one `startActivity` that Android silently drops when it
     // refuses, and it is what turns "never attempted" into a readable verdict.
-    val exemption = if (hasPermission(application)) "pill" else "none"
-    recordDiagnostic("launch_requested", "exemption=$exemption")
-
     mainHandler.post {
       // The visible overlay window is what makes the launch legal, so it must
       // exist *before* startActivity. Deferring it to a later sync() would leave
       // the launch without its exemption — and in a push-started process no
       // later sync() is coming, JS never ran.
       sync()
-      attemptForeground(application)
+      attemptForeground(application, LAUNCH_ORIGIN_PUSH)
     }
   }
 
@@ -243,12 +251,18 @@ object VeOverlayController {
    * simply never appears. Success is proven by the lifecycle reaching RESUMED,
    * which is what triggers the notification dismissal.
    */
-  private fun attemptForeground(context: Context) {
+  private fun attemptForeground(context: Context, origin: String) {
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     if (launchIntent == null) {
-      recordDiagnostic("launch_impossible", "no_launcher_intent")
+      recordDiagnostic("launch_impossible", "origin=$origin no_launcher_intent")
       return
     }
+    // Recorded here rather than at the call site, so no path can request a launch
+    // without saying who asked for it.
+    recordDiagnostic(
+      "launch_requested",
+      "origin=$origin exemption=${if (hasPermission(context)) "pill" else "none"}"
+    )
     launchIntent.addFlags(
       Intent.FLAG_ACTIVITY_NEW_TASK or
         Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
@@ -256,9 +270,9 @@ object VeOverlayController {
     )
     try {
       context.startActivity(launchIntent)
-      Log.i(TAG, "foreground launch requested")
+      Log.i(TAG, "foreground launch requested by $origin")
     } catch (e: Exception) {
-      recordDiagnostic("launch_threw", e.message ?: "unknown")
+      recordDiagnostic("launch_threw", "origin=$origin ${e.message ?: "unknown"}")
     }
 
     // The only observable outcome. A refused launch throws nothing, so the
@@ -266,13 +280,13 @@ object VeOverlayController {
     // notification is deliberately left in place, keeping the offer reachable.
     mainHandler.postDelayed({
       if (isAppForeground()) {
-        recordDiagnostic("launch_confirmed")
+        recordDiagnostic("launch_confirmed", "origin=$origin")
       } else {
         // The single most important line when the app never comes up: it means the request
         // was made and Android dropped it, which no JS-side measure can fix.
         recordDiagnostic(
           "launch_refused",
-          "background_launch_blocked_or_oem_autostart_restriction"
+          "origin=$origin background_launch_blocked_or_oem_autostart_restriction"
         )
       }
     }, LAUNCH_VERIFY_MS)
@@ -435,7 +449,7 @@ object VeOverlayController {
 
         MotionEvent.ACTION_UP -> {
           if (!dragging) {
-            appContext?.let { attemptForeground(it) }
+            appContext?.let { attemptForeground(it, LAUNCH_ORIGIN_PILL) }
           }
           true
         }
