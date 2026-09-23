@@ -80,6 +80,11 @@ import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
+import {
+  TripGuidanceBar,
+  TRIP_GUIDANCE_BAR_HEIGHT,
+} from "../../src/components/TripGuidanceBar";
+import { resolveTripStage } from "../../src/lib/utils/tripGuidance";
 import { VGpsLoader } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
@@ -1388,18 +1393,29 @@ export default function DashboardScreen() {
    */
   useEffect(() => {
     if (offerArrivalAt === null) return;
+    const arrivalRideId =
+      pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
     const action = resolveOfferRingAction({
       arrivalSource: offerArrivalSource,
       isOnline,
       liveness: offerLiveness,
       handledArrival: ringHandledArrivalAt.current === offerArrivalAt,
+      // Read here rather than watched: the accept adds the id to this set *before* its round-trip
+      // and only removes the ride from the deck when the server answers, so during that window
+      // the ride is still `live` and still looks ringable. The set is the only signal that says
+      // the driver has already answered. `activeRide` covers the moment the answer lands, and
+      // covers an accept taken from the notification shade, which never goes through the card.
+      answered:
+        arrivalRideId !== null &&
+        (acceptingRideIdsRef.current.has(arrivalRideId) ||
+          activeRide?.id === arrivalRideId),
     });
     // "Not yet" is not "never": the deck may still be loading or the server may not have
     // answered, and latching those would leave the offer on screen in silence.
     if (!isTerminalRingAction(action)) return;
 
     ringHandledArrivalAt.current = offerArrivalAt;
-    const rideId = pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
+    const rideId = arrivalRideId;
     if (action.kind === 'ring') {
       ringOffer();
       logOfferStage('ring_armed', {}, rideId);
@@ -1416,6 +1432,7 @@ export default function DashboardScreen() {
     isOnline,
     pendingOfferOpen?.rideId,
     provisionalOffer?.rideId,
+    activeRide?.id,
   ]);
 
   // Safety net for the provisional card: the normal path replaces it within one round-trip,
@@ -1531,8 +1548,8 @@ export default function DashboardScreen() {
   );
 
   const visibleProvisional = useMemo(
-    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds),
-    [provisionalOffer, deckOfferIds],
+    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds, activeRide?.id ?? null),
+    [provisionalOffer, deckOfferIds, activeRide?.id],
   );
 
   // Whether an offer card is actually painted, from the very rule the overlay applies. The sheet
@@ -1590,6 +1607,22 @@ export default function DashboardScreen() {
     () => resolveMapRecenterBottomOffset(activeRide, noticesHeight),
     [activeRide, activeRide?.status, activeRide?.driver_arrived_at, noticesHeight],
   );
+
+  // The instruction the driver is meant to be reading. Read off the same two fields the sheet
+  // uses, so the bar and the sheet can never announce different stages of the same ride.
+  const tripStage = useMemo(
+    () =>
+      resolveTripStage(
+        activeRide?.status,
+        Boolean(activeRide?.driver_arrived_at),
+      ),
+    [activeRide?.status, activeRide?.driver_arrived_at],
+  );
+
+  // Waiting at the pickup is the one stage whose sheet is taller than `nav`, so the overlays
+  // above it have to clear a different height — same rule as `resolveMapRecenterBottomOffset`.
+  const waitingAtPickup =
+    activeRide?.status === "scheduled" && Boolean(activeRide?.driver_arrived_at);
 
   // The offer overlay is rendered by both branches below; see `DashboardOfferOverlay` for the
   // single visibility rule it applies. Nothing branches here on purpose: the element is the
@@ -1674,10 +1707,26 @@ export default function DashboardScreen() {
           hint={mapLoaderHint(mapReady, hasGpsFix)}
         />
 
+        {/* The instruction for this stage of the trip. Deliberately outside the sheet: the sheet
+            rests at `nav` while a ride is driven, which is 14 px of body, and the sentence the
+            driver needs was living in there. */}
+        {tripStage && !mapInOfferMode ? (
+          <TripGuidanceBar
+            stage={tripStage}
+            pickupAddress={activeRide?.pickup_address ?? null}
+            dropoffAddress={activeRide?.dropoff_address ?? null}
+            aboveTripSheet={waitingAtPickup}
+          />
+        ) : null}
+
         {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
           <>
             <TripManeuverHud progress={navProgress} />
-            <TripArrivalHud progress={navProgress} />
+            <TripArrivalHud
+              progress={navProgress}
+              aboveTripSheet={waitingAtPickup}
+              bottomOffset={tripStage ? TRIP_GUIDANCE_BAR_HEIGHT + 6 : 0}
+            />
           </>
         ) : null}
 

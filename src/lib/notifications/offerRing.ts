@@ -61,9 +61,17 @@ export type OfferRingIdleReason =
   | 'not_confirmed'
   | 'already_handled';
 
+/**
+ * Why the ring was stopped, or refused without ever starting.
+ *
+ * `answered` is not an idle reason: the driver answering is a *stop*, because a ring already
+ * playing must end with the answer, not merely fail to re-arm.
+ */
+export type OfferRingStopReason = 'offer_dead' | 'answered';
+
 export type OfferRingAction =
   | { kind: 'ring' }
-  | { kind: 'stop'; reason: 'offer_dead' }
+  | { kind: 'stop'; reason: OfferRingStopReason }
   | { kind: 'idle'; reason: OfferRingIdleReason };
 
 /**
@@ -79,6 +87,8 @@ export function resolveOfferRingAction(input: {
   isOnline: boolean;
   liveness: OfferLiveness;
   handledArrival: boolean;
+  /** The driver has already accepted the ride this arrival is about. */
+  answered: boolean;
 }): OfferRingAction {
   if (input.arrivalSource === null) {
     return { kind: 'idle', reason: 'no_arrival' };
@@ -88,6 +98,20 @@ export function resolveOfferRingAction(input: {
   // is idempotent, so this costs nothing when nothing is playing.
   if (input.liveness === 'dead') {
     return { kind: 'stop', reason: 'offer_dead' };
+  }
+  // The answer can arrive *before* the ring does, which is the whole reason this is a stop
+  // rather than an idle. Measured: the accept RPC started at 22:01:02.356 and took 1083 ms, so
+  // the ride was still in the deck — still `live` — when the offer was confirmed at 02.645.
+  // The effect then armed the ring 290 ms after `handleAcceptRide` had already stopped it, and
+  // a stop with nothing playing cannot cancel a start that has not run yet. The ring went on to
+  // play its full 20 s window at a driver who had taken the ride.
+  //
+  // Above the latch, unlike every other refusal: `already_handled` is about an arrival having
+  // been dealt with, whereas this is about there being nothing left to alert the driver to. A
+  // ring armed from a tray tap, or re-armed by a later render, would survive a check placed
+  // below it.
+  if (input.answered) {
+    return { kind: 'stop', reason: 'answered' };
   }
   if (input.handledArrival) {
     return { kind: 'idle', reason: 'already_handled' };

@@ -11,12 +11,21 @@ type TripArrivalHudProps = Readonly<{
   progress: NavProgress;
   /** Place above the taller trip sheet (waiting at pickup). */
   aboveTripSheet?: boolean;
+  /**
+   * Extra lift, for when the guidance bar occupies the slot just above the sheet.
+   *
+   * Passed in rather than derived: this chip knows nothing about the trip's stage, and giving it
+   * that knowledge to save one prop is how two components end up disagreeing about which one is
+   * on top.
+   */
+  bottomOffset?: number;
 }>;
 
 /** Compact arrival chip (clock · distance), just above the bottom sheet. */
 export function TripArrivalHud({
   progress,
   aboveTripSheet = false,
+  bottomOffset = 0,
 }: TripArrivalHudProps) {
   const eta = optimisticEtaMinutes(
     progress.durationSeconds,
@@ -31,7 +40,7 @@ export function TripArrivalHud({
       style={{
         position: 'absolute',
         left: 12,
-        bottom: sheetH + 10,
+        bottom: sheetH + 10 + bottomOffset,
         zIndex: 15,
         flexDirection: 'row',
         alignItems: 'baseline',

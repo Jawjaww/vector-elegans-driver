@@ -64,10 +64,10 @@ export const OFFER_PIPELINE_STAGES = [
    */
   'ring_armed',
   /**
-   * The ring was deliberately refused, or stopped because the offer died. `reason` is
-   * `tap_origin` | `driver_offline` | `no_offer` | `not_confirmed` | `already_handled` |
-   * `offer_dead` — the only way to tell "the ring is silent by design" from "the ring is broken",
-   * which the driver experiences identically.
+   * The ring was deliberately refused, or stopped because the offer died or was answered.
+   * `reason` is `tap_origin` | `driver_offline` | `no_offer` | `not_confirmed` |
+   * `already_handled` | `offer_dead` | `answered` — the only way to tell "the ring is silent by
+   * design" from "the ring is broken", which the driver experiences identically.
    */
   'ring_skipped',
   /**
