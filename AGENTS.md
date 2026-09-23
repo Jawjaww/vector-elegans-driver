@@ -168,6 +168,8 @@ cd android && ./gradlew :ve-overlay:compileDebugKotlin   # boucle rapide sur le 
 # Release (= ce que produit le profil preview) : le métaspace par défaut du
 # template (512m) fait échouer les tâches lint en `OutOfMemoryError: Metaspace`.
 # EAS dispose de la marge, pas cette machine — d'où le flag explicite.
+# Ici on le passe à la main ; `eas build --local` n'a pas cette prise, c'est le
+# profil `preview-local` qui le porte (voir § `eas build --local` ci-dessous).
 ./gradlew :app:assembleRelease -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=2g"
 ```
 
@@ -175,17 +177,18 @@ cd android && ./gradlew :ve-overlay:compileDebugKotlin   # boucle rapide sur le 
 
 ### `eas build --local` — prérequis
 
-Produit le même APK qu'EAS, signé avec la **même clé de release** (donc installable en mise à jour, contrairement à un `assembleDebug` signé `Android Debug`), sans file d'attente. Deux différences avec le cloud, apprises à la dure :
+Produit le même APK qu'EAS, signé avec la **même clé de release** (donc installable en mise à jour, contrairement à un `assembleDebug` signé `Android Debug`), sans file d'attente. Trois différences avec le cloud, apprises à la dure :
 
 ```bash
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 export GOOGLE_SERVICES_JSON="$PWD/google-services.json"   # sinon ENOENT au prebuild
-npx eas-cli build --local --profile preview --platform android --output ./app.apk
+npx eas-cli build --local --profile preview-local --platform android --output ./app.apk
 ```
 
 1. **`GOOGLE_SERVICES_JSON` est obligatoire.** Le fichier est gitignoré, donc absent de l'archive que le build local reçoit : sans cette variable, le prebuild meurt en `ENOENT: .../build/google-services.json`. Le cloud le fournit autrement (variable-fichier EAS), d'où l'écart. [`app.config.js`](app.config.js) lit déjà `process.env.GOOGLE_SERVICES_JSON`.
 2. **Ne pas définir `NODE_ENV=production`.** npm omet alors les `devDependencies`, or `tailwindcss` en est une et `metro.config.js` l'exige via `nativewind` → `Cannot find module 'tailwindcss/package.json'`, phase Bundle JavaScript en échec.
+3. **Le métaspace du template fait échouer la variante release.** Le prebuild fige `org.gradle.jvmargs` à `-XX:MaxMetaspaceSize=512m` — et `android/` est gitignoré **et régénéré à chaque build**, donc ce plafond ne se corrige pas à la source : les tâches lint release meurent en `OutOfMemoryError: Metaspace`. La boucle `./gradlew` s'en sort en passant le flag à la main, mais `eas build` ne laisse pas accéder à la ligne de commande Gradle. D'où le profil **`preview-local`** (`extends: "preview"` — même APK, même `channel`, même `environment` — auquel s'ajoute le `gradleCommand`). Le profil `preview` reste celui du cloud : ne **pas** y déplacer le flag, un builder EAS plus petit serait tué pour OOM sur le seul chemin qui fonctionne aujourd'hui.
 
 `*.apk` / `*.aab` sont gitignorés : le build écrit l'APK à la racine du dépôt.
 

@@ -20,6 +20,13 @@
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
       }
     },
+    "preview-local": {
+      "extends": "preview",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease -Dorg.gradle.jvmargs=\"-Xmx4g -XX:MaxMetaspaceSize=2g\""
+      }
+    },
     "production": {
       "autoIncrement": true,
       "environment": "production",
