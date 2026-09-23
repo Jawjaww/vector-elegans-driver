@@ -247,7 +247,8 @@ export function useNotifications() {
       logOfferStage('native_diag', {
         event,
         ...(detail ? { detail } : {}),
-        ...(state ?? {}),
+        // Spreading `null` is a no-op, so no `?? {}` fallback is needed here.
+        ...state,
         native_at: Number(at),
       });
     }
@@ -268,13 +269,23 @@ export function useNotifications() {
     // and everything it triggers is a synchronous store write.
     reportNativeDiagnostics();
     consumeSilentWake();
-    // The synchronous read behind `useLastNotificationResponse` comes back empty when the
-    // native modules were not yet initialised at the first layout effect, and nothing re-reads
-    // it afterwards. The async form reads the same pending response; the event key keeps it
-    // idempotent when the hook already handled it.
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
+    // The read behind `useLastNotificationResponse` happens at the hook's first render and comes
+    // back empty when the native modules were not up yet, and nothing re-reads it afterwards.
+    // Read the same pending response again here, from the effect, where the modules are loaded;
+    // the event key keeps it idempotent when the hook already handled it.
+    //
+    // Wrapped on purpose. This replaces the deprecated async form, which was a bare promise
+    // wrapper around this very call and turned an unavailable native module into a rejection
+    // that `void` dropped. The synchronous call throws instead, and the read sits on the cold
+    // start path: a breadcrumb must not be able to break it.
+    try {
+      const response = Notifications.getLastNotificationResponse();
       if (response) openFromResponse(response);
-    });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[Notifications] last response unavailable:', error);
+      }
+    }
   }, [consumeSilentWake, openFromResponse, reportNativeDiagnostics]);
 
   useEffect(() => {

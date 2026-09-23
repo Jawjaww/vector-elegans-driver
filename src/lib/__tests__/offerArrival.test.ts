@@ -366,8 +366,26 @@ describe('the silent wake hands the ride to JS', () => {
   // The hook's synchronous read returns null when the native modules were not yet initialised
   // at the first layout effect, and nothing re-read it afterwards: a cold-start tap could be
   // dropped for good.
-  it('re-reads the pending response asynchronously', () => {
-    expect(notifications).toContain('getLastNotificationResponseAsync()');
+  it('re-reads the pending response beyond the hook first render', () => {
+    expect(notifications).toContain('Notifications.getLastNotificationResponse()');
+  });
+
+  // That read replaces `getLastNotificationResponseAsync`, which was a bare promise wrapper
+  // around this very call. Keeping the deprecated one would work but hides the trap below.
+  it('does not use the deprecated async form', () => {
+    expect(notifications).not.toContain('getLastNotificationResponseAsync');
+  });
+
+  // The async form turned an unavailable native module into a rejection that `void` dropped; the
+  // synchronous one *throws*, on the cold-start path. Uncaught, it would break the very start it
+  // was meant to observe.
+  it('catches the synchronous read, which throws where the async form rejected', () => {
+    const call = notifications.indexOf('Notifications.getLastNotificationResponse()');
+    expect(call).toBeGreaterThan(-1);
+    const tryAt = notifications.lastIndexOf('try {', call);
+    const catchAt = notifications.indexOf('catch', call);
+    expect(tryAt).toBeGreaterThan(-1);
+    expect(catchAt).toBeGreaterThan(call);
   });
 
   // The native side keeps a copy of every offer payload it was woken by, and the tray path
