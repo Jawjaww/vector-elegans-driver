@@ -62,5 +62,18 @@ class VeOverlayModule : Module() {
       runCatching { VeOverlayController.describeState() }.getOrNull()
         ?: emptyMap<String, Boolean>()
     }
+
+    /**
+     * Silence the offer ring, because the driver has answered it.
+     *
+     * The ring is bounded natively, so this is not what stops it from outliving the offer —
+     * it is what makes the answer feel immediate instead of leaving the driver with a sound
+     * they have already replied to.
+     */
+    Function("stopOfferRing") { reason: String ->
+      runCatching { VeOverlayController.stopOfferRing(reason) }
+        .onFailure { Log.w("VeOverlay", "stopOfferRing failed", it) }
+      Unit
+    }
   }
 }

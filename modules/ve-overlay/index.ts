@@ -33,6 +33,13 @@ export type VeOverlayNativeModule = {
   drainDiagnostics(): string;
   /** Live native state: overlay permission, persisted online flag, pill visibility. */
   describeState(): Record<string, boolean>;
+  /**
+   * Silence the offer ring, because the driver has answered it.
+   *
+   * The ring is bounded natively to the front card's own countdown, so this only makes the
+   * answer feel immediate; it is not what stops the sound from outliving the offer.
+   */
+  stopOfferRing(reason: string): void;
 };
 
 export default requireOptionalNativeModule<VeOverlayNativeModule>('VeOverlay');

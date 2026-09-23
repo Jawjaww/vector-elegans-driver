@@ -93,6 +93,22 @@ export function getOverlayState(): Record<string, boolean> | null {
   }
 }
 
+/**
+ * Silence the offer ring, because the driver has answered it.
+ *
+ * Only meaningful on the wake path: an offer that arrived as a notification carries its own
+ * sound, and there is nothing here to stop. The native side bounds the ring to the front
+ * card's countdown anyway, so a call that never happens costs at most a few seconds of sound —
+ * which is why it stays best-effort and never throws.
+ */
+export function stopOfferRing(reason: string): void {
+  try {
+    overlayModule()?.stopOfferRing(reason);
+  } catch {
+    // Overlay inactive; the ring is not playing either.
+  }
+}
+
 let lifecycleStarted = false;
 
 /** Started once from the root layout so the online state is mirrored even when

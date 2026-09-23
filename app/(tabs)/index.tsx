@@ -42,6 +42,7 @@ import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { useDriverStoreHydrated } from "../../src/hooks/useDriverStoreHydrated";
 import { useOverlayPermissionPrompt } from "../../src/hooks/useOverlayPermissionPrompt";
+import { stopOfferRing } from "../../src/lib/overlay/overlayService";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
 import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisibleHeight } from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
@@ -1413,6 +1414,10 @@ export default function DashboardScreen() {
   });
 
   const handleAcceptRide = async (rideId: string) => {
+    // The driver has answered, so the alert has done its job. Stopped here rather than in the
+    // carousel because this is also the funnel for the tray action: accepting from the
+    // notification shade never goes through the card.
+    stopOfferRing("accepted");
     await acceptTrackedRide({
       rideId,
       driverStatus,
@@ -1434,6 +1439,9 @@ export default function DashboardScreen() {
     rideId: string,
     reason: "declined" | "timeout" = "declined",
   ) => {
+    // Both ways of declining land here — the button and the card's own countdown — so the ring
+    // is stopped by the answer rather than by the native window whenever there is an answer.
+    stopOfferRing(reason === "timeout" ? "timed_out" : "declined");
     // Soft refuse / timeout (Refuser button or countdown) — not swipe
     deferAvailableRide(rideId);
     await rideService.respondOffer(rideId, reason);
