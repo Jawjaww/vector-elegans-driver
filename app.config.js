@@ -80,6 +80,11 @@ module.exports = {
         },
       ],
       'expo-task-manager',
+      // Only one service receives the FCM message intent and it is the first declared
+      // one; this removes the two competitors from the app manifest. It cannot be done
+      // in the module's own manifest — a library cannot remove a node from another
+      // library of higher merge priority, and the removal would be silently dropped.
+      './plugins/withRemoveCompetingFcmServices',
       [
         'expo-image-picker',
         {

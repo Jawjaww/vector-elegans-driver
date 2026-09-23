@@ -127,9 +127,9 @@ Conséquence : un `setNotificationHandler` JS ne peut **pas** ramener l'app au p
 
 Le JS reparse cette chaîne (`mapNotificationResponse.ts` : `mappedContent.data = JSON.parse(dataString)`), c'est pourquoi le tap fonctionnait. **Le natif doit faire la même chose** : parser `data["body"]` en `JSONObject` et lire `type` dedans. Le test à plat est conservé en repli pour un envoi FCM direct (sans Expo dans la chaîne). Le parseur qui l'établit côté natif : `NotificationSerializer.java` (`isValidJSONString(dataBody)` → `dataString`).
 
-### Résolution du service : `priority` ne suffit pas, les concurrents sont retirés
+### Résolution du service : un seul service reçoit l'intent, et c'est le premier déclaré
 
-Notre service est déclaré avec `android:priority="1"` (celui d'Expo est à `-1`, celui de Firebase à `-500`), mais **la priorité n'est pas un contrat**. La documentation Firebase est explicite : un seul service reçoit les messages FCM, « le premier déclaré » l'emporte, et il faut **éviter de dépendre de l'ordre ou de la priorité**.
+Notre service **était** déclaré avec `android:priority="1"` (celui d'Expo est à `-1`, celui de Firebase à `-500`), mais **la priorité n'est pas un contrat**. La documentation Firebase est explicite : un seul service reçoit les messages FCM, « le premier déclaré » l'emporte, et il faut **éviter de dépendre de l'ordre ou de la priorité**.
 
 **Mesuré le 23/09 — l'hypothèse « priority suffit » est tombée.** Le manifeste fusionné déclarait trois services sur `com.google.firebase.MESSAGING_EVENT`, le nôtre **en dernier** :
 
@@ -144,9 +144,22 @@ Notre service n'était donc **jamais démarré**, et tout le réveil silencieux 
 - `push_received`, journalisé **inconditionnellement en première ligne** de `onMessageReceived`, était **absent** des 23 enregistrements natifs d'une session de 8 minutes contenant deux offres — alors que `pill_shown`, `app_backgrounded` et `launch_confirmed` y figuraient ;
 - `onAppForegrounded()` retire la notification via `pendingOfferNotificationId`, un champ que **seul `onRideOfferPush` renseigne**. Or la notification était encore là 41 s après le retour au premier plan, et c'est le tap dessus qui a affiché la course.
 
-**Correctif appliqué** : les deux déclarations concurrentes sont retirées par `tools:node="remove"` dans le manifeste du module. Elles ne déclarent **que** cette action, donc le retrait ne coûte rien d'autre ; `NotificationsService` (la présentation de la notification) est un receiver distinct et reste en place. Notre service étendant `ExpoFirebaseMessagingService` et appelant `super`, la présentation est inchangée — seule la classe qui reçoit le message change. Le `android:priority` est **supprimé** : le conserver aurait perpétué la fausse garantie.
+**Correctif appliqué** : les deux déclarations concurrentes sont retirées, et cela **doit se faire dans le manifeste d'application**, via le config plugin `plugins/withRemoveCompetingFcmServices.js`. Elles ne déclarent **que** cette action, donc le retrait ne coûte rien d'autre ; `NotificationsService` (la présentation de la notification) est un receiver distinct et reste en place. Notre service étendant `ExpoFirebaseMessagingService` et appelant `super`, la présentation est inchangée — seule la classe qui reçoit le message change. Le `android:priority` est **supprimé** : le conserver aurait perpétué la fausse garantie.
 
-Garde-fou : `src/lib/__tests__/fcmServiceResolution.test.ts` échoue si un marqueur de retrait disparaît ou si `android:priority` revient. Non-vacuité éprouvée : retirer les marqueurs fait tomber deux assertions, et elles seules.
+**Le premier correctif a été écrit au mauvais niveau, et il a été ignoré en silence.** Le `tools:node="remove"` avait été posé dans le manifeste du **module**. Or un manifeste de bibliothèque ne peut pas retirer un nœud apporté par une bibliothèque de **priorité de fusion supérieure** : les déclarations fusionnent dans l'ordre des dépendances (`expo-notifications` précède notre module), et le marqueur est purement et simplement abandonné. L'APK produit portait toujours **trois** services, sans le moindre avertissement — exactement la classe d'échec muet que ce chantier combat. Le manifeste d'application, lui, a la priorité la plus haute : c'est l'endroit documenté pour retirer un nœud déclaré par une bibliothèque.
+
+L'épreuve qui tranche n'est pas l'APK (6 min) mais la fusion seule, en ~40 s :
+
+```bash
+cd android && ./gradlew :app:processReleaseMainManifest
+rg -c 'name="com.google.firebase.MESSAGING_EVENT"' \
+  app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
+# attendu : 1
+```
+
+**Piège du comptage** : ne pas compter `MESSAGING_EVENT` dans le manifeste fusionné, mais `name="com.google.firebase.MESSAGING_EVENT"`. La fusion **conserve les commentaires** des manifestes sources, et un commentaire qui nomme l'action fait monter le compte à 2 sans qu'aucun service supplémentaire n'existe. Dans le binaire, en revanche, les commentaires disparaissent : `aapt2 dump xmltree … --file AndroidManifest.xml` ne rend que les déclarations.
+
+Garde-fou : `src/lib/__tests__/fcmServiceResolution.test.ts` vérifie que le plugin retire bien les deux concurrents, qu'il porte `tools:node` **et** `xmlns:tools` (sans le namespace le marqueur est inerte), qu'il est **déclaré** dans `app.config.js` (un plugin non listé ne retire rien et le build paraît identique), et que le manifeste du **module** ne contient ni `tools:node` ni `android:priority` — le retrait au niveau module doit rester absent, puisque le remettre ressemblerait à un correctif tout en produisant un APK à trois services.
 
 **Le journal ne savait pas dire *qui* avait demandé le lancement.** `attemptForeground` a **deux** appelants — le push **et le tap sur la pastille**. Tant que l'enregistrement ne nommait pas l'origine, un `launch_confirmed` se lisait comme la preuve que le push était arrivé, alors qu'il pouvait tout aussi bien être un tap sur la pastille : c'est précisément cette ambiguïté qui a masqué un service jamais démarré pendant une session de diagnostic entière. Chaque enregistrement porte désormais `origin=push|pill`.
 
