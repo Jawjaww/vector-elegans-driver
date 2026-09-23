@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
@@ -16,6 +17,7 @@ import {
 } from '../lib/notifications/pushRegistration';
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
 import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import { acknowledgeOfferPush } from '../lib/notifications/offerPushAck';
 import { previewFromPushData } from '../lib/notifications/offerPreview';
 import {
   consumeNativeOfferPush,
@@ -87,6 +89,40 @@ type OfferOpenStage = 'tap_received' | 'silent_wake';
  */
 const DOUBLE_QUEUE_WINDOW_MS = 10_000;
 
+/**
+ * Whether the mount-time native read already ran in this JS runtime.
+ *
+ * Module scope on purpose, not a `useRef`: the flood this pins was twenty-one `no_payload`
+ * rows in five seconds, which means the read ran per mount rather than once, and a ref is
+ * reset by the very remount that caused it. The underlying remount is not identified here.
+ *
+ * Running it only once cannot miss anything, because the first read *consumes* the native
+ * payload: every later read in the same runtime is guaranteed to answer "no payload" and can
+ * only bury the one row that matters. A payload landing later is still picked up — that is the
+ * AppState listener on the return to the foreground, which is untouched.
+ */
+let initialNativeReadDone = false;
+
+/**
+ * The JS bundle this runtime is executing, for the pipeline log.
+ *
+ * The APK identity arrives separately, through the native `process_start` entry. Read
+ * defensively: this is observability, and it must never be the thing that breaks a cold
+ * start. `expo-updates` answers nulls rather than throwing when updates are disabled.
+ */
+function readBuildIdentity(): Record<string, unknown> {
+  try {
+    return {
+      updateId: Updates.updateId,
+      runtimeVersion: Updates.runtimeVersion,
+      channel: Updates.channel,
+      embedded: Updates.isEmbeddedLaunch,
+    };
+  } catch {
+    return { updateId: null, unavailable: true };
+  }
+}
+
 export function useNotifications() {
   const router = useRouter();
   const notificationListener = useRef<Notifications.EventSubscription | null>(
@@ -128,6 +164,10 @@ export function useNotifications() {
       if (rideId) {
         queueOfferOpen(rideId, action, previewFromPushData(data, rideId));
       }
+      // The one place both paths converge — a tray tap and a silent wake — which is exactly
+      // what makes it the right place to report receipt: beyond this point the server could no
+      // longer tell "woken" from "never started".
+      acknowledgeOfferPush(data);
       router.push('/(tabs)/');
     },
     [router],
@@ -219,7 +259,12 @@ export function useNotifications() {
   }, [lastNotificationResponse, openFromResponse]);
 
   useEffect(() => {
-    // Native read first: on a cold start from a silent wake it is the only source of the ride,
+    // Once per JS runtime: see `initialNativeReadDone`. A remount must not re-ask the native
+    // side a question whose answer it has already consumed.
+    if (initialNativeReadDone) return;
+    initialNativeReadDone = true;
+    logOfferStage('app_build', readBuildIdentity());
+    // Native read next: on a cold start from a silent wake it is the only source of the ride,
     // and everything it triggers is a synchronous store write.
     reportNativeDiagnostics();
     consumeSilentWake();

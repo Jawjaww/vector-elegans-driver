@@ -6,9 +6,10 @@
 # the phone was indistinguishable from a fresh one. That is not hypothetical — it
 # cost a night spent testing an application that did not contain the code under test.
 #
-# The version is read from app.config.js rather than repeated here, so the name cannot
-# drift from the build. Only the OTA runtimeVersion is fingerprinted; the Android
-# versionName is a literal, which is exactly why it must show up in the file name.
+# The version and versionCode are read from app.config.js rather than repeated here, so
+# the name cannot drift from the build. Both are printed: the versionName is what a human
+# recognises, the versionCode is what Android actually compares and what Settings > Apps
+# displays, so the two together are what make an installed APK identifiable.
 #
 # Usage (from vector-elegans):
 #   ./scripts/build-local-apk.sh
@@ -49,9 +50,10 @@ if [[ -z "${JAVA_HOME:-}" && -d "/Applications/Android Studio.app/Contents/jbr/C
 fi
 
 VERSION="$(node -p "require('./app.config.js').expo.version")"
-OUT="$OUTPUT_DIR/ve-driver-${VERSION}-local.apk"
+VERSION_CODE="$(node -p "require('./app.config.js').expo.android.versionCode")"
+OUT="$OUTPUT_DIR/ve-driver-${VERSION}+${VERSION_CODE}.apk"
 
-echo "Building version ${VERSION} (profile preview-local)"
+echo "Building version ${VERSION} (versionCode ${VERSION_CODE}, profile preview-local)"
 echo "  java:      ${JAVA_HOME:-<inherited>}"
 echo "  android:   ${ANDROID_HOME:-<inherited>}"
 echo "  output:    $OUT"

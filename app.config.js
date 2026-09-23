@@ -6,7 +6,7 @@ module.exports = {
   expo: {
     name: 'Vector Elegans Driver',
     slug: 'vector-elegans-driver',
-    version: '1.0.6',
+    version: '1.0.7',
     // Computed from the native project instead of hand-maintained. The
     // fingerprint changes exactly when native code changes and stays stable for
     // JS-only edits, so a JS fix ships over the air while a native change
@@ -44,6 +44,12 @@ module.exports = {
       googleServicesFile:
         process.env.GOOGLE_SERVICES_JSON || './google-services.json',
       package: 'com.vectorelegans.driver',
+      // Monotonic: `major * 10000 + minor * 100 + patch`. Left unset, Expo writes the
+      // default value 1 for every release, so Settings > Apps showed the same number for
+      // builds a week apart — the exact blindness that let an APK without the fix pass for
+      // the build under test. It is also what Android compares to allow an in-place update,
+      // so it must only ever increase.
+      versionCode: 10007,
       permissions: [
         'android.permission.INTERNET',
         'android.permission.ACCESS_COARSE_LOCATION',
