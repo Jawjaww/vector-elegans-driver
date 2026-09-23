@@ -25,6 +25,7 @@ import {
   getOverlayState,
 } from '../lib/overlay/overlayService';
 import type { OfferNotificationAction } from '../lib/stores/driverStore';
+import type { OfferOpenStageName } from '../lib/notifications/offerRing';
 import {
   buildRideOfferPushContent,
   isRideOfferPush,
@@ -75,8 +76,11 @@ Notifications.setNotificationHandler({
  * The two ways an offer can reach the driver without them choosing it in-app, and what tells
  * them apart in the timeline: a tap is already inside JS, whereas a silent wake also crossed
  * the process start and the Activity launch.
+ *
+ * Reused from the ring gate rather than redeclared here: the ring's whole decision rests on
+ * this distinction, so the two must not be able to disagree about what a wake is.
  */
-type OfferOpenStage = 'tap_received' | 'silent_wake';
+type OfferOpenStage = OfferOpenStageName;
 
 /**
  * How long a ride counts as already queued.
@@ -162,7 +166,9 @@ export function useNotifications() {
         rideId,
       );
       if (rideId) {
-        queueOfferOpen(rideId, action, previewFromPushData(data, rideId));
+        // The stage is carried into the queue, not merely logged: the ring gate reads it to
+        // know whether anything has already made a sound for this offer.
+        queueOfferOpen(rideId, action, previewFromPushData(data, rideId), stage);
       }
       // The one place both paths converge — a tray tap and a silent wake — which is exactly
       // what makes it the right place to report receipt: beyond this point the server could no

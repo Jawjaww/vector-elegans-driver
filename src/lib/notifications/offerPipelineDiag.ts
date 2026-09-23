@@ -58,6 +58,25 @@ export const OFFER_PIPELINE_STAGES = [
   /** The ride was pushed to the front of the offer stack. */
   'promoted',
   /**
+   * The offer ring was asked for. Only ever reached on the silent-wake path, with a live offer
+   * painted: the wake draws no notification, so nothing else has made a sound. See
+   * `src/lib/notifications/offerRing.ts` for the gate that decides this.
+   */
+  'ring_armed',
+  /**
+   * The ring was deliberately refused, or stopped because the offer died. `reason` is
+   * `tap_origin` | `driver_offline` | `no_offer` | `not_confirmed` | `already_handled` |
+   * `offer_dead` — the only way to tell "the ring is silent by design" from "the ring is broken",
+   * which the driver experiences identically.
+   */
+  'ring_skipped',
+  /**
+   * The driver chose a ringtone, or went back to the system default. Recorded natively and
+   * replayed here, so a change of sound is visible in the same timeline as the offers it
+   * applies to.
+   */
+  'sound_picked',
+  /**
    * The offer card laid out with a non-zero size, i.e. the driver can actually see it.
    * The gap between `promoted` and this stage is the part the boot gate and the entry
    * animations used to hide: the ride was in the store but not on screen.

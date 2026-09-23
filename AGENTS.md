@@ -85,7 +85,7 @@ npm run update:preview -- "fix login map"
 
 - Env cloud : `--environment preview` reprend les `EXPO_PUBLIC_*` du projet EAS (même DB que Vercel).
 - **Expo Go / Metro** ≠ OTA : dev local reste `npx expo start` ; OTA ne s’applique qu’aux builds preview/production.
-- Rebuild obligatoire si : nouvelle dep native, plugin `app.config.js`, icône/splash, permissions.
+- Rebuild obligatoire si : nouvelle dep native, plugin `app.config.js`, icône/splash, permissions, **ou toute ligne de Kotlin dans `modules/`** (la sonnerie et son sélecteur en font partie — voir § « Ce qui part en OTA, et ce qui exige un APK »).
 
 Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-driver/updates
 
@@ -97,12 +97,12 @@ But : amener l'app au premier plan avec la course **sans passer par la notificat
   - ⚠️ Les motifs du [`.gitignore`](.gitignore) sont **ancrés à la racine** (`/android/`, `/ios/`) pour cette raison : un `android/` non ancré matche aussi `modules/*/android/` et supprimerait silencieusement le Kotlin de tout module local du commit. Vérifier après ajout d'un module : `for f in $(find modules -type f); do git check-ignore -v "$f"; done` ne doit rien afficher.
 - **Permission** : `android.permission.SYSTEM_ALERT_WINDOW` dans [`app.config.js`](app.config.js) — accès spécial, accordé par l'utilisateur depuis Settings. L'app affiche d'abord une explication in-app (`src/hooks/useOverlayPermissionPrompt.ts`) ; un refus est honoré et la notification reste le chemin de secours.
 - **La permission n'est pas un veto** : sans elle, le réveil est **quand même tenté**. Un `startActivity` refusé par Android est silencieusement ignoré, une autre exemption (autostart OEM, service de premier plan) peut le couvrir, et ne pas essayer rendait l'échec invisible — ni lancement, ni trace. Le verdict est désormais écrit : `launch_requested` porte `exemption=pill|none`, suivi de `launch_confirmed` ou `launch_refused`.
-- **Journal de décisions natif** : `VeOverlayController.recordDiagnostic` tient un anneau borné (40 entrées, SharedPreferences). Vocabulaire : `process_start` (ouverture, avec l'identité du build), `fcm_received` / `fcm_rejected` (le message est arrivé / n'a pas été reconnu), `push_received`, `no_launch` (`driver_offline` | `app_foreground`), `launch_requested`, `launch_confirmed` / `launch_refused` / `launch_impossible` / `launch_threw`, `fallback_presented` / `fallback_cancelled`, `app_foregrounded` (avec `ON_START` | `ON_RESUME`), `app_backgrounded`, `driver_online`, `ring_requested` / `ring_playing` / `ring_stopped` / `ring_failed` (la sonnerie du réveil, seule sur ce chemin — voir § « The wake path rings »), `pill_shown` / `pill_failed`. C'est la seule fenêtre sur ce qui se passe **avant** que JS existe, et elle ne demande pas d'`adb` : relu au démarrage et à chaque retour au premier plan, puis versé dans `offer_pipeline_events` (`stage = 'native_diag'`, horloge appareil dans `native_at`).
+- **Journal de décisions natif** : `VeOverlayController.recordDiagnostic` tient un anneau borné (40 entrées, SharedPreferences). Vocabulaire : `process_start` (ouverture, avec l'identité du build), `fcm_received` / `fcm_rejected` (le message est arrivé / n'a pas été reconnu), `push_received`, `no_launch` (`driver_offline` | `app_foreground`), `launch_requested`, `launch_confirmed` / `launch_refused` / `launch_impossible` / `launch_threw`, `fallback_presented` / `fallback_cancelled`, `app_foregrounded` (avec `ON_START` | `ON_RESUME`), `app_backgrounded`, `driver_online`, `ring_playing` / `ring_stopped` / `ring_failed` / `ring_unplayable` / `ring_default_fallback` (la sonnerie du réveil — voir § « The wake path rings, and JS decides when »), `sound_picked` (sonnerie choisie ou réinitialisée), `pill_shown` / `pill_failed`. C'est la seule fenêtre sur ce qui se passe **avant** que JS existe, et elle ne demande pas d'`adb` : relu au démarrage et à chaque retour au premier plan, puis versé dans `offer_pipeline_events` (`stage = 'native_diag'`, horloge appareil dans `native_at`).
 - **Sonde inconditionnelle** : `fcm_received` est écrit **avant tout parsing**. C'est la seule ligne qui peut dire que le message est arrivé **à notre service** — quand plusieurs services déclarent `MESSAGING_EVENT`, un seul est démarré et les perdants ne laissent aucune trace. Son absence est ce qui a prouvé que les concurrents gagnaient ; sa présence sépare « notre service tourne et n'est pas d'accord sur le payload » de « notre service n'a jamais tourné », deux pannes indistinguables autrement. Quand la reconnaissance échoue, `fcm_rejected` porte `body=` (tronqué à 300 caractères) : la raison est toujours la forme du payload, et c'est exactement ce qui manquait.
-- **Réveil silencieux** : `consumePendingOfferPush()` rend à JS le payload que le service a gardé. Un réveil silencieux reprend l'Activity du lanceur — **aucun extra, aucun `NotificationResponse`** : sans cette copie, la course devrait être redécouverte par le boot, c'est-à-dire exactement le délai que le réveil supprime. Côté JS le stage est `silent_wake`, distinct de `tap_received`, et une fenêtre de 10 s empêche la même offre d'être mise en file deux fois (la copie native est sans action et écraserait un « Accepter » venu du tiroir).
+- **Réveil silencieux** : `consumePendingOfferPush()` rend à JS le payload que le service a gardé. Un réveil silencieux reprend l'Activity du lanceur — **aucun extra, aucun `NotificationResponse`** : sans cette copie, la course devrait être redécouverte par le boot, c'est-à-dire exactement le délai que le réveil supprime. Côté JS le stage est `silent_wake`, distinct de `tap_received`, et une fenêtre de 10 s empêche la même offre d'être mise en file deux fois (la copie native est sans action et écraserait un « Accepter » venu du tiroir). Ce stage n'est pas seulement journalisé : il est **rangé dans le store** comme `offerArrivalSource`, parce que la sonnerie a besoin de savoir si quelque chose a déjà joué un son pour cette offre.
 - **Pastille** : visible **seulement** hors premier plan et si le chauffeur est en ligne (`ProcessLifecycleOwner` côté natif). Elle disparaît dès que l'app revient, et réapparaît quand elle repart en arrière-plan.
-- **JS** : `src/lib/overlay/overlayPolicy.ts` (`isOverlayAvailable`, pur, testé en Jest) + `src/lib/overlay/overlayService.ts`. Entrées JS : `setDriverOnline(boolean)`, publiée depuis [`app/_layout.tsx`](app/_layout.tsx) via l'état `isOnline` du store, plus les trois lectures ci-dessus (`consumeNativeOfferPush`, `drainOverlayDiagnostics`, `getOverlayState`) — jamais appelées depuis un chemin de rendu.
-- **Dégradation** : `requireOptionalNativeModule` renvoie `null` sur iOS et sur tout binaire sans le natif → toutes les fonctions sont inertes et la notification reprend la main. C'est ce qui rend un OTA sans rebuild **sans danger** (mais sans overlay).
+- **JS** : `src/lib/overlay/overlayPolicy.ts` (`isOverlayAvailable`, pur, testé en Jest) + `src/lib/overlay/overlayService.ts`. Entrées JS : `setDriverOnline(boolean)`, publiée depuis [`app/_layout.tsx`](app/_layout.tsx) via l'état `isOnline` du store ; les trois lectures (`consumeNativeOfferPush`, `drainOverlayDiagnostics`, `getOverlayState`) ; la sonnerie (`ringOffer`, `stopOfferRing`) ; et le choix de sonnerie (`getOfferSound`, `pickOfferSound`, `resetOfferSound`). Aucune n'est appelée depuis un chemin de rendu, sauf `ringOffer` — qui l'est depuis un effet, pour la raison exposée plus bas.
+- **Dégradation** : `requireOptionalNativeModule` renvoie `null` sur iOS et sur tout binaire sans le natif → toutes les fonctions sont inertes et la notification reprend la main. C'est ce qui rend un OTA sans rebuild **sans danger** (mais sans overlay). Corollaire pour la sonnerie : la ligne « Sonnerie d'offre » du profil disparaît sur iOS et sur un binaire plus ancien (`isOverlaySupported()`), et la sonnerie choisie n'existe que sur Android.
 - **Rebuild APK obligatoire** pour l'activer : `eas build --profile preview --platform android`. `runtimeVersion` suit la politique `fingerprint` : il change tout seul dès qu'un plugin natif, une dépendance native ou une permission bougent — rien à bumper à la main.
 
 ### Toute décision de push en arrière-plan se prend en Kotlin
@@ -144,23 +144,66 @@ Le délégué est instancié avec le **contexte d'application**, jamais le servi
 
 2 s est choisi au-dessus du démarrage à froid observé (≈1,1–1,5 s du process à `app_foregrounded`) : un lancement lent retire la bannière avant que le chauffeur l'ait lue, plutôt que de la faire clignoter. Et un lancement accordé plus tard n'est pas perdu — la notification est retirée au retour, et le payload arrive dans tous les cas.
 
-### The wake path rings, and it is the only thing that can
+### The wake path rings, and JS decides when
 
-A silent wake draws no notification, so the `rides` channel never fires and the system has nothing to play: on this path **the app is the only thing that can make a sound**. `startOfferRing` is therefore called from `confirmLaunch` — the one place where the wake is proven *and* the pending tray entry is cancelled by the same resume. That mutual exclusion, not a guard, is what keeps the three paths apart:
+A silent wake draws no notification, so the `rides` channel never fires and the system has nothing to play: on this path **the app is the only thing that can make a sound**. But a wake landing is not an offer being on screen, and `startOfferRing` used to be called from the native `confirmLaunch()` — the one place where the wake is proven. Four false positives followed, all of them a sound for a ride the driver could not answer:
 
-| where the driver is | what rings |
-|---|---|
-| away, and the wake lands | the app, natively (`startOfferRing`) |
-| already in front | the `rides` channel, through the branded notification |
-| away, and the wake is refused | the `rides` channel, through the replayed tray entry |
+- the offer died between the push and the resume (matching closed, the ride was taken) — the app came forward, showed a notice, and rang anyway;
+- the wake was slow enough that the 2 s fallback had already replayed the tray entry, so the channel sound *and* the native ring played for one offer;
+- a tap on the pill, which is not an offer at all;
+- the driver opening the app by hand while a launch was in flight.
 
-**`AudioAttributes.USAGE_NOTIFICATION_EVENT`, not a bare player.** Without it the sound ignores the notification volume, silent mode and do-not-disturb — a driver who had silenced their phone would be rung at 3 a.m., which is how an app gets uninstalled. `RingtoneManager.getDefaultUri(TYPE_NOTIFICATION)` also means the driver hears *their own* sound, and returns null when they chose "None": nothing to play is then the correct outcome, not a failure.
+**The decision therefore lives in JS, in `src/lib/notifications/offerRing.ts`**, where the offer's liveness is actually known, and Kotlin only plays. The invariant is unchanged — the ring exists only where nothing else has sounded — but the trigger is now three facts at once: the arrival came from the wake, the driver is online, and a live offer is painted.
 
-**`MediaPlayer`, not `Ringtone`.** `Ringtone.isLooping` only exists from API 28 and `stop()` on a non-looping one is unreliable, so a `Ringtone` could not have been stopped at all on the versions this app still ships to. It is prepared with `prepareAsync()` on purpose: this runs at the exact instant the app comes to the front, which is the moment the whole pipeline exists to shorten.
+| where the driver is | what rings | who decides |
+|---|---|---|
+| away, the wake lands, a live offer is painted | the app, natively (`ringOffer` → `startOfferRing`) | JS, `resolveOfferRingAction` |
+| already in front | the `rides` channel, through the branded notification | Expo |
+| away, the wake is refused | the `rides` channel, through the replayed tray entry | Expo |
+| away, the wake lands, the offer is dead / not confirmed yet | nothing | JS |
+
+Four diagnostic stages make a silence readable, because "the ring is silent by design" and "the ring is broken" look identical from the driver's seat: `ring_armed` (JS asked for it), `ring_skipped` with `reason=tap_origin|driver_offline|no_offer|not_confirmed|already_handled|offer_dead` (JS refused), and natively `ring_playing` / `ring_stopped` / `ring_failed` / `ring_unplayable` / `ring_default_fallback`, plus `sound_picked`.
+
+**The arrival's origin has to be stored, because nothing downstream can reconstruct it.** Both paths end in the same `queueOfferOpen`. `offerArrivalSource` is written beside `offerArrivalAt` from the stage the notification path reports (`silent_wake` → `wake`, `tap_received` → `tap`), and `queueOfferOpen`'s default is `tap_received`: a caller that forgets the argument must not silently claim a wake, since that is the one value that arms a sound.
+
+**"Not yet" is not "never".** The offer is `pending` while the payload card is on screen but the server has not confirmed it, so the decision is re-evaluated on every change and only a terminal outcome is latched. Latching `no_offer` or `not_confirmed` would leave the offer on screen in silence; `isTerminalRingAction` is what keeps those two out of the latch.
+
+**A dead offer stops the ring, even after it started.** That is why the `dead` case is tested before the latch: the case with the loudest symptom is the one where the ring is already playing and the card has gone. The native `stopOfferRing` is idempotent, so this costs nothing when nothing is playing.
+
+**`AudioAttributes.USAGE_NOTIFICATION_EVENT`, not a bare player.** Without it the sound ignores the notification volume, silent mode and do-not-disturb — a driver who had silenced their phone would be rung at 3 a.m., which is how an app gets uninstalled. The URI is the driver's own choice (see below), and the default is `RingtoneManager.getDefaultUri(TYPE_NOTIFICATION)`, which returns null when they chose "None" in the system settings: nothing to play is then the correct outcome, not a failure.
+
+**`MediaPlayer`, not `Ringtone`.** `Ringtone.isLooping` only exists from API 28 and `stop()` on a non-looping one is unreliable, so a `Ringtone` could not have been stopped at all on the versions this app still ships to. `prepare()` is deliberately **synchronous**: a picked `content://` URI can stop being readable, and the failure has to be caught while there is still a fallback to try — `prepareAsync()` reports it on a listener that can no longer take another URI. `startOfferRing` marshals onto the main looper like `stopOfferRing`, because the module `Function` that arms it runs on the JS thread.
 
 **The window is `COUNTDOWN_SECONDS`, not a number of its own.** `OFFER_RING_WINDOW_MS` is 20 s because `OfferRideCard.tsx` is 20 s: that is the window the card spends in front of the driver, and past it the offer moves to the back of the stack. Ringing longer would alert for a ride the driver has already let pass. One decision taken in two languages drifts, so `offerRing.test.ts` reads the card's constant and fails when the two disagree.
 
-Three independent stops, because none of them can be trusted alone: the driver's answer through the module (`accepted` / `declined` / `timed_out`), the bounded runnable for an offer nobody answered, and the app leaving the foreground (`app_backgrounded`, plus `driver_offline` when the driver switches off). `stopOfferRing` marshals onto the main looper: a module `Function` runs on the JS thread, and a `MediaPlayer` must be driven from the thread that owns it.
+Four independent stops, because none of them can be trusted alone: the driver's answer through the module (`accepted` / `declined` / `timed_out`), JS on a dead offer (`offer_dead` — the one case Kotlin cannot see), the bounded runnable for an offer nobody answered, and the app leaving the foreground (`app_backgrounded`, plus `driver_offline` when the driver switches off).
+
+**The cost of moving the decision to JS is the delay between the resume and the offer's confirmation (~0.3–1 s on a cold start).** Paid on purpose: a sound that can be wrong is worse than a sound that is late.
+
+### La sonnerie se choisit, et les deux chemins doivent jouer la même
+
+Deux lecteurs de son indépendants, et ils doivent s'accorder ou le son dépend du chemin qu'a pris l'offre : le lecteur natif sur le réveil silencieux, et le canal Android `rides` sur le chemin notification. Le second est le plus contraint — **Android ne permet pas de modifier le son d'un canal en place** : le seul levier est de le supprimer et de le recréer, ce qui réinitialise les réglages que le chauffeur avait posés sur ce canal (importance, vibration). C'est fait **uniquement quand le choix a réellement changé**, la valeur appliquée étant mémorisée sous `rides_channel_sound_v1` ; recréer le canal à chaque lancement serait pire que le problème. Quand la recréation a lieu, l'appli le dit au chauffeur plutôt que de le laisser découvrir un canal qui n'obéit plus.
+
+**Trois états, aucun confondu.** « Jamais choisi » (son par défaut du système), « Aucun son » (un choix), et une URI précise. Le natif les distingue par `contains` sur la clé — une clé absente n'est pas une clé vide — et expose `configured` à côté de `uri` précisément parce que les deux premiers n'ont pas d'URI. Confondre les deux rendrait le son par défaut à un chauffeur qui a demandé le silence. Côté JS, `offerSoundStateFromNative` et `rideChannelSound` (purs, testés) font la traduction ; `rideChannelSound` rend `null` pour « silencieux », qui n'est pas la même demande que `'default'`.
+
+**Le sélecteur est celui du système** (`RingtoneManager.ACTION_RINGTONE_PICKER`, en `TYPE_NOTIFICATION`, avec « Aucun » et « Défaut » proposés). Il est ouvert via `startActivityForResult` + `OnActivityResult` avec notre propre code de requête, et le `Promise` du module est résolu dans le second callback — c'est ce qui rend l'aller-retour d'Activity synchrone du point de vue de JS. Trois issues sont distinguées, et aucune n'est un crash : `picked`, `cancelled` (le choix précédent reste), et **`unavailable`** — certaines ROMs ne livrent pas de sélecteur de sonnerie, ce que `ActivityNotFoundException` rapporte. Le dire vaut mieux qu'une ligne de réglage qui ne fait rien. Côté JS, `pickOfferSound` borne l'attente (2 min) : un résultat qui n'arrive jamais — l'Activity hôte détruite pendant le choix, cas que `expo-modules-core` documente comme non supporté — ne doit pas bloquer l'écran pour la vie du runtime.
+
+**Une URI choisie peut cesser d'être lisible.** Le sélecteur n'accorde aucune permission d'URI persistable, donc le droit d'accès ne survit pas à un redémarrage. Perdre la sonnerie choisie est une perte bien moindre qu'une offre manquée : `startOfferRing` retombe sur le son système et l'écrit (`ring_default_fallback`) au lieu de rester muet. **À vérifier sur appareil** : si le repli se déclenche à chaque redémarrage, la suite est un `takePersistableUriPermission` — impossible tant que l'intent du sélecteur ne porte pas le flag, donc le repli est la réponse pour cette version.
+
+### Ce qui part en OTA, et ce qui exige un APK
+
+`runtimeVersion: { policy: 'fingerprint' }` sépare les deux, et la frontière ne se devine pas — elle se vérifie :
+
+| changement | part en OTA | exige un rebuild |
+|---|---|---|
+| JS/TS, styles, logique de la feuille d'offre | ✅ | |
+| déclencheur de sonnerie, ordre des paliers, textes | ✅ | |
+| Kotlin du module `ve-overlay` (lecteur, sélecteur, prefs natives) | | ✅ |
+| `CFBundleIdentifier`/permissions/plugins/icônes/splash | | ✅ |
+| ligne de réglage du profil (JS) | ✅ | |
+| **l'ensemble sonnerie + sélecteur, tel que livré** | | ✅ (le natif porte les deux) |
+
+Une PR mélangeant JS et Kotlin **ne peut pas** partir en OTA : le Kotlin n'arrivera qu'avec l'APK, et l'empreinte refusera l'OTA jusqu'au rebuild. C'est le cas de la PR « sonnerie » : elle livre la ligne de réglage et le nouveau déclencheur, donc un APK, et la correction de l'ordre feuille/carte part séparément en OTA. Vérifier l'empreinte avant de publier un OTA (`@expo/fingerprint`), et ne jamais conclure qu'un correctif JS est parti parce que la PR a été mergée.
 
 ### Un journal natif doit porter l'identité de son processus
 

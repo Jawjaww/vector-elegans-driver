@@ -34,12 +34,34 @@ export type VeOverlayNativeModule = {
   /** Live native state: overlay permission, persisted online flag, pill visibility. */
   describeState(): Record<string, boolean>;
   /**
+   * Play the offer ring.
+   *
+   * Called by JS once a live offer is painted and the wake is known to be the reason the app is
+   * on screen; the gate lives in `src/lib/notifications/offerRing.ts`. Nothing here decides
+   * whether the sound is deserved — that is the whole point of moving it out of Kotlin.
+   */
+  startOfferRing(): void;
+  /**
    * Silence the offer ring, because the driver has answered it.
    *
    * The ring is bounded natively to the front card's own countdown, so this only makes the
    * answer feel immediate; it is not what stops the sound from outliving the offer.
    */
   stopOfferRing(reason: string): void;
+  /**
+   * The stored ringtone choice: `configured` false means never chosen (system sound), and
+   * `silent` true means the driver picked "None". The two are different answers.
+   */
+  getOfferSound(): Record<string, unknown>;
+  /**
+   * Open the system ringtone picker and store the answer. Resolves as
+   * `{ picked: true, uri }` on a choice, `{ picked: false }` on a cancel, and
+   * `{ picked: false, reason: 'unavailable' | 'failed' }` when the picker cannot be shown —
+   * which some ROMs do not ship at all.
+   */
+  pickOfferSound(): Promise<Record<string, unknown>>;
+  /** Go back to the system notification sound. */
+  resetOfferSound(): void;
 };
 
 export default requireOptionalNativeModule<VeOverlayNativeModule>('VeOverlay');

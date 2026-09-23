@@ -5,6 +5,7 @@ import {
   type ProvisionalOffer,
 } from '../stores/driverStore';
 import { logOfferStage } from './offerPipelineDiag';
+import { arrivalSourceFromStage, type OfferOpenStageName } from './offerRing';
 import {
   RIDE_OFFER_ACCEPT_ACTION,
   RIDE_OFFER_DECLINE_ACTION,
@@ -67,12 +68,17 @@ export function queueOfferOpen(
   rideId: string,
   action: OfferNotificationAction | null,
   preview: ProvisionalOffer | null = null,
+  stage: OfferOpenStageName = 'tap_received',
 ): void {
   const state = useDriverStore.getState();
   state.setPendingOfferOpen({ rideId, action });
   // The offer now on its way was requested by the driver's own tap: mark the arrival so the
   // dashboard can present it without waiting for the boot and without entry motion.
   state.setOfferArrivalAt(Date.now());
+  // Which of the two paths brought it here, recorded now because nothing downstream can still
+  // tell them apart: both end in the same queued open. The ring depends on it — only the wake
+  // has no sound of its own.
+  state.setOfferArrivalSource(arrivalSourceFromStage(stage));
   // Set even when the ride is already tracked. "Already tracked" only means a copy exists
   // somewhere in the store; it says nothing about whether the dashboard can paint it yet, and
   // the case that matters here is precisely the one where it cannot — the app was in the

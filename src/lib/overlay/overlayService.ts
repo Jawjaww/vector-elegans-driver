@@ -2,8 +2,24 @@ import { Platform } from 'react-native';
 import VeOverlay, { type VeOverlayNativeModule } from '../../../modules/ve-overlay';
 import { useDriverStore } from '../stores/driverStore';
 import { isOverlayAvailable } from './overlayPolicy';
+import {
+  classifyOfferSoundPick,
+  offerSoundStateFromNative,
+  type OfferSoundPickResult,
+  type OfferSoundState,
+} from '../notifications/offerSound';
 
 const nativeModule = VeOverlay;
+
+/**
+ * How long to wait for the ringtone picker before giving up.
+ *
+ * The result arrives through a second native callback, and expo-modules-core documents that a
+ * callback is lost when the host Activity is destroyed mid-pick. Without a bound, the promise
+ * would simply never settle and every caller awaiting it would be stuck for the life of the
+ * runtime. Long enough that a driver deliberating in the picker is never cut off.
+ */
+const OFFER_SOUND_PICK_TIMEOUT_MS = 120_000;
 
 /** The native module only ships on Android; everywhere else every call is inert. */
 function overlayModule(): VeOverlayNativeModule | null {
@@ -106,6 +122,66 @@ export function stopOfferRing(reason: string): void {
     overlayModule()?.stopOfferRing(reason);
   } catch {
     // Overlay inactive; the ring is not playing either.
+  }
+}
+
+/**
+ * Play the offer ring.
+ *
+ * Called once a live offer is painted and the arrival is known to be a silent wake; the gate
+ * that decides is `resolveOfferRingAction` in `src/lib/notifications/offerRing.ts`. Keeping the
+ * decision in JS is what stops the ring from sounding for an offer that is dead, for a tray tap,
+ * or for a driver who opened the app themselves.
+ */
+export function ringOffer(): void {
+  try {
+    overlayModule()?.startOfferRing();
+  } catch {
+    // Overlay inactive; the notification path still carries its own sound.
+  }
+}
+
+/** The driver's stored ringtone choice, or the system default when nothing was chosen. */
+export function getOfferSound(): OfferSoundState {
+  const module = overlayModule();
+  if (!module) return { kind: 'default' };
+  try {
+    return offerSoundStateFromNative(module.getOfferSound());
+  } catch {
+    return { kind: 'default' };
+  }
+}
+
+/** Go back to the system notification sound. Inert without the native module. */
+export function resetOfferSound(): void {
+  try {
+    overlayModule()?.resetOfferSound();
+  } catch {
+    // Overlay inactive; there is no stored preference to clear.
+  }
+}
+
+/**
+ * Open the system ringtone picker and store whatever the driver chose.
+ *
+ * Never rejects and always settles: `unavailable` is a legitimate answer for the ROMs that ship
+ * no picker, and a picker whose result never arrives is cut off by the timeout rather than
+ * leaving the caller waiting forever.
+ */
+export async function pickOfferSound(): Promise<OfferSoundPickResult> {
+  const module = overlayModule();
+  if (!module) return { outcome: 'unavailable' };
+  try {
+    const raw = await Promise.race([
+      module.pickOfferSound(),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), OFFER_SOUND_PICK_TIMEOUT_MS),
+      ),
+    ]);
+    if (raw === null) return { outcome: 'cancelled' };
+    return classifyOfferSoundPick(raw);
+  } catch {
+    return { outcome: 'unavailable' };
   }
 }
 

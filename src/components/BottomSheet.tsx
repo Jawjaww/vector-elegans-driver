@@ -16,6 +16,10 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { APP_CHROME } from '../lib/theme';
 import { AppChromeBackground } from './AppChromeBackground';
 import { setBottomSheetTabBarPanGesture } from './bottomSheetGestureBridge';
+import {
+  shouldResettleSheet,
+  type SheetSettleState,
+} from '../lib/utils/homeSheetSnap';
 
 const WINDOW_H = Dimensions.get('window').height;
 
@@ -139,6 +143,16 @@ interface BottomSheetProps {
   allowedSnaps?: readonly SheetSnapLevel[];
   /** Visible height of the notices palier body (stack of dossier cards). */
   noticesHeight?: number;
+  /**
+   * Identity of what the sheet must get out of the way for.
+   *
+   * A changed token re-settles the sheet on its default palier even when that palier has not
+   * changed, which is the case the prop exists for: a driver who dragged the sheet up kept it
+   * up when the next offer arrived, because the target was `nav` before and after and the
+   * snap effect only fires on a change. The token still has to ignore a pure reorder — see
+   * `offerSetToken` — or browsing the offer stack would fling the sheet down every swipe.
+   */
+  collapseToken?: string;
 }
 
 export const BottomSheet = ({
@@ -146,6 +160,7 @@ export const BottomSheet = ({
   snapLevel = 'peek',
   allowedSnaps,
   noticesHeight = NOTICES_BODY_H,
+  collapseToken,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
   const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
@@ -166,7 +181,11 @@ export const BottomSheet = ({
   const snapYShared = useSharedValue(snapY);
   const allowedOrderShared = useSharedValue(allowedOrder);
   const prevSnap = useRef<SheetSnapLevel>(effectiveSnap);
-  const prevAllowedKey = useRef(allowedOrder.join(','));
+  const prevSettle = useRef<SheetSettleState>({
+    token: collapseToken,
+    snapsKey: allowedOrder.join(','),
+    snap: effectiveSnap,
+  });
 
   const applySnapLevel = useCallback((level: SheetSnapLevel) => {
     const atStats = level === 'stats';
@@ -192,26 +211,24 @@ export const BottomSheet = ({
     allowedOrderShared.value = allowedOrder;
   }, [allowedOrder, allowedOrderShared]);
 
-  // Parent-driven snap (e.g. ride started → nav). Manual drag does not update prevSnap,
-  // so we only re-spring when the prop target actually changes.
+  // Re-settle whenever something the sheet must honour changes: the palier target, the allowed
+  // set (idle ↔ trip), or the offer token. See `shouldResettleSheet` — in particular why the
+  // token is tested on its own rather than against the palier, which is the bug this fixes: a
+  // sheet the driver had dragged up stayed up when the next offer arrived.
   useEffect(() => {
-    applySnapLevel(effectiveSnap);
-    if (prevSnap.current === effectiveSnap) return;
-    prevSnap.current = effectiveSnap;
-    translateY.value = withSpring(snapYShared.value[effectiveSnap], SPRING);
+    const next: SheetSettleState = {
+      token: collapseToken,
+      snapsKey: allowedOrder.join(','),
+      snap: effectiveSnap,
+    };
+    const previous = prevSettle.current;
+    prevSettle.current = next;
+    applySnapLevel(next.snap);
+    if (!shouldResettleSheet(previous, next)) return;
+    prevSnap.current = next.snap;
+    translateY.value = withSpring(snapYShared.value[next.snap], SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapLevel is local
-  }, [effectiveSnap, snapYShared, translateY]);
-
-  // Allowed set changed (idle ↔ trip): force the default snap for the new mode
-  useEffect(() => {
-    const key = allowedOrder.join(',');
-    if (prevAllowedKey.current === key) return;
-    prevAllowedKey.current = key;
-    prevSnap.current = effectiveSnap;
-    applySnapLevel(effectiveSnap);
-    translateY.value = withSpring(snapYShared.value[effectiveSnap], SPRING);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapLevel is local
-  }, [allowedOrder, effectiveSnap, snapYShared, translateY]);
+  }, [collapseToken, allowedOrder, effectiveSnap, snapYShared, translateY]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;

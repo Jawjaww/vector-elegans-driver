@@ -1,9 +1,12 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import i18n from '../../i18n';
 import { supabase } from '../supabase';
 import { publishPushRegisterResult } from './pushStatusStore';
+import { getOfferSound } from '../overlay/overlayService';
+import { rideChannelSound } from './offerSound';
 import {
   RIDE_OFFER_ACCEPT_ACTION,
   RIDE_OFFER_BRAND_COLOR,
@@ -70,15 +73,62 @@ export function readNotificationData(
  */
 export async function ensureAndroidRideChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync(RIDES_PUSH_CHANNEL_ID, {
+  await applyRideChannelSound(rideChannelSound(getOfferSound()));
+}
+
+/**
+ * Marker of the sound the `rides` channel currently carries.
+ *
+ * Needed because Android gives an app no way to change a channel's sound in place — the only
+ * lever is to delete and recreate it, which resets whatever the driver had customised on that
+ * channel. Remembering what was applied is what keeps that destruction to the single moment the
+ * choice actually changed, instead of every launch.
+ */
+const RIDES_CHANNEL_SOUND_KEY = 'rides_channel_sound_v1';
+
+function rideChannelOptions(sound: string | null) {
+  return {
     name: 'Offres de course',
     description: 'Nouvelles courses à accepter sur Vector Elegans',
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 200, 120, 200],
     lightColor: RIDE_OFFER_BRAND_COLOR,
-    sound: 'default',
+    sound,
     enableVibrate: true,
-  });
+  };
+}
+
+/**
+ * Give the `rides` channel the same sound the native ring plays.
+ *
+ * The two must agree or the sound depends on which path the offer took: the silent wake plays
+ * through the native player, and a tray notification plays through this channel.
+ *
+ * Returns `recreated` when the channel was rebuilt, so the caller can warn the driver that their
+ * per-channel settings were reset — a change they would otherwise discover as a channel that
+ * quietly stopped obeying them.
+ */
+export async function applyRideChannelSound(
+  sound: string | null,
+): Promise<'unchanged' | 'recreated'> {
+  if (Platform.OS !== 'android') return 'unchanged';
+  const marker = sound ?? '';
+  const applied = await AsyncStorage.getItem(RIDES_CHANNEL_SOUND_KEY);
+  if (applied === marker) {
+    // Re-asserted so a channel deleted from the system settings comes back.
+    await Notifications.setNotificationChannelAsync(
+      RIDES_PUSH_CHANNEL_ID,
+      rideChannelOptions(sound),
+    );
+    return 'unchanged';
+  }
+  await Notifications.deleteNotificationChannelAsync(RIDES_PUSH_CHANNEL_ID);
+  await Notifications.setNotificationChannelAsync(
+    RIDES_PUSH_CHANNEL_ID,
+    rideChannelOptions(sound),
+  );
+  await AsyncStorage.setItem(RIDES_CHANNEL_SOUND_KEY, marker);
+  return 'recreated';
 }
 
 export async function requestRideNotificationPermission(): Promise<boolean> {
