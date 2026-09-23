@@ -573,10 +573,12 @@ export type Database = {
       }
       notifications: {
         Row: {
+          acknowledged_at: string | null
           channel: string
           created_at: string
           data: Json | null
           delivered_at: string | null
+          fallback_sent_at: string | null
           id: string
           is_read: boolean
           message: string
@@ -589,10 +591,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          acknowledged_at?: string | null
           channel?: string
           created_at?: string
           data?: Json | null
           delivered_at?: string | null
+          fallback_sent_at?: string | null
           id?: string
           is_read?: boolean
           message: string
@@ -605,10 +609,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          acknowledged_at?: string | null
           channel?: string
           created_at?: string
           data?: Json | null
           delivered_at?: string | null
+          fallback_sent_at?: string | null
           id?: string
           is_read?: boolean
           message?: string
@@ -1965,6 +1971,10 @@ export type Database = {
         Args: { p_driver_id?: string; p_ride_id: string }
         Returns: Json
       }
+      acknowledge_offer_push: {
+        Args: { p_notification_id: string }
+        Returns: undefined
+      }
       add_ride_incentive: {
         Args: { p_amount: number; p_ride_id: string }
         Returns: Json
@@ -2378,7 +2388,12 @@ export type Database = {
           score_breakdown: Json
         }[]
       }
+      send_offer_push_fallbacks: { Args: never; Returns: Json }
       set_driver_offline: { Args: never; Returns: undefined }
+      setting_bool: {
+        Args: { p_default: boolean; p_name: string }
+        Returns: boolean
+      }
       setting_positive_int: {
         Args: { p_default: number; p_name: string }
         Returns: number
