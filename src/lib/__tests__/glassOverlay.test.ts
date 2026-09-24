@@ -216,20 +216,21 @@ describe('the face of a panel', () => {
     }
   });
 
-  it('gives the pane a top as a band, not as a fade', () => {
-    // A monotone veil reads as a gradient; a band reads as a curve catching the light. Three
-    // stops with the peak inside the panel is what makes it a band.
-    expect(GLASS_MATERIAL.sheen).toHaveLength(3);
-    expect(GLASS_MATERIAL.sheenLocations).toHaveLength(3);
-    const [start, peak, end] = GLASS_MATERIAL.sheenLocations;
-    expect(start).toBe(0);
-    expect(peak).toBeGreaterThan(start);
-    expect(end).toBeGreaterThan(peak);
-    expect(end).toBeLessThan(0.5);
-    // Absent at the very edge, brightest just under it, absent again: the peak is the middle.
-    expect(rgbOf(GLASS_MATERIAL.sheen[0]).a).toBe(0);
-    expect(rgbOf(GLASS_MATERIAL.sheen[2]).a).toBe(0);
-    expect(rgbOf(GLASS_MATERIAL.sheen[1]).a).toBeGreaterThan(0.2);
+  it('has no highlight band, because a band over a short bar lands on the type', () => {
+    // A band shipped and was rejected on a device: over a 58-point bar its peak falls across the
+    // instruction, and the driver reads a lighter rectangle drawn behind the words — delimited,
+    // with square ends — rather than a curve catching the light. The pane's top is the *range*
+    // between the body's own stops instead, which cannot be mistaken for a box because it has no
+    // edges. Pinned by absence from both sides: the field in the material, the layer in the panel.
+    const material = GLASS_MATERIAL as unknown as Record<string, unknown>;
+    expect(material.sheen).toBeUndefined();
+    expect(material.sheenLocations).toBeUndefined();
+    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('material.sheen');
+
+    // And the pane did not flatten when the band left: a flat fill was the second half of the
+    // original "no material" complaint, so the top has to survive as a range.
+    const stops = GLASS_MATERIAL.body.map(overMap);
+    expect(Math.max(...stops) - Math.min(...stops)).toBeGreaterThan(30);
   });
 
   it('spends its type on dark greys, because the face inverted', () => {
@@ -308,13 +309,14 @@ describe('one material, and the theme owns it', () => {
     // reflection into a wash.
     const code = stripComments(readSource(GLASS_PANEL));
     const body = code.indexOf('colors={material.body}');
-    const sheen = code.indexOf('colors={material.sheen}');
     const topGlow = code.indexOf('styles.edgeTop');
     const children = code.indexOf('{children}');
     expect(body).toBeGreaterThan(-1);
-    expect(sheen).toBeGreaterThan(body);
-    expect(topGlow).toBeGreaterThan(sheen);
+    expect(topGlow).toBeGreaterThan(body);
     expect(children).toBeGreaterThan(topGlow);
+    // There is no third fill between them any more; the retired highlight band used to sit here,
+    // and this is what fails if it is put back without a thought for the type underneath.
+    expect(code).not.toContain('material.sheen');
   });
 
   it('fits every layer to the radius it was handed', () => {
@@ -323,6 +325,10 @@ describe('one material, and the theme owns it', () => {
     const source = readSource(GLASS_PANEL);
     expect(source).toContain('bodyRadius = radius - EDGE_PX');
     expect(source).toContain('borderRadius: radius, borderColor: material.rim');
+    // The body carries the radius itself rather than trusting the wrapper's clip: on Android the
+    // rounded clip does not reliably reach a native gradient view, and an uncut body paints its
+    // own square corners over the map.
+    expect(source).toContain('borderRadius: bodyRadius');
     // Nothing in this component invents a radius of its own.
     expect(source).not.toMatch(/borderRadius:\s*\d/);
   });
@@ -369,10 +375,6 @@ describe('one material, and the theme owns it', () => {
         'edgeThickness',
         'rim',
         'shadow',
-        'sheen',
-        'sheenEnd',
-        'sheenLocations',
-        'sheenStart',
         'text',
         'textDim',
       ].sort((a, b) => a.localeCompare(b)),
@@ -441,6 +443,26 @@ describe('the lane above the sheet', () => {
     expect(source).not.toContain('#fff');
     expect(source).not.toContain('backgroundColor');
     expect(source).toContain('GLASS_MATERIAL.accentStrong');
+  });
+});
+
+describe('what the instruction bar says', () => {
+  it('says the instruction, alone, and never cuts it', () => {
+    // Two complaints on one row. The address was a second thing to read on a bar whose whole job
+    // is one glance, and the sentence that shared the row with it was cut mid-word on the longest
+    // locale. The bar now draws the title only, and the freed row is what pays for two lines —
+    // `numberOfLines={1}` must not come back, because an ellipsis in an instruction reads as a
+    // place the driver is not being told about.
+    const code = stripComments(readSource(GUIDANCE_BAR));
+    expect(code.match(/<Text\b/g) ?? []).toHaveLength(1);
+    expect(code).toContain('tripGuidanceTitleKey(stage)');
+    expect(code).toContain('numberOfLines={2}');
+    expect(code).not.toContain('numberOfLines={1}');
+
+    // And the address is no longer handed in, so a re-added line would have nothing to render.
+    const dashboard = stripComments(readSource(DASHBOARD));
+    const bar = dashboard.slice(dashboard.indexOf('<TripGuidanceBar'));
+    expect(bar.slice(0, bar.indexOf('/>'))).not.toContain('Address');
   });
 });
 

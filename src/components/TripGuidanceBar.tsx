@@ -6,8 +6,6 @@ import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
 import { GlassPanel } from './GlassPanel';
 import {
   tripGuidanceAccent,
-  tripGuidanceAddress,
-  tripGuidanceHintKey,
   tripGuidanceTitleKey,
   type TripStage,
 } from '../lib/utils/tripGuidance';
@@ -25,8 +23,6 @@ const BAR_RADIUS = 16;
 
 type TripGuidanceBarProps = Readonly<{
   stage: TripStage;
-  pickupAddress: string | null;
-  dropoffAddress: string | null;
   /** Place above the taller trip sheet (waiting at pickup). */
   aboveTripSheet?: boolean;
   /**
@@ -51,6 +47,12 @@ type TripGuidanceBarProps = Readonly<{
  * that appeared and vanished at full opacity would read as a glitch, where one that slides out
  * of the sheet and back into it reads as the sheet speaking, which is what it is.
  *
+ * **It carries the instruction and nothing else.** A second line used to hold the pickup or
+ * drop-off address, on the reasoning that the title named a place the driver could not find. That
+ * was wrong twice: the map already pins the place the sentence names, and the half of the row the
+ * address took was the half the instruction needed — on the longest locale the sentence was cut
+ * mid-word. Naming the address is the sheet's job and the pin's job.
+ *
  * Drawn on a `GlassPanel` and accented per stage, so the bar is identifiable at a glance without
  * being read: blue for the drive to the customer, amber for the wait, green for the drive to the
  * destination — the same colours as the pins it names. The whole bar is transparent to touch: it
@@ -58,15 +60,11 @@ type TripGuidanceBarProps = Readonly<{
  */
 export function TripGuidanceBar({
   stage,
-  pickupAddress,
-  dropoffAddress,
   aboveTripSheet = false,
   visible = true,
 }: TripGuidanceBarProps) {
   const { t } = useTranslation();
   const material = GLASS_MATERIAL;
-  const address = tripGuidanceAddress(stage, { pickupAddress, dropoffAddress });
-  const hintKey = tripGuidanceHintKey(stage);
   const accent = tripGuidanceAccent(stage);
   const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
 
@@ -117,8 +115,13 @@ export function TripGuidanceBar({
             <Feather name={accent.icon} size={16} color={accent.ink} />
           </View>
           <View className="flex-1">
+            {/* `numberOfLines={2}`, never `1`. The instruction is a sentence, and the row it
+                used to share with an address line cut it mid-word on the longest locale — an
+                ellipsis in an instruction reads as a place the driver is not being told about.
+                Two lines is exactly the room the retired second row freed, so the bar's fixed
+                height still holds it and nothing in the lane above has to move. */}
             <Text
-              numberOfLines={1}
+              numberOfLines={2}
               style={{
                 color: material.text,
                 fontSize: 14,
@@ -127,20 +130,6 @@ export function TripGuidanceBar({
               }}
             >
               {t(tripGuidanceTitleKey(stage))}
-            </Text>
-            {/* The address carries the instruction; without it the title names a place the driver
-                cannot find. Falls back to the stage's hint rather than rendering an empty line,
-                which would read as a glyph failure. */}
-            <Text
-              numberOfLines={1}
-              style={{
-                color: material.textDim,
-                fontSize: 12.5,
-                fontWeight: '600',
-                marginTop: 2,
-              }}
-            >
-              {address ?? (hintKey ? t(hintKey) : '')}
             </Text>
           </View>
         </View>

@@ -1770,8 +1770,6 @@ export default function DashboardScreen() {
         {tripStage && !mapInOfferMode ? (
           <TripGuidanceBar
             stage={tripStage}
-            pickupAddress={activeRide?.pickup_address ?? null}
-            dropoffAddress={activeRide?.dropoff_address ?? null}
             aboveTripSheet={waitingAtPickup}
             visible={guidanceVisible}
           />

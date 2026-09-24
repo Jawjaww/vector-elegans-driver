@@ -20,9 +20,11 @@
  * the number without depending on the component: a util importing from `components/` would point
  * the arrow the wrong way for what is pure layout.
  *
- * Deterministic rather than measured: the bar's two lines are pinned to one line each, so there
- * is no state in which it grows and no reason to pay for an `onLayout` round-trip that would make
- * the arrival chip jump a frame after the bar appears.
+ * Deterministic rather than measured: the bar draws one row of type, capped at two lines, so the
+ * tallest state is known and there is no reason to pay for an `onLayout` round-trip that would
+ * make the arrival chip jump a frame after the bar appears. The cap and the height are one
+ * decision — the second line of the old address row is what the title now wraps into, which is
+ * why the bar did not have to grow when that row went.
  */
 export const TRIP_GUIDANCE_BAR_HEIGHT = 58;
 

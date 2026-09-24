@@ -1,7 +1,5 @@
 import {
   resolveTripStage,
-  tripGuidanceAddress,
-  tripGuidanceHintKey,
   tripGuidanceTitleKey,
   type TripStage,
 } from '../utils/tripGuidance';
@@ -43,25 +41,14 @@ describe('the stage of the trip the driver is in', () => {
     expect(resolveTripStage(undefined, false)).toBeNull();
   });
 
-  it('names a place only when the stage is about a place', () => {
-    const addresses = { pickupAddress: '12 rue Oberkampf', dropoffAddress: 'CDG 2E' };
-    expect(tripGuidanceAddress('to_pickup', addresses)).toBe('12 rue Oberkampf');
-    expect(tripGuidanceAddress('to_dropoff', addresses)).toBe('CDG 2E');
-    // Waiting at the pickup: the driver is already there, and repeating it is a second thing to
-    // read while parked.
-    expect(tripGuidanceAddress('at_pickup', addresses)).toBeNull();
-    // A missing address is passed through as `null` rather than faked, so the bar falls back to
-    // its hint instead of naming a place with an empty line.
-    expect(
-      tripGuidanceAddress('to_pickup', { pickupAddress: null, dropoffAddress: null }),
-    ).toBeNull();
-  });
-
-  it('has both a title and a hint for every stage', () => {
+  it('has one title per stage, and no supporting line under it', () => {
+    // The bar used to carry a second line — the address, falling back to a hint — and that line
+    // is gone by decision: the map already pins the place the sentence names, and the half of the
+    // row the address occupied was the half the sentence needed. What is pinned here is that
+    // every stage still says something, and that no two stages say the same thing.
     const stages: TripStage[] = ['to_pickup', 'at_pickup', 'to_dropoff'];
     for (const stage of stages) {
       expect(tripGuidanceTitleKey(stage)).toMatch(/^ride\.guidance\./);
-      expect(tripGuidanceHintKey(stage)).toMatch(/^ride\.guidance\./);
     }
     // Distinct titles: three stages that read the same are one instruction, and the driver
     // would have no way to tell which half of the trip he is in.

@@ -167,19 +167,19 @@ export const VE_BLUE = {
  * The layers, in the order they are painted:
  *
  * 1. **Body** — a diagonal gradient at three stops, lighter at the top. Translucent, so the map
- *    crosses it; that show-through is the whole trick.
- * 2. **Sheen** — a white band peaking just under the top edge and gone by a third of the way
- *    down. A band rather than a fade, because a monotone veil reads as a gradient while a band
- *    reads as a curve catching the light.
- * 3. **Directional edge glows** — an ultra-fine white bar along the top edge and another down the
+ *    crosses it; that show-through is the whole trick. It carries the pane's top as the *range*
+ *    between its own stops, and that is the correction: a highlight painted as its own band over
+ *    a short bar lands across a line of type and reads as a lighter box drawn behind it, which is
+ *    exactly what it was reported as.
+ * 2. **Directional edge glows** — an ultra-fine white bar along the top edge and another down the
  *    left, each fading out well before it reaches the far end. This is the arête, the highlight a
  *    pane's corner leaves.
- * 4. **Rim** — a uniform hairline, and on a light face it is *dark*. That inversion is forced by
+ * 3. **Rim** — a uniform hairline, and on a light face it is *dark*. That inversion is forced by
  *    the light direction: on a slate pane the outline was a glow, because anything darker than
  *    the face vanished into it; on a pale pane the light hairline is what vanishes, so the
  *    boundary has to come from below. Without it a pale panel over pale tiles has no edge at all.
  *
- * Layer 3 is the whole border treatment and it is deliberately *not* four lit corners. A panel
+ * Layer 2 is the whole border treatment and it is deliberately *not* four lit corners. A panel
  * whose corners glow on every side reads as a bevelled box from an older toolkit, which is
  * precisely what it looked like: bright arcs at opposite corners are a graphic flourish, where
  * two thin bars from one origin say the same thing — the light comes from up and to the left —
@@ -201,16 +201,6 @@ export type GlassMaterial = {
    * would hide the map behind the gradient and turn the pane back into a painted slab.
    */
   bodyBase: string;
-  /**
-   * The highlight that gives the pane a top, as a band rather than a fade.
-   *
-   * Three stops: absent at the edge, brightest just under it, absent again by the third.
-   */
-  sheen: readonly [string, string, string];
-  /** Stops for `sheen`, matched to its length. */
-  sheenLocations: readonly [number, number, number];
-  sheenStart: { x: number; y: number };
-  sheenEnd: { x: number; y: number };
   /**
    * Colour of each edge glow at its origin, the top-left corner.
    *
@@ -256,14 +246,6 @@ export const GLASS_MATERIAL: GlassMaterial = {
   bodyStart: { x: 0.15, y: 0 },
   bodyEnd: { x: 0.85, y: 1 },
   bodyBase: 'rgba(255, 255, 255, 0.30)',
-  sheen: [
-    'rgba(255, 255, 255, 0)',
-    'rgba(255, 255, 255, 0.30)',
-    'rgba(255, 255, 255, 0)',
-  ],
-  sheenLocations: [0, 0.1, 0.32],
-  sheenStart: { x: 0.5, y: 0 },
-  sheenEnd: { x: 0.5, y: 1 },
   edgeGlow: 'rgba(255, 255, 255, 0.85)',
   edgeFade: 0.42,
   edgeThickness: 1,

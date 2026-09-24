@@ -85,11 +85,8 @@
     "preparingOffer": "Preparando la oferta…",
     "guidance": {
       "toPickup": "Diríjase al punto de recogida",
-      "toPickupHint": "Vaya al punto indicado en el mapa",
       "atPickup": "Esperando al cliente",
-      "atPickupHint": "Se ha avisado al cliente de su llegada",
-      "toDropoff": "Lleve al cliente a su destino",
-      "toDropoffHint": "Siga la ruta hasta el destino"
+      "toDropoff": "Lleve al cliente a su destino"
     },
     "offerAccept": "Aceptar",
     "offerDecline": "Rechazar",

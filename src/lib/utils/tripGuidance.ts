@@ -15,9 +15,9 @@ import { theme } from '../theme';
  *
  * Three stages, because the driver has three different jobs and one of them is waiting:
  *
- * - `to_pickup`  — drive to the customer. The address is the whole point.
+ * - `to_pickup`  — drive to the customer. The customer's place is the destination of the leg.
  * - `at_pickup`  — be reachable. The customer has been told the driver is there.
- * - `to_dropoff` — drive the customer. The destination is the whole point.
+ * - `to_dropoff` — drive the customer. The drop-off is the destination of the leg.
  */
 export type TripStage = 'to_pickup' | 'at_pickup' | 'to_dropoff';
 
@@ -41,24 +41,6 @@ export function resolveTripStage(
   return null;
 }
 
-/**
- * The address the instruction is about, or `null` when the stage names its own place.
- *
- * `at_pickup` is the only stage whose instruction is complete without an address: the driver is
- * already there, and repeating it would be a second thing to read while parked. The other two
- * are meaningless without one, so a missing address is worth passing through as `null` rather
- * than substituting — a bar that says "head to the pickup" and then nothing is honest about the
- * gap, where a placeholder would hide it.
- */
-export function tripGuidanceAddress(
-  stage: TripStage,
-  addresses: { pickupAddress: string | null; dropoffAddress: string | null },
-): string | null {
-  if (stage === 'to_pickup') return addresses.pickupAddress;
-  if (stage === 'to_dropoff') return addresses.dropoffAddress;
-  return null;
-}
-
 /** i18n key of the instruction itself. Returned rather than translated: this module holds no
  *  locale, so it stays callable from a test and from a log. */
 export function tripGuidanceTitleKey(stage: TripStage): string {
@@ -69,18 +51,6 @@ export function tripGuidanceTitleKey(stage: TripStage): string {
       return 'ride.guidance.atPickup';
     case 'to_dropoff':
       return 'ride.guidance.toDropoff';
-  }
-}
-
-/** i18n key of the supporting line, or `null` when the stage has none. */
-export function tripGuidanceHintKey(stage: TripStage): string | null {
-  switch (stage) {
-    case 'to_pickup':
-      return 'ride.guidance.toPickupHint';
-    case 'at_pickup':
-      return 'ride.guidance.atPickupHint';
-    case 'to_dropoff':
-      return 'ride.guidance.toDropoffHint';
   }
 }
 

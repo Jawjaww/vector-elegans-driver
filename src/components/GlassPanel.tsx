@@ -88,15 +88,12 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           colors={material.body}
           start={material.bodyStart}
           end={material.bodyEnd}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-        <LinearGradient
-          colors={material.sheen}
-          locations={material.sheenLocations}
-          start={material.sheenStart}
-          end={material.sheenEnd}
-          style={StyleSheet.absoluteFill}
+          // Rounded *and* clipped. The wrapper's `overflow: hidden` is meant to cut this to the
+          // corner curve, and on Android that clip does not reliably reach a native gradient
+          // view: an uncut body paints its own square corners over the map, which is the lighter
+          // rectangle the driver reported. Carrying the radius on the layer itself costs nothing
+          // and does not depend on the clip being honoured.
+          style={[StyleSheet.absoluteFill, { borderRadius: bodyRadius }]}
           pointerEvents="none"
         />
         {/* The whole border treatment: two hairlines leaving one corner, each fading out. Only
