@@ -56,6 +56,7 @@ import { useDriverLocation } from "../../src/hooks/useDriverLocation";
 import { useDriverStoreHydrated } from "../../src/hooks/useDriverStoreHydrated";
 import { useOverlayPermissionPrompt } from "../../src/hooks/useOverlayPermissionPrompt";
 import { ringOffer, stopOfferRing } from "../../src/lib/overlay/overlayService";
+import { dismissOfferNotification } from "../../src/lib/notifications/offerNotification";
 import {
   isTerminalRingAction,
   resolveOfferLiveness,
@@ -1216,6 +1217,10 @@ export default function DashboardScreen() {
     // Fresh store state: promoting is synchronous, so the ride is addressable.
     const takeAction = async () => {
       const store = useDriverStore.getState();
+      // The tray entry is what brought the driver here, and the answer retires it. Done for both
+      // actions and before either is sent, for the same reason the card path stops the ring
+      // first: the driver has replied, and the alert has nothing left to say.
+      void dismissOfferNotification(rideId);
       if (action === "accept") {
         logOfferStage("accept_tapped", { source: "notification_action" }, rideId);
         await acceptTrackedRide({
@@ -1466,10 +1471,11 @@ export default function DashboardScreen() {
   });
 
   const handleAcceptRide = async (rideId: string) => {
-    // The driver has answered, so the alert has done its job. Stopped here rather than in the
-    // carousel because this is also the funnel for the tray action: accepting from the
-    // notification shade never goes through the card.
+    // The driver has answered, so both alerts have done their job. Stopped before the RPC rather
+    // than after, so the answer feels immediate. The tray action does **not** come through here:
+    // it reaches `acceptTrackedRide` directly from the boot's `takeAction`, and is silenced there.
     stopOfferRing("accepted");
+    void dismissOfferNotification(rideId);
     await acceptTrackedRide({
       rideId,
       driverStatus,
@@ -1493,7 +1499,9 @@ export default function DashboardScreen() {
   ) => {
     // Both ways of declining land here — the button and the card's own countdown — so the ring
     // is stopped by the answer rather than by the native window whenever there is an answer.
+    // Same for the tray entry: refusing leaves nothing to announce.
     stopOfferRing(reason === "timeout" ? "timed_out" : "declined");
+    void dismissOfferNotification(rideId);
     // Soft refuse / timeout (Refuser button or countdown) — not swipe
     deferAvailableRide(rideId);
     await rideService.respondOffer(rideId, reason);

@@ -58,15 +58,6 @@ export type PushRegisterResult =
   | { ok: true }
   | { ok: false; reason: PushRegisterFailureReason };
 
-export function readNotificationData(
-  notification: Notifications.Notification,
-): Record<string, unknown> {
-  const data = notification.request.content.data;
-  return data && typeof data === 'object'
-    ? (data as Record<string, unknown>)
-    : {};
-}
-
 /**
  * Android 13+ shows POST_NOTIFICATIONS only after a channel exists.
  * Call this before get/requestPermissions and getExpoPushTokenAsync.

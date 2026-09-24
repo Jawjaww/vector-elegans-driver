@@ -4,8 +4,8 @@ import * as Updates from 'expo-updates';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { readNotificationData } from '../lib/notifications/notificationPayload';
 import {
-  readNotificationData,
   registerAndUpsertPushToken,
   requestRideNotificationPermission,
   notificationResponseEventKey,
