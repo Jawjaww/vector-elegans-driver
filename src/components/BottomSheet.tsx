@@ -153,6 +153,14 @@ interface BottomSheetProps {
    * `offerSetToken` — or browsing the offer stack would fling the sheet down every swipe.
    */
   collapseToken?: string;
+  /**
+   * The palier the sheet has actually settled on, including a drag.
+   *
+   * The parent cannot derive this. `snapLevel` is only the palier the sheet is *asked* for, and
+   * a drag settles wherever the driver let go, so a caller that needs to know whether the driver
+   * is looking at the sheet — the guidance bar retracts when they are — has no other source.
+   */
+  onSettle?: (level: SheetSnapLevel) => void;
 }
 
 export const BottomSheet = ({
@@ -161,6 +169,7 @@ export const BottomSheet = ({
   allowedSnaps,
   noticesHeight = NOTICES_BODY_H,
   collapseToken,
+  onSettle,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
   const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
@@ -187,13 +196,22 @@ export const BottomSheet = ({
     snap: effectiveSnap,
   });
 
-  const applySnapLevel = useCallback((level: SheetSnapLevel) => {
-    const atStats = level === 'stats';
-    setScrollEnabled(atStats);
-    if (!atStats) {
-      scrollRef.current?.scrollTo({ y: 0, animated: false });
-    }
-  }, []);
+  // Held in a ref so `applySnapLevel` — and with it both pan gestures — keeps its identity: a
+  // new callback per render would rebuild the gestures mid-drag.
+  const onSettleRef = useRef(onSettle);
+  onSettleRef.current = onSettle;
+
+  const applySnapLevel = useCallback(
+    (level: SheetSnapLevel, report = false) => {
+      const atStats = level === 'stats';
+      setScrollEnabled(atStats);
+      if (!atStats) {
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      }
+      if (report) onSettleRef.current?.(level);
+    },
+    [],
+  );
 
   // Measure scene: update snap points; only re-spring if that snap's Y changed
   useEffect(() => {
@@ -226,6 +244,12 @@ export const BottomSheet = ({
     applySnapLevel(next.snap);
     if (!shouldResettleSheet(previous, next)) return;
     prevSnap.current = next.snap;
+    // The palier the sheet is genuinely moving to, reported **only** here and never on the
+    // redundant runs of this effect. Those runs are handed the *target*, and reporting from them
+    // would overwrite the palier a drag actually landed on with the one the sheet was asked for —
+    // the exact distinction the prop exists to make. A palier change always reaches this line,
+    // since `snap` is part of `shouldResettleSheet`.
+    onSettleRef.current?.(next.snap);
     translateY.value = withSpring(snapYShared.value[next.snap], SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- applySnapLevel is local
   }, [collapseToken, allowedOrder, effectiveSnap, snapYShared, translateY]);
@@ -272,7 +296,9 @@ export const BottomSheet = ({
             idx = Math.max(idx - 1, 0);
           }
           const level = order[idx];
-          scheduleOnRN(applySnapLevel, level);
+          // `true`: the drag is the one path that knows where the sheet actually ended up, so it
+          // is the one that must report it. See `onSettle`.
+          scheduleOnRN(applySnapLevel, level, true);
           translateY.value = withSpring(points[idx], {
             ...SPRING,
             velocity: event.velocityY,
