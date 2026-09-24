@@ -87,6 +87,11 @@
     "swipeToAccept": "SWIPE TO ACCEPT >>>",
     "offerCarousel": "Ride {{current}} of {{total}}",
     "preparingOffer": "Preparing offer…",
+    "guidance": {
+      "toPickup": "Head to the pickup point",
+      "atPickup": "Waiting for the customer",
+      "toDropoff": "Drive the customer to the destination"
+    },
     "swipeToDecline": "Swipe to decline",
     "offerAccept": "Accept",
     "offerDecline": "Decline",

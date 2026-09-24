@@ -144,6 +144,7 @@ describe('the ring gate decides, and Kotlin only plays', () => {
       isOnline: true,
       liveness: 'live' as const,
       handledArrival: false,
+      answered: false,
     };
 
     it('rings on a wake with a live offer on screen', () => {
@@ -173,6 +174,41 @@ describe('the ring gate decides, and Kotlin only plays', () => {
       expect(
         resolveOfferRingAction({ ...base, liveness: 'dead', handledArrival: true }),
       ).toEqual({ kind: 'stop', reason: 'offer_dead' });
+    });
+
+    it('stops the ring when the driver has already accepted the ride', () => {
+      // The measured defect. The accept RPC started at 22:01:02.356 and took 1083 ms, so the
+      // ride was still in the deck and the offer confirmed at 02.645 still read as `live`. The
+      // effect armed the ring 290 ms after `handleAcceptRide` had stopped it, and a stop with
+      // nothing playing cannot cancel a start that has not run yet: the ring played its full
+      // 20 s window at a driver who had taken the ride.
+      expect(resolveOfferRingAction({ ...base, answered: true })).toEqual({
+        kind: 'stop',
+        reason: 'answered',
+      });
+
+      // Above the latch, which is what makes it survive the paths that set the latch first: an
+      // arrival handled by a tray tap, or one re-evaluated by a later render, would come back
+      // `already_handled` from a check placed below, and the ring would keep going.
+      expect(
+        resolveOfferRingAction({ ...base, answered: true, handledArrival: true }),
+      ).toEqual({ kind: 'stop', reason: 'answered' });
+      expect(
+        resolveOfferRingAction({ ...base, answered: true, arrivalSource: 'tap' }),
+      ).toEqual({ kind: 'stop', reason: 'answered' });
+      // And ahead of the offline refusal, which is also an idle.
+      expect(
+        resolveOfferRingAction({ ...base, answered: true, isOnline: false }),
+      ).toEqual({ kind: 'stop', reason: 'answered' });
+
+      // A dead offer keeps its own reason: the outcome is the same stop, and the more specific
+      // cause is the one worth reading in the timeline.
+      expect(
+        resolveOfferRingAction({ ...base, answered: true, liveness: 'dead' }),
+      ).toEqual({ kind: 'stop', reason: 'offer_dead' });
+
+      // Terminal, so the latch is taken and the answer is not re-decided on every render.
+      expect(isTerminalRingAction({ kind: 'stop', reason: 'answered' })).toBe(true);
     });
 
     it('refuses without an online driver, and without an arrival', () => {
@@ -479,5 +515,21 @@ describe('the driver can stop it', () => {
     // diagnostic log is the only place that difference is still visible afterwards.
     expect(decline).toContain('"timed_out"');
     expect(decline).toContain('"declined"');
+  });
+
+  it('never arms the ring for a ride the driver is already accepting', () => {
+    // The other half of the answer, and the half that was missing: stopping before the accept is
+    // sent gives the driver immediate feedback, but that stop runs against a ring whose start may
+    // not have happened yet — so it cancels nothing. For the ~1 s of the accept round-trip the
+    // ride is still in the deck and the offer still reads as `live`, which is exactly when the
+    // effect arms. The accepting set is the only signal that says the driver has answered.
+    expect(dashboard).toContain('acceptingRideIdsRef.current.has(arrivalRideId)');
+    // And the landed answer, which is also the only signal for an accept taken from the shade —
+    // that path never goes through the card, so nothing else would stop the ring.
+    expect(dashboard).toContain('activeRide?.id === arrivalRideId');
+    // Asked inside the gate call rather than acted on beside it: the rule is the gate's, and a
+    // fix living next to it is one the next reader of the rule will not find.
+    const call = dashboard.slice(dashboard.indexOf('resolveOfferRingAction({'));
+    expect(call.slice(0, call.indexOf('})'))).toContain('answered:');
   });
 });

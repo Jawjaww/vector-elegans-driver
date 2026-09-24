@@ -83,6 +83,11 @@
     "dropoffLabel": "Destino",
     "swipeToAccept": "DESLIZAR PARA ACEPTAR >>>",
     "preparingOffer": "Preparando la oferta…",
+    "guidance": {
+      "toPickup": "Diríjase al punto de recogida",
+      "atPickup": "Esperando al cliente",
+      "toDropoff": "Lleve al cliente a su destino"
+    },
     "offerAccept": "Aceptar",
     "offerDecline": "Rechazar",
     "offerNotice": {

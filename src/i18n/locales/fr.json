@@ -93,6 +93,11 @@
     "loading": "Chargement...",
     "offerCarousel": "Course {{current}} sur {{total}}",
     "preparingOffer": "Préparation de l'offre…",
+    "guidance": {
+      "toPickup": "Rendez-vous au point de prise en charge",
+      "atPickup": "En attente du client",
+      "toDropoff": "Conduisez le client à destination"
+    },
     "swipeToDecline": "Glisser pour refuser",
     "offerAccept": "Accepter",
     "offerDecline": "Refuser",

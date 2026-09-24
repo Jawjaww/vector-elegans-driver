@@ -319,9 +319,20 @@ describe('the boot no longer stands between the tap and the ride', () => {
     expect(visibleProvisionalOffer(preview, ['other-ride'])).toEqual(preview);
     expect(visibleProvisionalOffer(preview, [preview.rideId])).toBeNull();
     expect(visibleProvisionalOffer(null, [preview.rideId])).toBeNull();
-    // And the dashboard resolves it once, for the overlay and for the sheet alike.
+
+    // The second way it yields, and the one the deck cannot express: an accepted ride leaves
+    // `availableRides`, so its id is no longer in the deck and the card used to be read as
+    // still worth showing — over the ride it had just been accepted for. Measured at
+    // 22:01:05.970, two and a half seconds after the accept, dropped by its TTL rather than by
+    // the answer.
+    expect(visibleProvisionalOffer(preview, [], preview.rideId)).toBeNull();
+    // A deck for some *other* ride is still no reason to drop it.
+    expect(visibleProvisionalOffer(preview, [preview.rideId], 'other-ride')).toBeNull();
+
+    // And the dashboard resolves it once, for the overlay and for the sheet alike, with the
+    // active ride passed in so the two cannot disagree.
     expect(dashboard).toContain(
-      'visibleProvisionalOffer(provisionalOffer, deckOfferIds)',
+      'visibleProvisionalOffer(provisionalOffer, deckOfferIds, activeRide?.id ?? null)',
     );
     expect(dashboard).toContain('provisional={visibleProvisional}');
     expect(dashboard).toContain(

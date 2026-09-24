@@ -20,7 +20,7 @@ Application mobile Expo pour les chauffeurs de Vector Elegans.
 ```
 vector-elegans/
 ├── src/
-│   ├── components/      # Composants réutilisables (GlassCard, ElegantButton, etc.)
+│   ├── components/      # Composants réutilisables (GlassPanel, ElegantButton, etc.)
 │   ├── screens/         # Écrans de l'app (HomeScreen, DocumentUploadScreen)
 │   ├── lib/             # Clients/API (Supabase, stores, services, utils)
 │   │   ├── stores/      # Zustand stores (driverStore, driverFolderStore)
@@ -102,7 +102,6 @@ Le fichier `database.types.ts` a été généré par Supabase et est crucial pou
 
 - `src/screens/DocumentUploadScreen.tsx` (DriverProfileSetup)
 - `src/components/DriverDocumentUploader.tsx`
-- `src/components/GlassCard.tsx`
 - `src/components/ElegantButton.tsx`
 - `src/components/NeonSwipeButton.tsx`
 - `src/hooks/useDriverLocation.ts`

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useReducer, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   View,
@@ -43,6 +43,13 @@ import {
   resolveDriverHomeSnapLevel,
   visibleProvisionalOffer,
 } from "../../src/lib/utils/homeSheetSnap";
+import {
+  GUIDANCE_TICK_MS,
+  guidancePeekReducer,
+  guidancePeekVisible,
+  INITIAL_GUIDANCE_PEEK,
+} from "../../src/lib/utils/tripGuidancePeek";
+import { CONTROL_BASE_OFFSET } from "../../src/lib/utils/overlayLane";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
@@ -80,6 +87,8 @@ import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
+import { TripGuidanceBar } from "../../src/components/TripGuidanceBar";
+import { resolveTripStage } from "../../src/lib/utils/tripGuidance";
 import { VGpsLoader } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
@@ -1388,18 +1397,29 @@ export default function DashboardScreen() {
    */
   useEffect(() => {
     if (offerArrivalAt === null) return;
+    const arrivalRideId =
+      pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
     const action = resolveOfferRingAction({
       arrivalSource: offerArrivalSource,
       isOnline,
       liveness: offerLiveness,
       handledArrival: ringHandledArrivalAt.current === offerArrivalAt,
+      // Read here rather than watched: the accept adds the id to this set *before* its round-trip
+      // and only removes the ride from the deck when the server answers, so during that window
+      // the ride is still `live` and still looks ringable. The set is the only signal that says
+      // the driver has already answered. `activeRide` covers the moment the answer lands, and
+      // covers an accept taken from the notification shade, which never goes through the card.
+      answered:
+        arrivalRideId !== null &&
+        (acceptingRideIdsRef.current.has(arrivalRideId) ||
+          activeRide?.id === arrivalRideId),
     });
     // "Not yet" is not "never": the deck may still be loading or the server may not have
     // answered, and latching those would leave the offer on screen in silence.
     if (!isTerminalRingAction(action)) return;
 
     ringHandledArrivalAt.current = offerArrivalAt;
-    const rideId = pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
+    const rideId = arrivalRideId;
     if (action.kind === 'ring') {
       ringOffer();
       logOfferStage('ring_armed', {}, rideId);
@@ -1416,6 +1436,7 @@ export default function DashboardScreen() {
     isOnline,
     pendingOfferOpen?.rideId,
     provisionalOffer?.rideId,
+    activeRide?.id,
   ]);
 
   // Safety net for the provisional card: the normal path replaces it within one round-trip,
@@ -1531,8 +1552,8 @@ export default function DashboardScreen() {
   );
 
   const visibleProvisional = useMemo(
-    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds),
-    [provisionalOffer, deckOfferIds],
+    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds, activeRide?.id ?? null),
+    [provisionalOffer, deckOfferIds, activeRide?.id],
   );
 
   // Whether an offer card is actually painted, from the very rule the overlay applies. The sheet
@@ -1590,6 +1611,72 @@ export default function DashboardScreen() {
     () => resolveMapRecenterBottomOffset(activeRide, noticesHeight),
     [activeRide, activeRide?.status, activeRide?.driver_arrived_at, noticesHeight],
   );
+
+  // The instruction the driver is meant to be reading. Read off the same two fields the sheet
+  // uses, so the bar and the sheet can never announce different stages of the same ride.
+  const tripStage = useMemo(
+    () =>
+      resolveTripStage(
+        activeRide?.status,
+        Boolean(activeRide?.driver_arrived_at),
+      ),
+    [activeRide?.status, activeRide?.driver_arrived_at],
+  );
+
+  // Waiting at the pickup is the one stage whose sheet is taller than `nav`, so the overlays
+  // above it have to clear a different height — same rule as `resolveMapRecenterBottomOffset`.
+  const waitingAtPickup =
+    activeRide?.status === "scheduled" && Boolean(activeRide?.driver_arrived_at);
+
+  // The palier the sheet has *actually* settled on, reported by the sheet itself: the
+  // `bottomSheetSnapLevel` above is only what the sheet is asked for, and a driver who drags it
+  // settles wherever they let go. The difference is the whole point of the two props — "the trip
+  // is in front of the driver" (the trip body) versus "it is below the fold" (`nav`, 14 px).
+  const [sheetSettledAt, setSheetSettledAt] = useState<SheetSnapLevel | null>(null);
+
+  // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes,
+  // withdraws once the driver pulls away, and returns after the driver has sat still long enough.
+  // `tripGuidancePeek` holds the rule, including why the movement signal is route progress and
+  // not the location's speed, and why a stop can only be seen as the absence of new progress.
+  const [guidancePeek, observeGuidancePeek] = useReducer(
+    guidancePeekReducer,
+    INITIAL_GUIDANCE_PEEK,
+  );
+  const remainingMeters = navProgress?.distanceMeters ?? null;
+
+  // The latest trip facts, for the heartbeat to read. Assigned during render, like the other
+  // refs in this codebase.
+  const guidanceFactsRef = useRef({ stage: tripStage, remainingMeters });
+  guidanceFactsRef.current = { stage: tripStage, remainingMeters };
+
+  useEffect(() => {
+    observeGuidancePeek({ stage: tripStage, remainingMeters, nowMs: Date.now() });
+  }, [tripStage, remainingMeters]);
+
+  // The heartbeat, and the one thing it must not do is depend on the distance.
+  //
+  // It exists to notice a *silence*: a parked driver receives no route progress at all, so
+  // without a tick the stop would never be observed and the announcement would never return.
+  // Taking `remainingMeters` as a dependency would destroy it — every route push would tear the
+  // interval down and rebuild it, and a timer that is rebuilt more often than its own period
+  // never fires. It reads the facts from a ref instead, so only a real stage change restarts it.
+  useEffect(() => {
+    if (tripStage === null) return;
+    const id = setInterval(() => {
+      const facts = guidanceFactsRef.current;
+      observeGuidancePeek({ ...facts, nowMs: Date.now() });
+    }, GUIDANCE_TICK_MS);
+    return () => clearInterval(id);
+  }, [tripStage]);
+
+  // Either source means the trip is already spelled out inside the sheet, so the bar would be a
+  // second copy of it. Both are needed: the palier the sheet is heading for is known in the same
+  // commit as the stage, the settled one only on the next.
+  const tripVisibleInSheet =
+    bottomSheetSnapLevel === "trip" || sheetSettledAt === "trip";
+
+  const guidanceVisible =
+    !mapInOfferMode && guidancePeekVisible(guidancePeek, tripVisibleInSheet);
 
   // The offer overlay is rendered by both branches below; see `DashboardOfferOverlay` for the
   // single visibility rule it applies. Nothing branches here on purpose: the element is the
@@ -1664,8 +1751,9 @@ export default function DashboardScreen() {
 
         <MapRecenterButton
           visible={mapFollowPaused && !mapInOfferMode}
-          bottom={Math.max(24, mapRecenterBottomOffset + 12)}
+          bottom={Math.max(24, mapRecenterBottomOffset + CONTROL_BASE_OFFSET)}
           navigationMode={!!activeRide}
+          aboveGuidanceBar={guidanceVisible}
           onPress={() => resumeMapFollowRef.current?.()}
         />
 
@@ -1674,10 +1762,27 @@ export default function DashboardScreen() {
           hint={mapLoaderHint(mapReady, hasGpsFix)}
         />
 
+        {/* The instruction for this stage of the trip, told as an announcement. Deliberately
+            outside the sheet: the sheet rests at `nav` while a ride is driven, which is 14 px of
+            body, and the sentence the driver needs was living in there. It stays mounted for the
+            whole stage so it can retract into the sheet instead of blinking out — `visible` is
+            what moves. */}
+        {tripStage && !mapInOfferMode ? (
+          <TripGuidanceBar
+            stage={tripStage}
+            aboveTripSheet={waitingAtPickup}
+            visible={guidanceVisible}
+          />
+        ) : null}
+
         {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
           <>
             <TripManeuverHud progress={navProgress} />
-            <TripArrivalHud progress={navProgress} />
+            <TripArrivalHud
+              progress={navProgress}
+              aboveTripSheet={waitingAtPickup}
+              aboveGuidanceBar={guidanceVisible}
+            />
           </>
         ) : null}
 
@@ -1689,6 +1794,7 @@ export default function DashboardScreen() {
           allowedSnaps={bottomSheetAllowedSnaps}
           noticesHeight={noticesHeight}
           collapseToken={offerToken}
+          onSettle={setSheetSettledAt}
         >
           <OnlineStatusRow
             duty={resolveDriverDuty(isOnline, activeRide)}

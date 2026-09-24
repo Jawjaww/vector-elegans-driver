@@ -22,12 +22,22 @@ import type { ProvisionalOffer } from '../stores/driverStore';
  *
  * Shared by the overlay that paints it and by the sheet rule below, so "is a card on screen"
  * cannot mean two different things in the same frame.
+ *
+ * `activeRideId` is the second way it yields, and the one the deck cannot express. A ride the
+ * driver has accepted leaves `availableRides`, so its id vanishes from the deck — and the card
+ * that exists to say "a ride is being prepared for you to accept" was read as still worth
+ * showing, over a ride that had already been accepted. Measured: the driver accepted at
+ * 22:01:03.464 and the provisional card was still on screen at 22:01:05.970, dropped by its
+ * 15 s TTL and not by the answer. The whole point of the card is gone the moment there is
+ * nothing left to accept.
  */
 export function visibleProvisionalOffer(
   provisional: ProvisionalOffer | null,
   deckRideIds: readonly string[],
+  activeRideId: string | null = null,
 ): ProvisionalOffer | null {
   if (provisional === null) return null;
+  if (activeRideId !== null && provisional.rideId === activeRideId) return null;
   return deckRideIds.includes(provisional.rideId) ? null : provisional;
 }
 
@@ -49,7 +59,10 @@ export function offerSetToken(
 ): string {
   const ids = new Set(deckRideIds);
   if (provisional) ids.add(provisional.rideId);
-  return [...ids].sort().join('|');
+  // Explicit comparator (Sonar S2871). Ride ids are UUID v4 hex, so the default code-unit order
+  // and locale collation agree on every value that can reach this set; naming the comparator
+  // states the intent instead of relying on that coincidence.
+  return [...ids].sort((a, b) => a.localeCompare(b)).join('|');
 }
 
 /**

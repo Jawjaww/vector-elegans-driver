@@ -7,14 +7,27 @@ import {
   maneuverToFeatherIcon,
   type NavProgress,
 } from '../lib/utils/navProgress';
+import { GlassPanel } from './GlassPanel';
+import { GLASS_MATERIAL } from '../lib/theme';
+
+const HUD_RADIUS = 18;
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
 }>;
 
-/** Top-of-screen next-turn HUD during navigation. */
+/**
+ * Top-of-screen next-turn HUD during navigation.
+ *
+ * It carries the panel's own accent — the Vector Elegans blue — rather than a trip-stage accent,
+ * and the distinction is the point: this panel is not about *where the trip is going* but about
+ * *what to do in the next few hundred metres*. Blue is also what the route itself is drawn in
+ * (see `MAP_PALETTE`), so the instruction and the line it describes agree at a glance, which is
+ * the one place where a misread costs a turn.
+ */
 export function TripManeuverHud({ progress }: TripManeuverHudProps) {
   const insets = useSafeAreaInsets();
+  const material = GLASS_MATERIAL;
   const man = progress.nextManeuver;
   const icon = man
     ? maneuverToFeatherIcon(man.type, man.modifier)
@@ -36,56 +49,45 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
         left: 12,
         right: 12,
         zIndex: 15,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(16,185,129,0.35)',
-        backgroundColor: 'rgba(6, 24, 18, 0.92)',
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
       }}
     >
-      <View
-        style={{
-          width: 52,
-          height: 52,
-          borderRadius: 14,
-          backgroundColor: 'rgba(16,185,129,0.18)',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Feather name={icon} size={28} color="#34d399" />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text
-          style={{
-            color: '#ecfdf5',
-            fontSize: 16,
-            fontWeight: '800',
-            letterSpacing: 0.2,
-          }}
-          numberOfLines={1}
-        >
-          {instruction}
-          {manDist ? ` · ${manDist}` : ''}
-        </Text>
-        {man?.name ? (
-          <Text
-            style={{
-              color: 'rgba(167,243,208,0.8)',
-              fontSize: 13,
-              marginTop: 3,
-              fontWeight: '600',
-            }}
-            numberOfLines={1}
+      <GlassPanel radius={HUD_RADIUS}>
+        <View className="flex-row items-center gap-3 px-3 py-2.5">
+          <View
+            className="h-[52px] w-[52px] items-center justify-center rounded-[14px]"
+            style={{ backgroundColor: `${material.accent}${material.chipTintAlpha}` }}
           >
-            {man.name}
-          </Text>
-        ) : null}
-      </View>
+            <Feather name={icon} size={28} color={material.accentStrong} />
+          </View>
+          <View className="flex-1">
+            <Text
+              style={{
+                color: material.text,
+                fontSize: 16,
+                fontWeight: '800',
+                letterSpacing: 0.2,
+              }}
+              numberOfLines={1}
+            >
+              {instruction}
+              {manDist ? ` · ${manDist}` : ''}
+            </Text>
+            {man?.name ? (
+              <Text
+                style={{
+                  color: material.textDim,
+                  fontSize: 13,
+                  marginTop: 3,
+                  fontWeight: '600',
+                }}
+                numberOfLines={1}
+              >
+                {man.name}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </GlassPanel>
     </View>
   );
 }
