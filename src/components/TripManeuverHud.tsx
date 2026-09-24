@@ -7,12 +7,23 @@ import {
   maneuverToFeatherIcon,
   type NavProgress,
 } from '../lib/utils/navProgress';
+import { GlassPanel } from './GlassPanel';
+import { theme } from '../lib/theme';
+
+const HUD_RADIUS = 18;
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
 }>;
 
-/** Top-of-screen next-turn HUD during navigation. */
+/**
+ * Top-of-screen next-turn HUD during navigation.
+ *
+ * The one overlay that keeps its emerald tint rather than adopting a stage accent: it is not
+ * about *where the trip is going* but about *what to do in the next few hundred metres*, and
+ * sharing the destination's green would blur that distinction on the one panel where a misread
+ * costs a turn.
+ */
 export function TripManeuverHud({ progress }: TripManeuverHudProps) {
   const insets = useSafeAreaInsets();
   const man = progress.nextManeuver;
@@ -36,56 +47,59 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
         left: 12,
         right: 12,
         zIndex: 15,
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(16,185,129,0.35)',
-        backgroundColor: 'rgba(6, 24, 18, 0.92)',
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
       }}
     >
-      <View
-        style={{
-          width: 52,
-          height: 52,
-          borderRadius: 14,
-          backgroundColor: 'rgba(16,185,129,0.18)',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Feather name={icon} size={28} color="#34d399" />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text
+      <GlassPanel radius={HUD_RADIUS}>
+        <View
           style={{
-            color: '#ecfdf5',
-            fontSize: 16,
-            fontWeight: '800',
-            letterSpacing: 0.2,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
           }}
-          numberOfLines={1}
         >
-          {instruction}
-          {manDist ? ` · ${manDist}` : ''}
-        </Text>
-        {man?.name ? (
-          <Text
+          <View
             style={{
-              color: 'rgba(167,243,208,0.8)',
-              fontSize: 13,
-              marginTop: 3,
-              fontWeight: '600',
+              width: 52,
+              height: 52,
+              borderRadius: 14,
+              backgroundColor: `${theme.colors.accent}2e`,
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
-            numberOfLines={1}
           >
-            {man.name}
-          </Text>
-        ) : null}
-      </View>
+            <Feather name={icon} size={28} color={theme.colors.accentLight} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{
+                color: '#fff',
+                fontSize: 16,
+                fontWeight: '800',
+                letterSpacing: 0.2,
+              }}
+              numberOfLines={1}
+            >
+              {instruction}
+              {manDist ? ` · ${manDist}` : ''}
+            </Text>
+            {man?.name ? (
+              <Text
+                style={{
+                  color: 'rgba(255,255,255,0.62)',
+                  fontSize: 13,
+                  marginTop: 3,
+                  fontWeight: '600',
+                }}
+                numberOfLines={1}
+              >
+                {man.name}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </GlassPanel>
     </View>
   );
 }

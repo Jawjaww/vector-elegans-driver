@@ -59,7 +59,10 @@ export function offerSetToken(
 ): string {
   const ids = new Set(deckRideIds);
   if (provisional) ids.add(provisional.rideId);
-  return [...ids].sort().join('|');
+  // Explicit comparator (Sonar S2871). Ride ids are UUID v4 hex, so the default code-unit order
+  // and locale collation agree on every value that can reach this set; naming the comparator
+  // states the intent instead of relying on that coincidence.
+  return [...ids].sort((a, b) => a.localeCompare(b)).join('|');
 }
 
 /**

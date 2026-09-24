@@ -205,6 +205,19 @@ Deux lecteurs de son indépendants, et ils doivent s'accorder ou le son dépend 
 
 Une PR mélangeant JS et Kotlin **ne peut pas** partir en OTA : le Kotlin n'arrivera qu'avec l'APK, et l'empreinte refusera l'OTA jusqu'au rebuild. C'est le cas de la PR « sonnerie » : elle livre la ligne de réglage et le nouveau déclencheur, donc un APK, et la correction de l'ordre feuille/carte part séparément en OTA. Vérifier l'empreinte avant de publier un OTA (`@expo/fingerprint`), et ne jamais conclure qu'un correctif JS est parti parce que la PR a été mergée.
 
+### The guidance bar is an announcement, and the sheet is the reference
+
+The instruction was a panel pinned over the map for the whole leg, and that failed in both directions at once: it stood over a sheet that already carried the stage, the addresses and the action button, and it was still there while the driver was driving — when the only thing worth reading is the road. It is announced and withdrawn now: `src/lib/utils/tripGuidancePeek.ts` (pure, tested) holds the life of the announcement and `TripGuidanceBar` only draws it.
+
+- **It emerges on a stage change** (`to_pickup` → `at_pickup` → `to_dropoff`) and **retracts once the driver has covered `GUIDANCE_READ_METERS` (15 m) of the route**. A distance rather than a timer, because the sentence is retired by the driver acting on it and not by a clock: a driver parked at the pickup keeps it for as long as they sit there.
+- **The movement signal is route progress (`NavProgress.distanceMeters`), never `currentLocation.speed`.** `currentLocation` is written through a distance throttle (`GPS_STORE_MIN_METERS`): once the driver parks, no fix moves 8 m, so the last *moving* fix stays in the store — speed included — indefinitely. Read as "the vehicle is moving", that stale number would retire the announcement of the next trip before the driver had moved at all, which is the very sentence the bar exists to show.
+- **The advance is a running maximum**, so a route recomputed mid-leg (the remaining distance going *up*) neither reads as the driver going backwards nor forgets an advance already made.
+- **The sheet's `trip` palier takes over from the bar**, because the trip body already holds the stage, both addresses and the button. That suppression is a filter applied at render and not a flag written into the state: the palier the sheet is *heading for* is known in the same commit as the stage, the *settled* one only a commit later, and a latched flag would be set by a stale value and swallow the next announcement for good.
+- **`BottomSheet` reports the palier it actually settled on** (`onSettle`), a drag included. The dashboard cannot derive it: `snapLevel` is only what the sheet is asked for, and a drag settles wherever the driver lets go.
+- **The bar and the arrival chip move on the same clock** (`GUIDANCE_EMERGE_MS` / `GUIDANCE_RETRACT_MS`), because the chip is lifted by the bar and would otherwise be left floating over an empty slot. The chip itself never leaves: the instruction is news, the ETA is not.
+
+Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins both the rule and the wiring, including a mutation that re-announces a stage on every route tick.
+
 ### Un journal natif doit porter l'identité de son processus
 
 **Le journal natif survit à une mise à jour d'APK** (il vit dans les `SharedPreferences`). Des enregistrements écrits par un build antérieur se lisent donc exactement comme des enregistrements frais : une entrée `launch_refused` sans le champ `origin=` ajouté par la 1.0.6 — donc écrite par la 1.0.5, restée en préférences — a été prise pour la preuve d'un échec de lancement **du build testé**. Une session de diagnostic entière peut partir sur une ligne que le binaire installé n'a jamais produite.

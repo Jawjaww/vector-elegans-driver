@@ -113,3 +113,33 @@ export const glassModalStyle = {
   shadowRadius: 36,
   elevation: 12,
 };
+
+/**
+ * Tokens for the panels that float directly above the live map.
+ *
+ * Two decisions are baked in here rather than repeated at each call site.
+ *
+ * **No backdrop blur.** `expo-blur` would have to re-capture its backdrop, and the backdrop
+ * here is a map that never holds still — the blur would be recomputed on every frame the
+ * driver moves, which is the most expensive thing on this screen. The glass is built instead
+ * from a static diagonal sheen over a translucent charcoal: one gradient, painted once, no
+ * per-frame cost at all.
+ *
+ * **A specular rim, lit on opposite corners.** The bright top-left arc against a dimmed
+ * bottom-right one is what gives a flat panel a sense of thickness: it reads as light arriving
+ * from one direction and glancing off an edge. A uniform border gives the same panel the look
+ * of a box. The two colours are named for their role rather than for their position, so a
+ * call site cannot pair `top` with `bottom` and lose the effect.
+ */
+export const GLASS_OVERLAY = {
+  /** Body. Translucent enough to read as glass, opaque enough to stay legible on pale tiles. */
+  body: 'rgba(20, 20, 22, 0.66)',
+  /** Sheen painted over the body, top-left toward bottom-right. Never a fill on its own. */
+  sheen: ['rgba(255, 255, 255, 0.10)', 'rgba(255, 255, 255, 0.015)'] as const,
+  sheenStart: { x: 0, y: 0 } as const,
+  sheenEnd: { x: 1, y: 1 } as const,
+  /** Lit rim — top-left and bottom-right, the two opposite arcs that carry the reflection. */
+  edgeLit: 'rgba(255, 255, 255, 0.42)',
+  /** Dimmed rim. Never fully transparent: the panel still needs an outline over dark tiles. */
+  edgeDim: 'rgba(255, 255, 255, 0.08)',
+} as const;

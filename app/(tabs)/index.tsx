@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useReducer, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   View,
@@ -43,6 +43,11 @@ import {
   resolveDriverHomeSnapLevel,
   visibleProvisionalOffer,
 } from "../../src/lib/utils/homeSheetSnap";
+import {
+  guidancePeekReducer,
+  guidancePeekVisible,
+  INITIAL_GUIDANCE_PEEK,
+} from "../../src/lib/utils/tripGuidancePeek";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
@@ -80,10 +85,7 @@ import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
-import {
-  TripGuidanceBar,
-  TRIP_GUIDANCE_BAR_HEIGHT,
-} from "../../src/components/TripGuidanceBar";
+import { TripGuidanceBar } from "../../src/components/TripGuidanceBar";
 import { resolveTripStage } from "../../src/lib/utils/tripGuidance";
 import { VGpsLoader } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
@@ -1624,6 +1626,34 @@ export default function DashboardScreen() {
   const waitingAtPickup =
     activeRide?.status === "scheduled" && Boolean(activeRide?.driver_arrived_at);
 
+  // The palier the sheet has *actually* settled on, reported by the sheet itself: the
+  // `bottomSheetSnapLevel` above is only what the sheet is asked for, and a driver who drags it
+  // settles wherever they let go. The difference is the whole point of the two props — "the trip
+  // is in front of the driver" (the trip body) versus "it is below the fold" (`nav`, 14 px).
+  const [sheetSettledAt, setSheetSettledAt] = useState<SheetSnapLevel | null>(null);
+
+  // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes and
+  // retracts once the driver is on their way. `tripGuidancePeek` holds the rule, including why
+  // the movement signal is route progress and not the location's speed.
+  const [guidancePeek, observeGuidancePeek] = useReducer(
+    guidancePeekReducer,
+    INITIAL_GUIDANCE_PEEK,
+  );
+  const remainingMeters = navProgress?.distanceMeters ?? null;
+
+  useEffect(() => {
+    observeGuidancePeek({ stage: tripStage, remainingMeters });
+  }, [tripStage, remainingMeters]);
+
+  // Either source means the trip is already spelled out inside the sheet, so the bar would be a
+  // second copy of it. Both are needed: the palier the sheet is heading for is known in the same
+  // commit as the stage, the settled one only on the next.
+  const tripVisibleInSheet =
+    bottomSheetSnapLevel === "trip" || sheetSettledAt === "trip";
+
+  const guidanceVisible =
+    !mapInOfferMode && guidancePeekVisible(guidancePeek, tripVisibleInSheet);
+
   // The offer overlay is rendered by both branches below; see `DashboardOfferOverlay` for the
   // single visibility rule it applies. Nothing branches here on purpose: the element is the
   // same, only the surface it is painted over changes.
@@ -1707,15 +1737,18 @@ export default function DashboardScreen() {
           hint={mapLoaderHint(mapReady, hasGpsFix)}
         />
 
-        {/* The instruction for this stage of the trip. Deliberately outside the sheet: the sheet
-            rests at `nav` while a ride is driven, which is 14 px of body, and the sentence the
-            driver needs was living in there. */}
+        {/* The instruction for this stage of the trip, told as an announcement. Deliberately
+            outside the sheet: the sheet rests at `nav` while a ride is driven, which is 14 px of
+            body, and the sentence the driver needs was living in there. It stays mounted for the
+            whole stage so it can retract into the sheet instead of blinking out — `visible` is
+            what moves. */}
         {tripStage && !mapInOfferMode ? (
           <TripGuidanceBar
             stage={tripStage}
             pickupAddress={activeRide?.pickup_address ?? null}
             dropoffAddress={activeRide?.dropoff_address ?? null}
             aboveTripSheet={waitingAtPickup}
+            visible={guidanceVisible}
           />
         ) : null}
 
@@ -1725,7 +1758,7 @@ export default function DashboardScreen() {
             <TripArrivalHud
               progress={navProgress}
               aboveTripSheet={waitingAtPickup}
-              bottomOffset={tripStage ? TRIP_GUIDANCE_BAR_HEIGHT + 6 : 0}
+              aboveGuidanceBar={guidanceVisible}
             />
           </>
         ) : null}
@@ -1738,6 +1771,7 @@ export default function DashboardScreen() {
           allowedSnaps={bottomSheetAllowedSnaps}
           noticesHeight={noticesHeight}
           collapseToken={offerToken}
+          onSettle={setSheetSettledAt}
         >
           <OnlineStatusRow
             duty={resolveDriverDuty(isOnline, activeRide)}

@@ -1,3 +1,6 @@
+import { MAP_PALETTE } from '../mapPalette';
+import { theme } from '../theme';
+
 /**
  * What the driver is meant to be doing, right now.
  *
@@ -78,5 +81,30 @@ export function tripGuidanceHintKey(stage: TripStage): string | null {
       return 'ride.guidance.atPickupHint';
     case 'to_dropoff':
       return 'ride.guidance.toDropoffHint';
+  }
+}
+
+/** Feather glyph names the bar draws. Narrowed here so a typo is a type error, not a blank. */
+export type TripGuidanceIcon = 'navigation' | 'user-check' | 'flag';
+
+/**
+ * How each stage is coloured and drawn.
+ *
+ * Pickup and dropoff borrow `MAP_PALETTE`, so the instruction carries the same colour as the
+ * marker it points at — a blue bar naming the blue departure pin. Waiting at the pickup has no
+ * marker of its own and nothing to drive to, so it takes the warning amber, which is the one
+ * glance-readable way to say "this stage is a wait, not a route".
+ */
+export function tripGuidanceAccent(stage: TripStage): {
+  color: string;
+  icon: TripGuidanceIcon;
+} {
+  switch (stage) {
+    case 'to_pickup':
+      return { color: MAP_PALETTE.departure, icon: 'navigation' };
+    case 'at_pickup':
+      return { color: theme.colors.warning, icon: 'user-check' };
+    case 'to_dropoff':
+      return { color: MAP_PALETTE.arrival, icon: 'flag' };
   }
 }
