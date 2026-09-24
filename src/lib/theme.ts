@@ -164,61 +164,28 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * The layers, in the order they are painted:
- *
- * 1. **Body** — a diagonal gradient at three stops, lighter at the top. Translucent, so the map
- *    crosses it; that show-through is the whole trick. It carries the pane's top as the *range*
- *    between its own stops, and that is the correction: a highlight painted as its own band over
- *    a short bar lands across a line of type and reads as a lighter box drawn behind it, which is
- *    exactly what it was reported as.
- * 2. **Directional edge glows** — an ultra-fine white bar along the top edge and another down the
- *    left, each fading out well before it reaches the far end. This is the arête, the highlight a
- *    pane's corner leaves.
- * 3. **Rim** — a uniform hairline, and on a light face it is *dark*. That inversion is forced by
- *    the light direction: on a slate pane the outline was a glow, because anything darker than
- *    the face vanished into it; on a pale pane the light hairline is what vanishes, so the
- *    boundary has to come from below. Without it a pale panel over pale tiles has no edge at all.
- *
- * Layer 2 is the whole border treatment and it is deliberately *not* four lit corners. A panel
- * whose corners glow on every side reads as a bevelled box from an older toolkit, which is
- * precisely what it looked like: bright arcs at opposite corners are a graphic flourish, where
- * two thin bars from one origin say the same thing — the light comes from up and to the left —
- * and say it quietly. The Next.js cards reached the same conclusion, and their comment says so.
+ * **One fill.** A gradient lighter at the top, a white edge glow, and a second plate under both
+ * each read as a lighter rectangle behind the first line of type — the band reported on every
+ * overlay. The face is a single neutral colour, opaque enough that the map tiles do not print a
+ * second tone through it. The rim is a dark hairline: on a pale face a light outline vanishes.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Body gradient, diagonal. Three stops: lit edge, mid body, shaded edge. */
-  body: readonly [string, string, string];
-  bodyStart: { x: number; y: number };
-  bodyEnd: { x: number; y: number };
   /**
-   * Colour under the gradient, inside the clipped face.
+   * The only fill. One colour, the same on every pixel of the card.
    *
-   * Kept translucent rather than solid, because the show-through is the effect: an opaque base
-   * would hide the map behind the gradient and turn the pane back into a painted slab. It must
-   * not live on the elevation shell: Android composites a translucent fill there with elevation
-   * as a lighter rectangle behind the type.
+   * High alpha on purpose: a pale map showing through a low alpha is what made the top of a short
+   * card read as a white band. Not fully opaque, so the pane still sits on the map rather than
+   * covering it.
    */
-  bodyBase: string;
-  /**
-   * Colour of each edge glow at its origin, the top-left corner.
-   *
-   * White, and not the scuff it would be on a dark face: this is the lit edge of the pane, and
-   * its brightness is relative to a face that is already pale.
-   */
-  edgeGlow: string;
-  /** Where an edge glow has faded to nothing, as a fraction of the edge it runs along. */
-  edgeFade: number;
-  /** Thickness of an edge glow, in points. A hairline: this is a reflection, not a border. */
-  edgeThickness: number;
+  fill: string;
   /**
    * Uniform hairline outline, and dark.
    *
-   * The one thing that gives a pale pane an edge over pale map tiles. A rim in the accent colour
-   * would decorate the panel; a dark one bounds it, which is what a light face needs.
+   * The one thing that gives a pale pane an edge over pale map tiles.
    */
   rim: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
@@ -240,18 +207,8 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  body: [
-    'rgba(250, 251, 253, 0.60)',
-    'rgba(233, 238, 245, 0.66)',
-    'rgba(214, 222, 233, 0.72)',
-  ],
-  bodyStart: { x: 0.15, y: 0 },
-  bodyEnd: { x: 0.85, y: 1 },
-  bodyBase: 'rgba(255, 255, 255, 0.30)',
-  edgeGlow: 'rgba(255, 255, 255, 0.85)',
-  edgeFade: 0.42,
-  edgeThickness: 1,
-  rim: 'rgba(15, 23, 42, 0.14)',
+  fill: 'rgba(236, 239, 244, 0.94)',
+  rim: 'rgba(15, 23, 42, 0.16)',
   shadow: { offsetY: 8, radius: 24, opacity: 0.18, color: VE_BLUE.shadow },
   text: '#111827',
   textDim: '#4b5563',

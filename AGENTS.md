@@ -233,11 +233,7 @@ Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins the rule a
 
 `expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.
 
-`GLASS_MATERIAL` in `src/lib/theme.ts` describes the material layer by layer, and `GlassPanel` paints the layers in order — the test `lays out the material in the documented layer order` fails if one is moved:
-
-1. a **diagonal body gradient** at three stops, translucent so the map crosses it. It is the only fill: the pane's top is the *range* between its own stops, because a highlight painted as its own band over a bar this short lands across a line of type;
-2. two **directional edge glows** — a hairline along the top edge and another down the left, each fading to nothing by `edgeFade` (0.42);
-3. a uniform **rim**, one point wide, occupying the band the body leaves free.
+`GLASS_MATERIAL.fill` is the only paint. `GlassPanel` draws that colour, a dark hairline, and an iOS shadow (`elevation: 0`). A gradient, a white edge glow and a second plate under them each read as a lighter rectangle behind the first line of type — `is one light fill, the same on every pixel` fails if a second tone comes back.
 
 **The face is a light neutral frost — not charcoal, and not tinted.** Two rejections led here: the near-black face read as a hole cut out of the map, and the slate blue that replaced it read as a colour that had been *chosen* rather than a pane that was frosted. `is a light frost, and the map is allowed to cross it` re-reads the stops *composited over the map tile* — light at both ends, with an internal range so the pane keeps a top and a bottom — and `stays neutral, with no tint chosen for it` fails if the face drifts back towards a colour of its own.
 
@@ -247,9 +243,7 @@ Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins the rule a
 
 **Every fill is rounded twice, and that is deliberate.** The body gradient carries `borderRadius: radius` in addition to being clipped by the wrapper's `overflow: hidden`, because the rounded clip does not reliably reach a native gradient view on Android: an uncut body paints its own square corners over the map, which is the other half of the same report. `fits every layer to the radius it was handed` fails if a layer starts trusting the clip alone.
 
-**The elevation shell carries no fill.** `bodyBase` and the body gradient live inside the clipped face only. On Android, a translucent `backgroundColor` on the same view as `elevation` composites as a lighter rectangle behind the type row — the band drivers kept reporting after the highlight layer was removed. `keeps the elevation shell free of fill so Android does not paint a box behind the type` pins the transparent shadow wrapper.
-
-**Layer 2 is the whole border treatment, and it is deliberately not four lit corners.** Bright arcs on two opposite corners are a graphic flourish, and on a panel this small they read as a bevelled box from an older toolkit — which is what they were, and what got rejected. Two thin bars leaving one origin say the same thing (the light comes from up and to the left) and say it quietly. The Next.js client portal reached the same conclusion in `globals.css`: `.card-elegant::after` draws *"top (horizontal) and left (vertical) ultra-fine, ultra-subtle glows"* with the comment *"corner highlights handled by ::after (no filled corner blobs)"*. The retired corner treatment is pinned by absence so it cannot return unnoticed.
+**No second paint over the fill.** White edge glows and Android `elevation` on a translucent view were retired with the gradient: each one drew a lighter plate behind the type. The rim is the dark hairline only.
 
 `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live in the material too, and no overlay above the map is allowed to name a colour of its own. The type is two dark greys (`#111827` / `#4b5563`), never white; the accent is the same `blue-500` the map draws the route in (`MAP_PALETTE.departure`), asserted equal so the two apps cannot drift apart on it; and a glyph drawn straight on the face takes the deeper `accentStrong` (`blue-700`) rather than the accent itself, which sits under 3:1 on this face.
 

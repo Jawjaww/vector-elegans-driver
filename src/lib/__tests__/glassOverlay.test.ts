@@ -122,115 +122,46 @@ const lightness = (css: string): number => {
 const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
-describe('the light on the edge of a panel', () => {
-  it('draws two glows from one corner instead of lighting four sides', () => {
-    // Two thin bars leaving the top-left and fading out say "the light comes from up and to the
-    // left". Four lit corners say "bevelled box", which is what the first attempt looked like.
+describe('the edge of a panel', () => {
+  it('bounds a pale pane with a dark hairline and no white glow', () => {
+    // A white edge bar and a gradient lighter at the top both landed on the first line of type
+    // and read as a second rectangle. The rim is the only edge, and it is dark.
     const code = stripComments(readSource(GLASS_PANEL));
-    const painted = code.match(/colors=\{EDGE_COLORS\}/g) ?? [];
-    expect(painted).toHaveLength(2);
-    expect(code).toContain('styles.edgeTop');
-    expect(code).toContain('styles.edgeLeft');
-    expect(code).not.toContain('edgeBottom');
-    expect(code).not.toContain('edgeRight');
-    // The retired corner treatment, named so it cannot come back unnoticed.
-    expect(code).not.toContain('edgeLit');
-    expect(code).not.toContain('edgeDim');
-  });
-
-  it('runs one bar along the top edge and the other down the left', () => {
-    // Direction is the effect. A bar anchored to the wrong pair of sides is the same colour in
-    // the same place and would render the light coming from the bottom-right.
-    const source = readSource(GLASS_PANEL);
-    expect(source).toMatch(/edgeTop:\s*\{[\s\S]*?top:\s*0[\s\S]*?right:\s*0/);
-    expect(source).toMatch(/edgeLeft:\s*\{[\s\S]*?left:\s*0[\s\S]*?bottom:\s*0/);
-  });
-
-  it('keeps each glow a hairline that dies well before the far edge', () => {
-    // Thickness and fade are what separate a reflection from a border.
-    expect(GLASS_MATERIAL.edgeThickness).toBeLessThanOrEqual(2);
-    expect(GLASS_MATERIAL.edgeFade).toBeLessThanOrEqual(0.5);
-    const code = stripComments(readSource(GLASS_PANEL));
-    // Read from the material rather than hard-coded, so widening the bar is a theme change and
-    // not an edit that quietly bypasses this test.
-    expect(code).toContain('height: GLASS_MATERIAL.edgeThickness');
-    expect(code).toContain('width: GLASS_MATERIAL.edgeThickness');
-    expect(code).toContain('locations={EDGE_LOCATIONS}');
-  });
-
-  it('bounds a pale pane with a dark hairline, and lights it white', () => {
-    // The inversion the light direction forces, and the single most surprising thing in the
-    // material. On the dark face the outline was a blue glow, because anything darker than the
-    // face vanished into it. On a pale face it is the light hairline that vanishes, so the
-    // boundary has to come from below — without it a pale panel over pale tiles has no edge at
-    // all, which is the failure the face was rejected for before this one.
+    expect(code).not.toContain('LinearGradient');
+    expect(code).not.toContain('edgeGlow');
+    expect(code).not.toContain('edgeTop');
+    expect(code).not.toContain('edgeLeft');
     const rim = rgbOf(GLASS_MATERIAL.rim);
     expect(rim.r + rim.g + rim.b).toBeLessThan(200);
     expect(rim.a).toBeLessThan(0.3);
     expect(rim.a).toBeGreaterThan(0.05);
-
-    // And the glow is white, not cool: there is no blue left in this material at all.
-    const glow = rgbOf(GLASS_MATERIAL.edgeGlow);
-    expect(glow.r).toBe(glow.g);
-    expect(glow.g).toBe(glow.b);
-    expect(glow.a).toBeGreaterThan(0.5);
-
-    // Shade in slate rather than black, so the panel sits in the blue family in its shadow.
     const shadow = rgbOf(GLASS_MATERIAL.shadow.color);
     expect(shadow.b).toBeGreaterThan(shadow.r);
   });
 });
 
 describe('the face of a panel', () => {
-  it('is a light frost, and the map is allowed to cross it', () => {
-    // Both halves of this are the fix for a real complaint. The near-black face read as a hole
-    // cut in the map, and the slate one that replaced it read as a colour that had been chosen.
-    // A pale neutral veil is neither — and the show-through is what makes it read as glass
-    // rather than as paint, so the alphas are the effect and not an implementation detail.
-    for (const stop of GLASS_MATERIAL.body) {
-      const colour = rgbOf(stop);
-      expect(colour.a).toBeLessThan(1);
-      expect(colour.a).toBeGreaterThan(0.4);
-    }
-    expect(rgbOf(GLASS_MATERIAL.bodyBase).a).toBeLessThan(0.6);
-    expect(rgbOf(GLASS_MATERIAL.bodyBase).a).toBeGreaterThan(0.15);
-
-    // Composited over the tiles, the face lands light: this is what "not dark" means in numbers.
-    const stops = GLASS_MATERIAL.body.map(overMap);
-    const lightest = Math.max(...stops);
-    const darkest = Math.min(...stops);
-    expect(darkest).toBeGreaterThan(600);
-    expect(lightest).toBeGreaterThan(640);
-    // And it still has an internal range, so the pane has a top and a bottom rather than a flat
-    // fill. A flat fill was the second half of "no material".
-    expect(lightest - darkest).toBeGreaterThan(30);
-  });
-
-  it('stays neutral, with no tint chosen for it', () => {
-    // The face was blue, and the blue was the complaint. A frost leans a few points cool because
-    // every grey does; what it must not do is declare a colour of its own.
-    for (const stop of GLASS_MATERIAL.body) {
-      const colour = rgbOf(stop);
-      expect(colour.b).toBeGreaterThanOrEqual(colour.r);
-      expect(colour.b - colour.r).toBeLessThanOrEqual(22);
-    }
+  it('is one light fill, the same on every pixel', () => {
+    // A gradient lighter at the top is what the driver reads as a white band behind the first
+    // line. One colour, high enough alpha that the map does not print a second tone through it.
+    const fill = rgbOf(GLASS_MATERIAL.fill);
+    expect(fill.a).toBeGreaterThan(0.9);
+    expect(fill.a).toBeLessThan(1);
+    expect(overMap(GLASS_MATERIAL.fill)).toBeGreaterThan(680);
+    expect(fill.b).toBeGreaterThanOrEqual(fill.r);
+    expect(fill.b - fill.r).toBeLessThanOrEqual(22);
+    const code = stripComments(readSource(GLASS_PANEL));
+    expect(code).toContain('backgroundColor: material.fill');
+    expect(code).toContain('elevation: 0');
+    expect(code).not.toContain('bodyBase');
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
-    // A band shipped and was rejected on a device: over a 58-point bar its peak falls across the
-    // instruction, and the driver reads a lighter rectangle drawn behind the words — delimited,
-    // with square ends — rather than a curve catching the light. The pane's top is the *range*
-    // between the body's own stops instead, which cannot be mistaken for a box because it has no
-    // edges. Pinned by absence from both sides: the field in the material, the layer in the panel.
     const material = GLASS_MATERIAL as unknown as Record<string, unknown>;
     expect(material.sheen).toBeUndefined();
-    expect(material.sheenLocations).toBeUndefined();
-    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('material.sheen');
-
-    // And the pane did not flatten when the band left: a flat fill was the second half of the
-    // original "no material" complaint, so the top has to survive as a range.
-    const stops = GLASS_MATERIAL.body.map(overMap);
-    expect(Math.max(...stops) - Math.min(...stops)).toBeGreaterThan(30);
+    expect(material.body).toBeUndefined();
+    expect(material.edgeGlow).toBeUndefined();
+    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('LinearGradient');
   });
 
   it('spends its type on dark greys, because the face inverted', () => {
@@ -303,44 +234,13 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('lays out the material in the documented layer order', () => {
-    // The order is load-bearing: the glows are light *landing on* the body, so they go over it,
-    // and the children go last so no layer can cover them. Reordering silently flattens the
-    // reflection into a wash.
-    const code = stripComments(readSource(GLASS_PANEL));
-    const body = code.indexOf('colors={material.body}');
-    const topGlow = code.indexOf('styles.edgeTop');
-    const children = code.indexOf('{children}');
-    expect(body).toBeGreaterThan(-1);
-    expect(topGlow).toBeGreaterThan(body);
-    expect(children).toBeGreaterThan(topGlow);
-    // There is no third fill between them any more; the retired highlight band used to sit here,
-    // and this is what fails if it is put back without a thought for the type underneath.
-    expect(code).not.toContain('material.sheen');
-  });
-
-  it('fits every layer to the radius it was handed', () => {
-    // A highlight rounding its corners by a different amount than the body it outlines reads as
-    // two plates sliding against each other.
+  it('paints one rounded fill and nothing over the type', () => {
     const source = readSource(GLASS_PANEL);
-    expect(source).toContain('borderRadius: radius, borderColor: material.rim');
-    // The body carries the radius itself rather than trusting the wrapper's clip: on Android the
-    // rounded clip does not reliably reach a native gradient view, and an uncut body paints its
-    // own square corners over the map.
-    expect(source).toContain('borderRadius: radius, backgroundColor: material.bodyBase');
-    expect(source).toContain('borderRadius: radius }');
-    // Nothing in this component invents a radius of its own.
+    expect(source).toContain('backgroundColor: material.fill');
+    expect(source).toContain('borderColor: material.rim');
+    expect(source).toContain('borderRadius: radius');
     expect(source).not.toMatch(/borderRadius:\s*\d/);
-  });
-
-  it('keeps the elevation shell free of fill so Android does not paint a box behind the type', () => {
-    // Measured on device: translucent `bodyBase` on the same view as `elevation` read as a lighter
-    // rectangle behind the text row even after the sheen band was removed. The fill belongs inside
-    // the clip only.
-    const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toMatch(/backgroundColor:\s*['"]transparent['"]/);
-    expect(code).toContain('backgroundColor: material.bodyBase');
-    expect(code).not.toMatch(/backgroundColor:\s*material\.bodyBase[\s\S]*elevation/);
+    expect(stripComments(source)).not.toContain('LinearGradient');
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -375,14 +275,8 @@ describe('one material, and the theme owns it', () => {
       [
         'accent',
         'accentStrong',
-        'body',
-        'bodyBase',
-        'bodyEnd',
-        'bodyStart',
         'chipTintAlpha',
-        'edgeFade',
-        'edgeGlow',
-        'edgeThickness',
+        'fill',
         'rim',
         'shadow',
         'text',
