@@ -323,14 +323,24 @@ describe('one material, and the theme owns it', () => {
     // A highlight rounding its corners by a different amount than the body it outlines reads as
     // two plates sliding against each other.
     const source = readSource(GLASS_PANEL);
-    expect(source).toContain('bodyRadius = radius - EDGE_PX');
     expect(source).toContain('borderRadius: radius, borderColor: material.rim');
     // The body carries the radius itself rather than trusting the wrapper's clip: on Android the
     // rounded clip does not reliably reach a native gradient view, and an uncut body paints its
     // own square corners over the map.
-    expect(source).toContain('borderRadius: bodyRadius');
+    expect(source).toContain('borderRadius: radius, backgroundColor: material.bodyBase');
+    expect(source).toContain('borderRadius: radius }');
     // Nothing in this component invents a radius of its own.
     expect(source).not.toMatch(/borderRadius:\s*\d/);
+  });
+
+  it('keeps the elevation shell free of fill so Android does not paint a box behind the type', () => {
+    // Measured on device: translucent `bodyBase` on the same view as `elevation` read as a lighter
+    // rectangle behind the text row even after the sheen band was removed. The fill belongs inside
+    // the clip only.
+    const code = stripComments(readSource(GLASS_PANEL));
+    expect(code).toMatch(/backgroundColor:\s*['"]transparent['"]/);
+    expect(code).toContain('backgroundColor: material.bodyBase');
+    expect(code).not.toMatch(/backgroundColor:\s*material\.bodyBase[\s\S]*elevation/);
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {

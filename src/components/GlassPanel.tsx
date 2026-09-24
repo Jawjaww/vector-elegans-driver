@@ -17,9 +17,6 @@ type GlassPanelProps = Readonly<{
   style?: StyleProp<ViewStyle>;
 }>;
 
-/** The band the rim and the edge glows live in. */
-const EDGE_PX = 1;
-
 /** Two stops: the glow at its origin, gone by `edgeFade`. */
 const EDGE_COLORS = [GLASS_MATERIAL.edgeGlow, 'transparent'] as const;
 const EDGE_LOCATIONS = [0, GLASS_MATERIAL.edgeFade] as const;
@@ -33,17 +30,20 @@ const EDGE_LOCATIONS = [0, GLASS_MATERIAL.edgeFade] as const;
  * as light landing on the surface, and the children go last so no layer covers them.
  *
  * **Layout is NativeWind; the material cannot be.** The structural classes (`absolute inset-0`,
- * `m-px`, `overflow-hidden`) live here as `className`, following the rest of the app. The
- * material stays in the theme, and the reason is mechanical rather than stylistic:
+ * `overflow-hidden`) live here as `className`, following the rest of the app. The material stays
+ * in the theme, and the reason is mechanical rather than stylistic:
  * `LinearGradient` takes its stops as a JS array, and `borderRadius` and `borderColor` are values
  * the caller chooses at runtime. A utility class is static, so expressing them as one would mean
  * a class per radius — and moving the palette into `tailwind.config.js` would duplicate it in a
  * second place while still not reaching the gradient stops.
  *
- * The body is inset by `EDGE_PX` so the rim has a band of its own to occupy — with the body and
- * the rim on the same pixels the outline would tint the body's own first row instead of sitting
- * around it. The glows are inside the body, so the body's `overflow: 'hidden'` clips them to the
- * corner curve rather than letting a straight bar poke past it.
+ * **The shadow shell carries no fill.** On Android, `elevation` against a translucent
+ * `backgroundColor` on the same view that sizes to its children composites as a lighter rectangle
+ * behind the type — the exact band drivers reported once the sheen was removed. The shell is
+ * transparent; `bodyBase` and the body gradient live entirely inside the clipped face below.
+ *
+ * The glows are inside the face, so `overflow: 'hidden'` clips them to the corner curve rather than
+ * letting a straight bar poke past it.
  *
  * **Nothing here animates and nothing blurs**, so the whole thing costs one paint: a handful of
  * views and three static gradients. That is the entire reason a reflection this elaborate is
@@ -57,18 +57,13 @@ const EDGE_LOCATIONS = [0, GLASS_MATERIAL.edgeFade] as const;
  */
 export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   const material = GLASS_MATERIAL;
-  // The rim is the outermost ring, so the body sits one point inside its radius.
-  const bodyRadius = radius - EDGE_PX;
 
   return (
     <View
       style={[
         {
           borderRadius: radius,
-          // What Android derives the elevation outline from. Translucent on purpose: an opaque
-          // base here would hide the map behind the gradient and turn the pane back into a
-          // painted slab, which is what the face was rejected for twice.
-          backgroundColor: material.bodyBase,
+          backgroundColor: 'transparent',
           shadowColor: material.shadow.color,
           shadowOffset: { width: 0, height: material.shadow.offsetY },
           shadowOpacity: material.shadow.opacity,
@@ -83,7 +78,19 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
         className="absolute inset-0 border"
         style={{ borderRadius: radius, borderColor: material.rim }}
       />
-      <View className="overflow-hidden m-px" style={{ borderRadius: bodyRadius }}>
+      <View
+        className="overflow-hidden"
+        style={{ borderRadius: radius }}
+        collapsable={false}
+        needsOffscreenAlphaCompositing
+      >
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { borderRadius: radius, backgroundColor: material.bodyBase },
+          ]}
+        />
         <LinearGradient
           colors={material.body}
           start={material.bodyStart}
@@ -93,7 +100,7 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           // view: an uncut body paints its own square corners over the map, which is the lighter
           // rectangle the driver reported. Carrying the radius on the layer itself costs nothing
           // and does not depend on the clip being honoured.
-          style={[StyleSheet.absoluteFill, { borderRadius: bodyRadius }]}
+          style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
           pointerEvents="none"
         />
         {/* The whole border treatment: two hairlines leaving one corner, each fading out. Only

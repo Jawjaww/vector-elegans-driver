@@ -195,10 +195,12 @@ export type GlassMaterial = {
   bodyStart: { x: number; y: number };
   bodyEnd: { x: number; y: number };
   /**
-   * Colour under the gradient, and the one Android derives its elevation outline from.
+   * Colour under the gradient, inside the clipped face.
    *
    * Kept translucent rather than solid, because the show-through is the effect: an opaque base
-   * would hide the map behind the gradient and turn the pane back into a painted slab.
+   * would hide the map behind the gradient and turn the pane back into a painted slab. It must
+   * not live on the elevation shell: Android composites a translucent fill there with elevation
+   * as a lighter rectangle behind the type.
    */
   bodyBase: string;
   /**
