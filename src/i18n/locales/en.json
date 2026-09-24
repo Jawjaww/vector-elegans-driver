@@ -309,12 +309,7 @@
     "pinchToZoom": "Pinch to zoom and drag to frame within the crop area · double tap to reset",
     "previewHint": "Pinch or double-tap to zoom · tap the image or below to close",
     "usePhoto": "Use this photo",
-    "closePreview": "Close",
-    "overlayStyle": {
-      "label": "Overlay style",
-      "dark": "Dark glass",
-      "light": "Light glass"
-    }
+    "closePreview": "Close"
   },
   "navigation": {
     "home": "Home",

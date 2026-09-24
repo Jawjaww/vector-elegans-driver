@@ -115,41 +115,68 @@ export const glassModalStyle = {
 };
 
 /**
- * The complete description of the glass the panels above the live map are made of.
+ * Vector Elegans blue — the identity the Next.js client portal already carries.
  *
- * Every field here is a *layer*, and the layers are what the look is: a flat fill reads as a
- * grey box, however nicely it is tinted. `GlassPanel` paints them in order and nothing animates,
- * so the whole material is a one-off paint rather than something paid on each frame the map
- * moves.
+ * `blue-500` is the trip route and the pickup marker on the driver map, the primary gradient in
+ * the portal's buttons, and the accent on the client account cards. Naming it once here keeps the
+ * driver overlays inside that family instead of inventing a second blue to sit beside it.
+ */
+export const VE_BLUE = {
+  /** blue-500 — the route, the pickup marker, the primary accent. */
+  base: '#3b82f6',
+  /** blue-400 — a glyph on a tinted chip, readable where blue-500 is too deep. */
+  light: '#60a5fa',
+  /** blue-500 at 16 %: the hairline the portal's cards carry (`border-blue-500/15`). */
+  rim: 'rgba(59, 130, 246, 0.16)',
+  /**
+   * blue-500 at 12 %, as a bare alpha for the `${accent}${alpha}` chip tint.
+   *
+   * The tint of the accent rather than a flat grey chip, so a glyph carries the colour it names
+   * without a second colour entering the palette.
+   */
+  tintAlpha: '1f',
+  /** slate-950 — what the portal's cards cast, and what reads as shade under glass. */
+  shadow: '#020617',
+} as const;
+
+/**
+ * The glass the panels above the live map are made of — one material, described layer by layer.
+ *
+ * **The face is a slate blue, not charcoal, and deliberately mid-dark.** The first version was
+ * near-black, which read as a hole cut out of the map. The correction is not to go pale either:
+ * a light panel over light tiles needs so much opacity to stay legible that it becomes the flat
+ * white card it was meant not to be. Slate sits between the two — unmistakably a surface,
+ * unmistakably darker than the map beneath it, and cool enough to belong with the blue the
+ * portal already uses everywhere.
  *
  * **No backdrop blur, and this is the load-bearing decision.** `expo-blur` would have to
  * re-capture its backdrop, and the backdrop here is a map that never holds still — the blur
  * would be recomputed on every frame the driver moves, the single most expensive thing on this
  * screen. It is also not the sacrifice it sounds like: on Android `BlurView` defaults to
- * `BlurMethod.NONE`, which paints a flat tint instead of blurring at all. The glass is *built*
+ * `BlurMethod.NONE` and paints a flat tint instead of blurring at all. The glass is *built*
  * instead, which is why it can afford to be convincing.
  *
  * The layers, in the order they are painted:
  *
- * 1. **Body** — a diagonal gradient, not a flat colour. Three stops give the panel a mass that
- *    a single fill cannot: light corner, mid body, dark corner. The stops sit high in opacity
- *    because the panel is legible or it is useless, and a translucent panel over pale map tiles
- *    turns to mud long before it turns to glass.
- * 2. **Sheen** — concentrated at the top and gone by halfway down, because light arriving from
- *    above leaves a highlight on the near edge, not an even veil across the face.
- * 3. **Specular rim** — the bright top-left arc against a dimmed bottom-right one. This is what
- *    gives a flat panel a sense of thickness, and replacing it with a uniform border is what
- *    makes the same panel read as a box. Named for their role, not their position, so a call
- *    site cannot pair `top` with `bottom` and silently lose the effect.
- * 4. **Inner bevel** — a second, inset ring lit on the top edge and shaded on the bottom. The
- *    rim says the panel has an edge; the bevel says it has *thickness*.
- * 5. **Halo** — a faint outer ring, the refraction of the map's own light around the panel.
+ * 1. **Body** — a diagonal gradient at three stops, so the panel has mass rather than a fill.
+ * 2. **Sheen** — a soft wash from the top edge that is gone by the middle. Light arrives from
+ *    above, so the near edge catches it and the far one does not.
+ * 3. **Directional edge glows** — an ultra-fine bar along the top edge and another down the left,
+ *    each fading out well before it reaches the far end.
+ * 4. **Rim** — a uniform hairline in the portal's blue, so the panel is outlined on every side
+ *    without that outline becoming a high-contrast decoration.
  *
- * `text` and `textDim` live here too, and that is deliberate: a light material cannot be
- * compared against a dark one while every call site hard-codes white.
+ * Layer 3 is the whole border treatment and it is deliberately *not* four lit corners. A panel
+ * whose corners glow on every side reads as a bevelled box from an older toolkit, which is
+ * precisely what it looked like: bright arcs at opposite corners are a graphic flourish, where
+ * two thin bars from one origin say the same thing — the light comes from up and to the left —
+ * and say it quietly. The Next.js cards reached the same conclusion, and their comment says so.
+ *
+ * `text`, `textDim`, `accent` and `chipTintAlpha` live here too, and that is what makes these
+ * overlays one material rather than three panels that happen to share a background.
  */
 export type GlassMaterial = {
-  /** Body gradient, diagonal. Three stops: lit corner, mid body, shaded corner. */
+  /** Body gradient, diagonal. Three stops: lit edge, mid body, shaded edge. */
   body: readonly [string, string, string];
   bodyStart: { x: number; y: number };
   bodyEnd: { x: number; y: number };
@@ -160,115 +187,60 @@ export type GlassMaterial = {
    * and `elevation` would have no outline to project.
    */
   bodyBase: string;
-  /** Sheen over the body, from the top edge downward. Never a fill on its own. */
-  sheen: readonly [string, string, string];
-  /** Stops for `sheen`, matched to its length: highlight, fade, gone. */
-  sheenLocations: readonly [number, number, number];
+  /** Soft wash over the body, from the top edge downward. Never a fill on its own. */
+  sheen: readonly [string, string];
+  /** Stops for `sheen`, matched to its length: present at the top edge, gone by this point. */
+  sheenLocations: readonly [number, number];
   sheenStart: { x: number; y: number };
   sheenEnd: { x: number; y: number };
-  /** Lit rim — top-left and bottom-right, the two opposite arcs that carry the reflection. */
-  edgeLit: string;
-  /** Dimmed rim. Never fully transparent: the panel still needs an outline over dark tiles. */
-  edgeDim: string;
-  /** Inner bevel: the top edge catches light, the bottom edge falls away from it. */
-  bevelTop: string;
-  bevelBottom: string;
-  /** Outer ring: refraction around the panel, not an outline. Kept very faint. */
-  halo: string;
-  /** Ambient shadow. Wide and weak rather than tight and dark, which is what glass casts. */
-  shadow: { offsetY: number; radius: number; opacity: number };
-  /** Primary type on the panel. */
+  /**
+   * Colour of each edge glow at its origin, the top-left corner.
+   *
+   * Cool rather than white, and this is where the blue identity reads most clearly: a bare white
+   * highlight on a slate face is the one thing that looks like a scuff on a screen.
+   */
+  edgeGlow: string;
+  /** Where an edge glow has faded to nothing, as a fraction of the edge it runs along. */
+  edgeFade: number;
+  /** Thickness of an edge glow, in points. A hairline: this is a reflection, not a border. */
+  edgeThickness: number;
+  /** Uniform hairline outline, in the portal's blue. */
+  rim: string;
+  /** Ambient shade. Wide and soft, and tinted slate rather than pure black. */
+  shadow: { offsetY: number; radius: number; opacity: number; color: string };
+  /** Primary type on the panel. A light grey, never pure white. */
   text: string;
   /** Supporting type: addresses, hints, the distance beside the clock. */
   textDim: string;
-  /**
-   * Alpha appended to an accent colour for the icon chips, as in `${accent}${chipTintAlpha}`.
-   *
-   * A tint of the accent rather than a flat grey chip, so the glyph carries the stage's colour
-   * without a second colour entering the palette. It has to differ per material: the same alpha
-   * that reads as a tint on charcoal washes out completely on a pale body.
-   */
+  /** The panel's own accent, for the glyphs that belong to no trip stage. */
+  accent: string;
+  /** The accent's lighter step, for a glyph drawn straight on the body. */
+  accentLight: string;
+  /** Bare alpha appended to an accent for a chip tint: `${accent}${chipTintAlpha}`. */
   chipTintAlpha: string;
 };
 
-/**
- * The two materials, side by side so they can be compared on a device.
- *
- * Both are *used* values — `useGlassMaterial` resolves to one of them, and the profile row lets
- * the driver switch — so neither is dead code while the choice is open. Once it is settled the
- * losing entry goes, and so does the row: the pair exists to make the comparison possible, not
- * to become a setting.
- */
-export const GLASS_MATERIALS = {
-  /**
-   * Charcoal glass. Sits with the offer card, which is opaque `#141414` with the same diagonal
-   * gradient — the two read as one material, which a translucent panel never did.
-   */
-  dark: {
-    body: [
-      'rgba(40, 40, 44, 0.90)',
-      'rgba(20, 20, 23, 0.94)',
-      'rgba(10, 10, 12, 0.96)',
-    ],
-    bodyStart: { x: 0.15, y: 0 },
-    bodyEnd: { x: 0.85, y: 1 },
-    bodyBase: '#121214',
-    sheen: [
-      'rgba(255, 255, 255, 0.14)',
-      'rgba(255, 255, 255, 0.035)',
-      'rgba(255, 255, 255, 0)',
-    ],
-    sheenLocations: [0, 0.22, 0.55],
-    sheenStart: { x: 0.5, y: 0 },
-    sheenEnd: { x: 0.5, y: 1 },
-    edgeLit: 'rgba(255, 255, 255, 0.42)',
-    edgeDim: 'rgba(255, 255, 255, 0.08)',
-    bevelTop: 'rgba(255, 255, 255, 0.20)',
-    bevelBottom: 'rgba(0, 0, 0, 0.35)',
-    halo: 'rgba(255, 255, 255, 0.10)',
-    shadow: { offsetY: 4, radius: 20, opacity: 0.24 },
-    text: '#ffffff',
-    textDim: 'rgba(255, 255, 255, 0.62)',
-    chipTintAlpha: '2e',
-  },
-  /**
-   * Frosted white glass, the closer reading of the reference.
-   *
-   * Its risk is stated rather than hidden: on pale map tiles a light panel with dark type needs
-   * a *more* opaque body than the dark one, and the more opaque it gets the closer it comes to
-   * the flat white card this is meant not to be. Whether it clears that bar is a question for a
-   * real screen, which is why it ships as a switch and not as the default.
-   */
-  light: {
-    body: [
-      'rgba(252, 253, 255, 0.88)',
-      'rgba(240, 243, 248, 0.92)',
-      'rgba(228, 233, 241, 0.95)',
-    ],
-    bodyStart: { x: 0.15, y: 0 },
-    bodyEnd: { x: 0.85, y: 1 },
-    bodyBase: '#eef2f7',
-    sheen: [
-      'rgba(255, 255, 255, 0.70)',
-      'rgba(255, 255, 255, 0.18)',
-      'rgba(255, 255, 255, 0)',
-    ],
-    sheenLocations: [0, 0.22, 0.55],
-    sheenStart: { x: 0.5, y: 0 },
-    sheenEnd: { x: 0.5, y: 1 },
-    edgeLit: 'rgba(255, 255, 255, 0.90)',
-    edgeDim: 'rgba(15, 20, 30, 0.10)',
-    bevelTop: 'rgba(255, 255, 255, 0.85)',
-    bevelBottom: 'rgba(15, 20, 30, 0.08)',
-    halo: 'rgba(255, 255, 255, 0.45)',
-    shadow: { offsetY: 4, radius: 18, opacity: 0.16 },
-    text: 'rgba(10, 14, 22, 0.92)',
-    textDim: 'rgba(10, 14, 22, 0.60)',
-    chipTintAlpha: '33',
-  },
-} as const satisfies Record<string, GlassMaterial>;
-
-export type GlassMaterialName = keyof typeof GLASS_MATERIALS;
-
-/** Charcoal: it sits with the opaque offer card, which is what the overlays belong beside. */
-export const DEFAULT_GLASS_MATERIAL: GlassMaterialName = 'dark';
+export const GLASS_MATERIAL: GlassMaterial = {
+  body: [
+    'rgba(51, 65, 85, 0.92)',
+    'rgba(33, 45, 63, 0.93)',
+    'rgba(23, 32, 46, 0.95)',
+  ],
+  bodyStart: { x: 0.15, y: 0 },
+  bodyEnd: { x: 0.85, y: 1 },
+  bodyBase: '#1b2432',
+  sheen: ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0)'],
+  sheenLocations: [0, 0.55],
+  sheenStart: { x: 0.5, y: 0 },
+  sheenEnd: { x: 0.5, y: 1 },
+  edgeGlow: 'rgba(190, 219, 255, 0.30)',
+  edgeFade: 0.38,
+  edgeThickness: 1,
+  rim: VE_BLUE.rim,
+  shadow: { offsetY: 6, radius: 22, opacity: 0.34, color: VE_BLUE.shadow },
+  text: '#e2e8f0',
+  textDim: '#94a3b8',
+  accent: VE_BLUE.base,
+  accentLight: VE_BLUE.light,
+  chipTintAlpha: VE_BLUE.tintAlpha,
+};

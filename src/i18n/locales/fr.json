@@ -349,12 +349,7 @@
     "pinchToZoom": "Pincez pour zoomer et déplacez pour cadrer dans le cadre · double tap pour réinitialiser",
     "previewHint": "Pincez ou double-tapez pour zoomer · tapez l'image ou en bas pour fermer",
     "usePhoto": "Utiliser cette photo",
-    "closePreview": "Fermer",
-    "overlayStyle": {
-      "label": "Style des overlays",
-      "dark": "Verre sombre",
-      "light": "Verre clair"
-    }
+    "closePreview": "Fermer"
   },
   "navigation": {
     "home": "Accueil",

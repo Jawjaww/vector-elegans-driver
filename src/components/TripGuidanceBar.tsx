@@ -15,16 +15,8 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
-import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
-
-/**
- * Fixed height, exported, because the arrival chip has to stack above it.
- *
- * Deterministic rather than measured: the two lines are pinned to one line each, so there is no
- * state in which the bar grows and no reason to pay for an onLayout round-trip that would make
- * the chip jump a frame after the bar appears.
- */
-export const TRIP_GUIDANCE_BAR_HEIGHT = 58;
+import { TRIP_GUIDANCE_BAR_HEIGHT, LANE_BASE_OFFSET } from '../lib/utils/overlayLane';
+import { GLASS_MATERIAL } from '../lib/theme';
 
 /** How far the bar dips towards the sheet as it retracts: a hint of a destination, not a ride. */
 const SINK_PX = 12;
@@ -72,7 +64,7 @@ export function TripGuidanceBar({
   visible = true,
 }: TripGuidanceBarProps) {
   const { t } = useTranslation();
-  const material = useGlassMaterial();
+  const material = GLASS_MATERIAL;
   const address = tripGuidanceAddress(stage, { pickupAddress, dropoffAddress });
   const hintKey = tripGuidanceHintKey(stage);
   const accent = tripGuidanceAccent(stage);
@@ -96,7 +88,7 @@ export function TripGuidanceBar({
         position: 'absolute',
         left: 12,
         right: 12,
-        bottom: sheetH + 10,
+        bottom: sheetH + LANE_BASE_OFFSET,
         zIndex: 14,
         opacity: shown,
         transform: [

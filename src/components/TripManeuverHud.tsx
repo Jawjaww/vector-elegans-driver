@@ -8,8 +8,7 @@ import {
   type NavProgress,
 } from '../lib/utils/navProgress';
 import { GlassPanel } from './GlassPanel';
-import { theme } from '../lib/theme';
-import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
+import { GLASS_MATERIAL } from '../lib/theme';
 
 const HUD_RADIUS = 18;
 
@@ -20,14 +19,15 @@ type TripManeuverHudProps = Readonly<{
 /**
  * Top-of-screen next-turn HUD during navigation.
  *
- * The one overlay that keeps its emerald tint rather than adopting a stage accent: it is not
- * about *where the trip is going* but about *what to do in the next few hundred metres*, and
- * sharing the destination's green would blur that distinction on the one panel where a misread
- * costs a turn.
+ * It carries the panel's own accent — the Vector Elegans blue — rather than a trip-stage accent,
+ * and the distinction is the point: this panel is not about *where the trip is going* but about
+ * *what to do in the next few hundred metres*. Blue is also what the route itself is drawn in
+ * (see `MAP_PALETTE`), so the instruction and the line it describes agree at a glance, which is
+ * the one place where a misread costs a turn.
  */
 export function TripManeuverHud({ progress }: TripManeuverHudProps) {
   const insets = useSafeAreaInsets();
-  const material = useGlassMaterial();
+  const material = GLASS_MATERIAL;
   const man = progress.nextManeuver;
   const icon = man
     ? maneuverToFeatherIcon(man.type, man.modifier)
@@ -66,12 +66,12 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
               width: 52,
               height: 52,
               borderRadius: 14,
-              backgroundColor: `${theme.colors.accent}${material.chipTintAlpha}`,
+              backgroundColor: `${material.accent}${material.chipTintAlpha}`,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Feather name={icon} size={28} color={theme.colors.accentLight} />
+            <Feather name={icon} size={28} color={material.accentLight} />
           </View>
           <View style={{ flex: 1 }}>
             <Text

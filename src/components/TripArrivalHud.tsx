@@ -7,17 +7,17 @@ import {
   type NavProgress,
 } from '../lib/utils/navProgress';
 import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
-import { TRIP_GUIDANCE_BAR_HEIGHT } from './TripGuidanceBar';
+import {
+  LANE_BASE_OFFSET,
+  LIFT_OVER_INSTRUCTION,
+} from '../lib/utils/overlayLane';
 import { GlassPanel } from './GlassPanel';
 import { MAP_PALETTE } from '../lib/mapPalette';
 import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
-import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
-
-/** Gap between two stacked overlays, and between the lower one and the sheet. */
-const STACK_GAP = 6;
+import { GLASS_MATERIAL } from '../lib/theme';
 
 type TripArrivalHudProps = Readonly<{
   progress: NavProgress;
@@ -54,7 +54,7 @@ export function TripArrivalHud({
   aboveTripSheet = false,
   aboveGuidanceBar = false,
 }: TripArrivalHudProps) {
-  const material = useGlassMaterial();
+  const material = GLASS_MATERIAL;
   const eta = optimisticEtaMinutes(
     progress.durationSeconds,
     progress.distanceMeters,
@@ -79,13 +79,13 @@ export function TripArrivalHud({
       style={{
         position: 'absolute',
         left: 12,
-        bottom: sheetH + 10,
+        bottom: sheetH + LANE_BASE_OFFSET,
         zIndex: 15,
         transform: [
           {
             translateY: lift.interpolate({
               inputRange: [0, 1],
-              outputRange: [0, -(TRIP_GUIDANCE_BAR_HEIGHT + STACK_GAP)],
+              outputRange: [0, -LIFT_OVER_INSTRUCTION],
             }),
           },
         ],

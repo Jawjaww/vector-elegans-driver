@@ -49,6 +49,7 @@ import {
   guidancePeekVisible,
   INITIAL_GUIDANCE_PEEK,
 } from "../../src/lib/utils/tripGuidancePeek";
+import { CONTROL_BASE_OFFSET } from "../../src/lib/utils/overlayLane";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
@@ -1750,8 +1751,9 @@ export default function DashboardScreen() {
 
         <MapRecenterButton
           visible={mapFollowPaused && !mapInOfferMode}
-          bottom={Math.max(24, mapRecenterBottomOffset + 12)}
+          bottom={Math.max(24, mapRecenterBottomOffset + CONTROL_BASE_OFFSET)}
           navigationMode={!!activeRide}
+          aboveGuidanceBar={guidanceVisible}
           onPress={() => resumeMapFollowRef.current?.()}
         />
 

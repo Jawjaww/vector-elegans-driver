@@ -228,15 +228,24 @@ Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins the rule a
 
 `expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.
 
-`GLASS_MATERIALS` in `src/lib/theme.ts` describes the whole material, and `GlassPanel` paints the layers in order — the test `paints every layer the material declares` fails if one is dropped:
+`GLASS_MATERIAL` in `src/lib/theme.ts` describes the material layer by layer, and `GlassPanel` paints the layers in order — the test `lays out the material in the documented layer order` fails if one is moved:
 
 1. a **diagonal body gradient** at three stops, kept high in opacity because a translucent panel over pale tiles turns to mud long before it turns to glass;
 2. a **sheen** concentrated at the top edge and gone by halfway down, not an even veil across the face;
-3. an **inner bevel**, inset, lit on the top edge and shaded on the bottom — the rim says the panel has an edge, the bevel says it has *thickness*;
-4. the **specular rim**, bright on two opposite corners against a dimmed pair; a uniform border is exactly what makes the same panel read as a box;
-5. a faint outer **halo**, in the one-pixel band the body leaves free, so it rings the panel instead of brightening a seam on top of it.
+3. two **directional edge glows** — a hairline along the top edge and another down the left, each fading to nothing by `edgeFade` (0.38);
+4. a uniform **rim** in the portal's blue, one point wide, occupying the band the body leaves free.
 
-`text`, `textDim` and `chipTintAlpha` live in the material too, and the overlays are not allowed to name a colour of their own — a light material cannot be compared against a dark one while every call site hard-codes white. Two materials ship side by side (`dark`, `light`), with a **temporary** « Style des overlays » row in the profile that switches between them: a reflection over a live map is not something a screenshot settles. The losing entry goes, and the row with it, once the choice is made — that pair is the entire reason the object has two entries.
+**The face is slate blue, not charcoal, and mid-dark on purpose.** The first version was near-black and read as a hole cut in the map. The correction is not to go pale either: a light panel over light tiles needs so much opacity to stay legible that it becomes the flat white card it was meant not to be. `is lighter than the charcoal it replaced, without going pale` re-reads the stops *composited over the map tile* and fails at both ends, and `carries a blue cast at every stop` fails if the face drifts back to a neutral grey.
+
+**Layer 3 is the whole border treatment, and it is deliberately not four lit corners.** Bright arcs on two opposite corners are a graphic flourish, and on a panel this small they read as a bevelled box from an older toolkit — which is what they were, and what got rejected. Two thin bars leaving one origin say the same thing (the light comes from up and to the left) and say it quietly. The Next.js client portal reached the same conclusion in `globals.css`: `.card-elegant::after` draws *"top (horizontal) and left (vertical) ultra-fine, ultra-subtle glows"* with the comment *"corner highlights handled by ::after (no filled corner blobs)"*. The retired corner treatment is pinned by absence so it cannot return unnoticed.
+
+`text`, `textDim`, `accent` and `chipTintAlpha` live in the material too, and no overlay above the map is allowed to name a colour of its own. The type is two greys (`#e2e8f0` / `#94a3b8`), never white; the accent is the same `blue-500` the map draws the route in (`MAP_PALETTE.departure`), asserted equal so the two apps cannot drift apart on it.
+
+**Two materials shipped for exactly one commit, to be compared on a device**, with a temporary « Style des overlays » row in the profile. A reflection over a live map is not something a screenshot settles, which is why the comparison had to happen on a phone — and why the row and the loser both went, together, once the driver had looked. A second entry here is a comparison, never a setting.
+
+**Every control in the lane above the sheet clears the instruction bar by one shared figure.** `overlayLane.ts` holds the bar's height, the two base offsets, the control footprint and `LIFT_OVER_INSTRUCTION`, and both the arrival chip and the recenter control read the lift from it rather than carrying their own. It used to be two unconnected local constants, and none at all in the recenter control — so that control, the one of the three that takes touches, was drawn straight across the sentence the driver was reading. The test does the arithmetic: at rest the control overlaps the bar, lifted it clears it.
+
+The accept / decline swipe controls stay off this material on purpose: the gestures are muscle memory, and the test fails if `GlassPanel` ever appears in `NeonSwipeButton`.
 
 ### Un journal natif doit porter l'identité de son processus
 
