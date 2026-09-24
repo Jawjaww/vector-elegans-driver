@@ -52,28 +52,14 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
       }}
     >
       <GlassPanel radius={HUD_RADIUS}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-          }}
-        >
+        <View className="flex-row items-center gap-3 px-3 py-2.5">
           <View
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              backgroundColor: `${material.accent}${material.chipTintAlpha}`,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className="h-[52px] w-[52px] items-center justify-center rounded-[14px]"
+            style={{ backgroundColor: `${material.accent}${material.chipTintAlpha}` }}
           >
-            <Feather name={icon} size={28} color={material.accentLight} />
+            <Feather name={icon} size={28} color={material.accentStrong} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View className="flex-1">
             <Text
               style={{
                 color: material.text,

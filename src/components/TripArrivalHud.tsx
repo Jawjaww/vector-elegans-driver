@@ -94,15 +94,7 @@ export function TripArrivalHud({
       {/* Self-sizing rather than stretched: this chip is the short one, and a full-width pill
           would claim the same visual weight as the instruction bar under it. */}
       <GlassPanel radius={999}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'baseline',
-            gap: 8,
-            paddingVertical: 8,
-            paddingHorizontal: 14,
-          }}
-        >
+        <View className="flex-row items-baseline gap-2 px-3.5 py-2">
           <Text
             style={{
               color: material.text,

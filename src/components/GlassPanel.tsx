@@ -9,7 +9,9 @@ type GlassPanelProps = Readonly<{
    *
    * Required rather than defaulted, and handed to every layer: a highlight has to follow the
    * exact curve it is outlining, and a panel that rounds its corners by one amount while its
-   * outline rounds them by another reads as two plates sliding against each other.
+   * outline rounds them by another reads as two plates sliding against each other. A prop rather
+   * than a utility class, because the callers pass 16, 18, 24 and 999 and a static class cannot
+   * express a value the caller chooses.
    */
   radius: number;
   style?: StyleProp<ViewStyle>;
@@ -26,9 +28,17 @@ const EDGE_LOCATIONS = [0, GLASS_MATERIAL.edgeFade] as const;
  * The glass panel every overlay above the map is drawn on.
  *
  * The material is described layer by layer in `GLASS_MATERIAL`, including why the edge treatment
- * is two thin directional bars rather than lit corners. This component is only the painting
- * order, and the order is load-bearing: the glows go over the body so they read as light landing
- * on the surface, the rim goes under nothing, and the children go last so no layer covers them.
+ * is two thin directional bars rather than lit corners and why the rim is dark. This component is
+ * only the painting order, and the order is load-bearing: the glows go over the body so they read
+ * as light landing on the surface, and the children go last so no layer covers them.
+ *
+ * **Layout is NativeWind; the material cannot be.** The structural classes (`absolute inset-0`,
+ * `m-px`, `overflow-hidden`) live here as `className`, following the rest of the app. The
+ * material stays in the theme, and the reason is mechanical rather than stylistic:
+ * `LinearGradient` takes its stops as a JS array, and `borderRadius` and `borderColor` are values
+ * the caller chooses at runtime. A utility class is static, so expressing them as one would mean
+ * a class per radius — and moving the palette into `tailwind.config.js` would duplicate it in a
+ * second place while still not reaching the gradient stops.
  *
  * The body is inset by `EDGE_PX` so the rim has a band of its own to occupy — with the body and
  * the rim on the same pixels the outline would tint the body's own first row instead of sitting
@@ -53,33 +63,27 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   return (
     <View
       style={[
-        styles.shadow,
         {
           borderRadius: radius,
-          // Opaque, and the only opaque thing here: Android derives the elevation outline from
-          // it, and a shadow cast by a translucent view has no outline to project.
+          // What Android derives the elevation outline from. Translucent on purpose: an opaque
+          // base here would hide the map behind the gradient and turn the pane back into a
+          // painted slab, which is what the face was rejected for twice.
           backgroundColor: material.bodyBase,
           shadowColor: material.shadow.color,
           shadowOffset: { width: 0, height: material.shadow.offsetY },
           shadowOpacity: material.shadow.opacity,
           shadowRadius: material.shadow.radius,
+          elevation: 6,
         },
         style,
       ]}
     >
       <View
         pointerEvents="none"
-        style={[
-          styles.rim,
-          { borderRadius: radius, borderColor: material.rim },
-        ]}
+        className="absolute inset-0 border"
+        style={{ borderRadius: radius, borderColor: material.rim }}
       />
-      <View
-        style={[
-          styles.body,
-          { borderRadius: bodyRadius, backgroundColor: material.bodyBase },
-        ]}
-      >
+      <View className="overflow-hidden m-px" style={{ borderRadius: bodyRadius }}>
         <LinearGradient
           colors={material.body}
           start={material.bodyStart}
@@ -95,8 +99,9 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-        {/* The whole border treatment: two hairlines leaving one corner, each fading out. A
-            fourth bar on the bottom or right edge would turn the glow back into an outline. */}
+        {/* The whole border treatment: two hairlines leaving one corner, each fading out. Only
+            the top and left edges are lit, because a fourth bar on the bottom or right would
+            turn the glow back into an outline. */}
         <LinearGradient
           colors={EDGE_COLORS}
           locations={EDGE_LOCATIONS}
@@ -120,19 +125,6 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
 }
 
 const styles = StyleSheet.create({
-  shadow: {
-    elevation: 6,
-  },
-  rim: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: EDGE_PX,
-  },
-  body: {
-    // Inset by one point rather than absolutely positioned: the wrapper has to keep sizing itself
-    // from its children, and an absolutely positioned body would collapse it to nothing.
-    margin: EDGE_PX,
-    overflow: 'hidden',
-  },
   edgeTop: {
     position: 'absolute',
     top: 0,

@@ -87,6 +87,9 @@ export function tripGuidanceHintKey(stage: TripStage): string | null {
 /** Feather glyph names the bar draws. Narrowed here so a typo is a type error, not a blank. */
 export type TripGuidanceIcon = 'navigation' | 'user-check' | 'flag';
 
+/** amber-700 — the dark step of `theme.colors.warning`, as `*Edge` is for the map's two. */
+const WAIT_INK = '#b45309';
+
 /**
  * How each stage is coloured and drawn.
  *
@@ -94,17 +97,33 @@ export type TripGuidanceIcon = 'navigation' | 'user-check' | 'flag';
  * marker it points at — a blue bar naming the blue departure pin. Waiting at the pickup has no
  * marker of its own and nothing to drive to, so it takes the warning amber, which is the one
  * glance-readable way to say "this stage is a wait, not a route".
+ *
+ * Two colours rather than one, because the bar is drawn on a pale face. `color` is the marker's
+ * own colour, used where it is reduced before it lands — the chip is that colour at a fraction
+ * of its alpha, and a tint reads correctly at any value. `ink` is the same hue several steps
+ * down, and it is what the glyph itself is drawn in: amber at full strength on a pale pane sits
+ * under 2:1 contrast, which is a glyph the driver has to hunt for. `departureEdge` and
+ * `arrivalEdge` already exist as the map's marker outlines, so only the amber needed a partner.
  */
 export function tripGuidanceAccent(stage: TripStage): {
   color: string;
+  ink: string;
   icon: TripGuidanceIcon;
 } {
   switch (stage) {
     case 'to_pickup':
-      return { color: MAP_PALETTE.departure, icon: 'navigation' };
+      return {
+        color: MAP_PALETTE.departure,
+        ink: MAP_PALETTE.departureEdge,
+        icon: 'navigation',
+      };
     case 'at_pickup':
-      return { color: theme.colors.warning, icon: 'user-check' };
+      return { color: theme.colors.warning, ink: WAIT_INK, icon: 'user-check' };
     case 'to_dropoff':
-      return { color: MAP_PALETTE.arrival, icon: 'flag' };
+      return {
+        color: MAP_PALETTE.arrival,
+        ink: MAP_PALETTE.arrivalEdge,
+        icon: 'flag',
+      };
   }
 }

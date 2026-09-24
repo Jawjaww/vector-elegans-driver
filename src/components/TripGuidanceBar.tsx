@@ -103,31 +103,20 @@ export function TripGuidanceBar({
     >
       <GlassPanel radius={BAR_RADIUS}>
         <View
-          style={{
-            height: TRIP_GUIDANCE_BAR_HEIGHT,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-            paddingHorizontal: 12,
-          }}
+          className="flex-row items-center gap-2.5 px-3"
+          style={{ height: TRIP_GUIDANCE_BAR_HEIGHT }}
         >
           <View
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 10,
-              // A tint of the stage's own colour rather than a flat grey chip, so the accent
-              // carries into the glyph without a second colour entering the palette. The alpha
-              // comes from the material: the same figure that reads as a tint on charcoal
-              // washes out on a pale body.
-              backgroundColor: `${accent.color}${material.chipTintAlpha}`,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className="h-8 w-8 items-center justify-center rounded-[10px]"
+            // A tint of the stage's own colour rather than a flat grey chip, so the accent
+            // carries into the glyph without a second colour entering the palette. The alpha
+            // comes from the material: a figure that reads as a tint on charcoal washes out on a
+            // pale body, and the glyph itself is drawn in `accent.ink` for the same reason.
+            style={{ backgroundColor: `${accent.color}${material.chipTintAlpha}` }}
           >
-            <Feather name={accent.icon} size={16} color={accent.color} />
+            <Feather name={accent.icon} size={16} color={accent.ink} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View className="flex-1">
             <Text
               numberOfLines={1}
               style={{

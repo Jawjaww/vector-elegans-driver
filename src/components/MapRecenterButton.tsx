@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Pressable, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { GlassPanel } from './GlassPanel';
 import { GLASS_MATERIAL } from '../lib/theme';
@@ -66,20 +66,23 @@ export function MapRecenterButton({
     <Animated.View
       // The anchor spans the lane; only the control itself is touchable.
       pointerEvents="box-none"
-      style={[
-        styles.anchor,
-        {
-          bottom,
-          transform: [
-            {
-              translateY: lift.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -LIFT_OVER_INSTRUCTION],
-              }),
-            },
-          ],
-        },
-      ]}
+      className="absolute right-4"
+      style={{
+        bottom,
+        // Layer scale on the home scene (see BottomSheet.styles.sceneFill):
+        // map 0 → trip HUDs 15 → offer stack 30 → this control 35 → sheet 40/41.
+        // It must stay UNDER the sheet so a raised sheet covers it, and above the
+        // HUDs so it stays tappable when they are visible.
+        zIndex: 35,
+        transform: [
+          {
+            translateY: lift.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, -LIFT_OVER_INSTRUCTION],
+            }),
+          },
+        ],
+      }}
     >
       <Pressable
         onPress={onPress}
@@ -88,11 +91,14 @@ export function MapRecenterButton({
         hitSlop={8}
       >
         <GlassPanel radius={MAP_CONTROL_SIZE / 2}>
-          <View style={styles.face}>
+          <View
+            className="items-center justify-center"
+            style={{ width: FACE, height: FACE }}
+          >
             <Feather
               name={navigationMode ? 'navigation' : 'crosshair'}
               size={22}
-              color={GLASS_MATERIAL.accentLight}
+              color={GLASS_MATERIAL.accentStrong}
             />
           </View>
         </GlassPanel>
@@ -100,21 +106,3 @@ export function MapRecenterButton({
     </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  anchor: {
-    position: 'absolute',
-    right: 16,
-    // Layer scale on the home scene (see BottomSheet.styles.sceneFill):
-    // map 0 → trip HUDs 15 → offer stack 30 → this control 35 → sheet 40/41.
-    // It must stay UNDER the sheet so a raised sheet covers it, and above the
-    // HUDs so it stays tappable when they are visible.
-    zIndex: 35,
-  },
-  face: {
-    width: FACE,
-    height: FACE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
