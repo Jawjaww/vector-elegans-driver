@@ -14,6 +14,7 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
+import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
 
 /** Gap between two stacked overlays, and between the lower one and the sheet. */
 const STACK_GAP = 6;
@@ -53,6 +54,7 @@ export function TripArrivalHud({
   aboveTripSheet = false,
   aboveGuidanceBar = false,
 }: TripArrivalHudProps) {
+  const material = useGlassMaterial();
   const eta = optimisticEtaMinutes(
     progress.durationSeconds,
     progress.distanceMeters,
@@ -103,7 +105,7 @@ export function TripArrivalHud({
         >
           <Text
             style={{
-              color: '#fff',
+              color: material.text,
               fontSize: 17,
               fontWeight: '800',
               fontVariant: ['tabular-nums'],
@@ -114,7 +116,7 @@ export function TripArrivalHud({
           </Text>
           <Text
             style={{
-              color: 'rgba(255,255,255,0.32)',
+              color: material.textDim,
               fontSize: 13,
               fontWeight: '600',
             }}

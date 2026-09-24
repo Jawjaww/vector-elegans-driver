@@ -19,6 +19,13 @@ import {
   type OfferSoundState,
 } from '../../src/lib/notifications/offerSound';
 import { applyRideChannelSound } from '../../src/lib/notifications/pushRegistration';
+import {
+  glassMaterialLabelKey,
+  nextGlassMaterialName,
+  resolveGlassMaterialName,
+  useGlassMaterialStore,
+} from '../../src/lib/glass/glassMaterialPreference';
+import { useTranslation } from 'react-i18next';
 
 type ProfileCard = {
   displayName: string;
@@ -53,6 +60,19 @@ export default function ProfileScreen() {
    */
   const offerSoundSupported = isOverlaySupported();
   const [offerSound, setOfferSound] = useState<OfferSoundState>({ kind: 'default' });
+
+  /**
+   * Which glass the map overlays are made of.
+   *
+   * Temporary, and deliberately so: the two materials are a live comparison — a reflection over
+   * a moving map is not something a screenshot can settle — so the driver switches between them
+   * here, and the row and the losing material both go once the choice is made.
+   */
+  const { t } = useTranslation();
+  const glassMaterial = useGlassMaterialStore((state) =>
+    resolveGlassMaterialName(state.material),
+  );
+  const setGlassMaterial = useGlassMaterialStore((state) => state.setMaterial);
 
   const loadProfile = useCallback(async () => {
     const {
@@ -153,6 +173,12 @@ export default function ProfileScreen() {
         ),
     },
     { icon: 'settings', label: 'Settings', action: () => {} },
+    {
+      icon: 'layers' as const,
+      label: t('profile.overlayStyle.label'),
+      detail: t(glassMaterialLabelKey(glassMaterial)),
+      action: () => setGlassMaterial(nextGlassMaterialName(glassMaterial)),
+    },
     ...(offerSoundSupported
       ? [
           {

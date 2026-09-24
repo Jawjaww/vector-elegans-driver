@@ -15,6 +15,7 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
+import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
 
 /**
  * Fixed height, exported, because the arrival chip has to stack above it.
@@ -71,6 +72,7 @@ export function TripGuidanceBar({
   visible = true,
 }: TripGuidanceBarProps) {
   const { t } = useTranslation();
+  const material = useGlassMaterial();
   const address = tripGuidanceAddress(stage, { pickupAddress, dropoffAddress });
   const hintKey = tripGuidanceHintKey(stage);
   const accent = tripGuidanceAccent(stage);
@@ -123,8 +125,10 @@ export function TripGuidanceBar({
               height: 32,
               borderRadius: 10,
               // A tint of the stage's own colour rather than a flat grey chip, so the accent
-              // carries into the glyph without a second colour entering the palette.
-              backgroundColor: `${accent.color}2e`,
+              // carries into the glyph without a second colour entering the palette. The alpha
+              // comes from the material: the same figure that reads as a tint on charcoal
+              // washes out on a pale body.
+              backgroundColor: `${accent.color}${material.chipTintAlpha}`,
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -135,7 +139,7 @@ export function TripGuidanceBar({
             <Text
               numberOfLines={1}
               style={{
-                color: '#fff',
+                color: material.text,
                 fontSize: 14,
                 fontWeight: '800',
                 letterSpacing: 0.2,
@@ -149,7 +153,7 @@ export function TripGuidanceBar({
             <Text
               numberOfLines={1}
               style={{
-                color: 'rgba(255,255,255,0.62)',
+                color: material.textDim,
                 fontSize: 12.5,
                 fontWeight: '600',
                 marginTop: 2,

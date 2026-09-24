@@ -207,16 +207,36 @@ Une PR mélangeant JS et Kotlin **ne peut pas** partir en OTA : le Kotlin n'arri
 
 ### The guidance bar is an announcement, and the sheet is the reference
 
-The instruction was a panel pinned over the map for the whole leg, and that failed in both directions at once: it stood over a sheet that already carried the stage, the addresses and the action button, and it was still there while the driver was driving — when the only thing worth reading is the road. It is announced and withdrawn now: `src/lib/utils/tripGuidancePeek.ts` (pure, tested) holds the life of the announcement and `TripGuidanceBar` only draws it.
+The instruction was a panel pinned over the map for the whole leg, and that failed in both directions at once: it stood over a sheet that already carried the stage, the addresses and the action button, and it was still there while the driver was driving — when the only thing worth reading is the road. `src/lib/utils/tripGuidancePeek.ts` (pure, tested) holds the life of the announcement and `TripGuidanceBar` only draws it. It follows the driver rather than a clock, which makes it a hysteresis and not a timer:
 
-- **It emerges on a stage change** (`to_pickup` → `at_pickup` → `to_dropoff`) and **retracts once the driver has covered `GUIDANCE_READ_METERS` (15 m) of the route**. A distance rather than a timer, because the sentence is retired by the driver acting on it and not by a clock: a driver parked at the pickup keeps it for as long as they sit there.
+- **announced on a stage change** (`to_pickup` → `at_pickup` → `to_dropoff`);
+- **withdrawn once the driver has covered `GUIDANCE_DEPART_METERS` (8 m)**, which is the smallest displacement a fix can *prove*: the navigation watch filters on `distanceInterval: 8`, so a smaller threshold would be measuring the drift of a parked car;
+- **recalled if the driver then stands still for `GUIDANCE_RECALL_MS` (2 min)** — long enough that it cannot fire at a red light, a jam or a junction, short enough for the stop it is meant for;
+- **once per stage, and never more.** The recall covers one lapse of attention, it is not a reminder on a schedule; a stage change re-arms it, budget included.
+
+**A stop can only be observed as the absence of new progress, so there is a heartbeat.** Once the bar has withdrawn and the driver parks, `distanceInterval: 8` stops the fixes: no route progress arrives at all, and no message anywhere says "no change". `GUIDANCE_TICK_MS` (5 s) re-runs the same observation so a silence can eventually be read as a stop. It is mounted only while a ride is in progress — and it must **not** take the distance as a dependency. Every route push would then tear the interval down and rebuild it, and a timer rebuilt more often than its own period never fires: the recall would silently never happen, with nothing in a log to say why.
+
 - **The movement signal is route progress (`NavProgress.distanceMeters`), never `currentLocation.speed`.** `currentLocation` is written through a distance throttle (`GPS_STORE_MIN_METERS`): once the driver parks, no fix moves 8 m, so the last *moving* fix stays in the store — speed included — indefinitely. Read as "the vehicle is moving", that stale number would retire the announcement of the next trip before the driver had moved at all, which is the very sentence the bar exists to show.
-- **The advance is a running maximum**, so a route recomputed mid-leg (the remaining distance going *up*) neither reads as the driver going backwards nor forgets an advance already made.
-- **The sheet's `trip` palier takes over from the bar**, because the trip body already holds the stage, both addresses and the button. That suppression is a filter applied at render and not a flag written into the state: the palier the sheet is *heading for* is known in the same commit as the stage, the *settled* one only a commit later, and a latched flag would be set by a stale value and swallow the next announcement for good.
+- **The advance is a running maximum**, so a route recomputed mid-leg (the remaining distance going *up*) neither reads as the driver going backwards nor forgets an advance already made — and, just as importantly, does not push the recall further away.
+- **The sheet's `trip` palier takes over from the bar**, because the trip body already holds the stage, both addresses and the button. That suppression is a filter applied at render and not a flag written into the state: the palier the sheet is *heading for* is known in the same commit as the stage, the *settled* one only a commit later, and a latched flag would be set by a stale value and swallow the next announcement for good. A filter also cannot spend a recall: being covered by the sheet is not the driver having read the instruction, so a stage suppressed for a whole leg keeps its one return.
 - **`BottomSheet` reports the palier it actually settled on** (`onSettle`), a drag included. The dashboard cannot derive it: `snapLevel` is only what the sheet is asked for, and a drag settles wherever the driver lets go.
 - **The bar and the arrival chip move on the same clock** (`GUIDANCE_EMERGE_MS` / `GUIDANCE_RETRACT_MS`), because the chip is lifted by the bar and would otherwise be left floating over an empty slot. The chip itself never leaves: the instruction is news, the ETA is not.
 
-Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins both the rule and the wiring, including a mutation that re-announces a stage on every route tick.
+Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins the rule and the wiring, including two mutations — re-arming the recall budget on every observation, and re-announcing a stage on every route tick — plus the heartbeat's dependency list, which is the one regression here that fails silently on a device.
+
+### The overlay glass is built, because there is no blur to be had
+
+`expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.
+
+`GLASS_MATERIALS` in `src/lib/theme.ts` describes the whole material, and `GlassPanel` paints the layers in order — the test `paints every layer the material declares` fails if one is dropped:
+
+1. a **diagonal body gradient** at three stops, kept high in opacity because a translucent panel over pale tiles turns to mud long before it turns to glass;
+2. a **sheen** concentrated at the top edge and gone by halfway down, not an even veil across the face;
+3. an **inner bevel**, inset, lit on the top edge and shaded on the bottom — the rim says the panel has an edge, the bevel says it has *thickness*;
+4. the **specular rim**, bright on two opposite corners against a dimmed pair; a uniform border is exactly what makes the same panel read as a box;
+5. a faint outer **halo**, in the one-pixel band the body leaves free, so it rings the panel instead of brightening a seam on top of it.
+
+`text`, `textDim` and `chipTintAlpha` live in the material too, and the overlays are not allowed to name a colour of their own — a light material cannot be compared against a dark one while every call site hard-codes white. Two materials ship side by side (`dark`, `light`), with a **temporary** « Style des overlays » row in the profile that switches between them: a reflection over a live map is not something a screenshot settles. The losing entry goes, and the row with it, once the choice is made — that pair is the entire reason the object has two entries.
 
 ### Un journal natif doit porter l'identité de son processus
 

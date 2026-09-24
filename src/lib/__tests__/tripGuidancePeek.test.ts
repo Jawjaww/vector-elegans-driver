@@ -8,9 +8,11 @@ const { readFileSync } = require('fs') as {
 const { join } = require('path') as { join: (...parts: string[]) => string };
 
 import {
+  GUIDANCE_DEPART_METERS,
   GUIDANCE_EMERGE_MS,
-  GUIDANCE_READ_METERS,
+  GUIDANCE_RECALL_MS,
   GUIDANCE_RETRACT_MS,
+  GUIDANCE_TICK_MS,
   guidancePeekReducer,
   guidancePeekVisible,
   INITIAL_GUIDANCE_PEEK,
@@ -19,161 +21,287 @@ import {
 import type { TripStage } from '../utils/tripGuidance';
 
 /**
- * The life of the guidance bar: announced, read, gone.
+ * The life of the guidance bar: announced, acted on, and — once — repeated.
  *
- * The bar used to be a fixture, and what is pinned here is the difference. Three of these cases
- * are the ones a plausible rewrite would get wrong without any test turning red on its own:
+ * The bar used to be a fixture, and the hysteresis that replaced it is the kind of rule a
+ * plausible rewrite gets wrong without any test turning red on its own. The cases pinned here
+ * are the ones that would:
  *
- * - a *stale* speed signal would retire the announcement of a trip the driver has not begun;
- * - a stage that keeps being reported would be re-announced on every route tick;
- * - a route recomputed mid-leg would forget an advance that genuinely happened.
+ * - a *stale* speed signal must not retire an announcement the driver has not begun;
+ * - a stage that keeps being reported must not be re-announced on every route tick;
+ * - a route recomputed mid-leg must neither count as movement nor reset the stop clock;
+ * - the recall exists once, and a second long stop must not bring the bar back;
+ * - the heartbeat that makes a stop observable must not be rebuilt by the very messages whose
+ *   absence it is watching, or it can never fire at all.
  */
 
-/** One observation of a trip, with the noise of the other fields left out. */
-function observe(
-  state: GuidancePeekState,
-  stage: TripStage | null,
-  remainingMeters: number | null,
-) {
-  return guidancePeekReducer(state, { stage, remainingMeters });
+const T0 = 1_700_000_000_000;
+
+/**
+ * A clock the test moves by hand.
+ *
+ * Absolute times rather than accumulated offsets: the assertions below are about *when* a recall
+ * falls due, and computing those instants by adding deltas is how a test ends up asserting its
+ * own arithmetic instead of the rule.
+ */
+function makeClock(startMs: number = T0) {
+  let now = startMs;
+  return {
+    now: () => now,
+    set: (ms: number) => {
+      now = ms;
+    },
+    observe: (
+      state: GuidancePeekState,
+      stage: TripStage | null,
+      remainingMeters: number | null,
+    ) => guidancePeekReducer(state, { stage, remainingMeters, nowMs: now }),
+  };
 }
 
-/** Fold a series of remaining distances into the announcement's life. */
-function fold(
-  start: GuidancePeekState,
-  stage: TripStage | null,
-  distances: readonly (number | null)[],
-) {
-  return distances.reduce((state, d) => observe(state, stage, d), start);
-}
+const shown = (state: GuidancePeekState): boolean =>
+  guidancePeekVisible(state, false);
 
 describe('the announcement the guidance bar is', () => {
   it('is announced by the stage that just began', () => {
-    const state = observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    const clock = makeClock();
+    const state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
     expect(state.stage).toBe('to_pickup');
     expect(state.baselineMeters).toBe(3000);
     expect(state.advanceMeters).toBe(0);
-    expect(guidancePeekVisible(state, false)).toBe(true);
+    expect(shown(state)).toBe(true);
   });
 
-  it('is retired once the driver has covered the reading distance, and not before', () => {
-    const armed = observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
-    // One metre short of the threshold: the driver is manoeuvring out of a parking space, and
-    // withdrawing the instruction there would be the original bug with extra steps.
-    const almost = observe(armed, 'to_pickup', 3000 - (GUIDANCE_READ_METERS - 1));
-    expect(almost.read).toBe(false);
-    expect(guidancePeekVisible(almost, false)).toBe(true);
+  it('withdraws on the first movement a fix can prove, and not before', () => {
+    const clock = makeClock();
+    const armed = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
 
-    const moved = observe(armed, 'to_pickup', 3000 - GUIDANCE_READ_METERS);
-    expect(moved.read).toBe(true);
-    expect(guidancePeekVisible(moved, false)).toBe(false);
+    // One metre short of the threshold: a driver manoeuvring out of a parking space, where
+    // withdrawing the instruction would be the original bug with extra steps.
+    const almost = clock.observe(
+      armed,
+      'to_pickup',
+      3000 - (GUIDANCE_DEPART_METERS - 1),
+    );
+    expect(shown(almost)).toBe(true);
+
+    const moved = clock.observe(
+      armed,
+      'to_pickup',
+      3000 - GUIDANCE_DEPART_METERS,
+    );
+    expect(shown(moved)).toBe(false);
+    // Withdrawn, not consumed: the stage is still the instruction, and the recall is what brings
+    // it back.
+    expect(moved.stage).toBe('to_pickup');
+    expect(moved.recallSpent).toBe(false);
   });
 
-  it('is not retired by a driver who is parked, however long the announcements repeats', () => {
-    // What a distance throttle does to the location's *speed*: the driver parks after driving,
-    // no fix moves 8 m, and the last moving speed stays in the store for as long as they sit
-    // there. Read as "the vehicle is moving", that number would retire this announcement before
-    // the driver had done anything at all.
-    const parked = fold(INITIAL_GUIDANCE_PEEK, 'to_pickup', [3000, 3000, 3000, 3002, 3000]);
-    expect(parked.read).toBe(false);
-    expect(guidancePeekVisible(parked, false)).toBe(true);
+  it('comes back after the driver has been stopped long enough, and not a moment before', () => {
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(shown(state)).toBe(false);
+
+    clock.set(T0 + 10_000 + GUIDANCE_RECALL_MS - 1);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(shown(state)).toBe(false);
+
+    clock.set(T0 + 10_000 + GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(shown(state)).toBe(true);
+    expect(state.recallSpent).toBe(true);
+  });
+
+  it('comes back once, and only once', () => {
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
+
+    clock.set(T0 + 10_000 + GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(shown(state)).toBe(true);
+
+    // The driver sets off again, so the announcement withdraws a second time...
+    clock.set(T0 + 200_000);
+    state = clock.observe(state, 'to_pickup', 2800);
+    expect(shown(state)).toBe(false);
+
+    // ...and a second long stop brings nothing back: it is a lapse of attention being covered,
+    // not a reminder on a schedule.
+    clock.set(T0 + 200_000 + 5 * GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 2800);
+    expect(shown(state)).toBe(false);
+  });
+
+  it('treats a new stage as a fresh announcement, recall included', () => {
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
+    clock.set(T0 + 10_000 + GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(state.recallSpent).toBe(true);
+
+    // Arrived at the pickup. A different job, and the same right to one lapse of attention on it.
+    clock.set(T0 + 400_000);
+    state = clock.observe(state, 'at_pickup', null);
+    expect(shown(state)).toBe(true);
+    expect(state.recallSpent).toBe(false);
+    expect(state.advanceMeters).toBe(0);
+    expect(state.baselineMeters).toBeNull();
+  });
+
+  it('is not retired by a driver who is parked, however long the announcement repeats', () => {
+    // What a distance throttle does to the location's *speed*: the driver parks after driving, no
+    // fix moves 8 m, and the last moving speed stays in the store for as long as they sit there.
+    // Read as "the vehicle is moving", that number would retire an announcement the driver had
+    // not yet acted on.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    for (let i = 1; i <= 5; i++) {
+      clock.set(T0 + i * GUIDANCE_RECALL_MS);
+      state = clock.observe(state, 'to_pickup', 3000);
+      expect(shown(state)).toBe(true);
+    }
+    // And no budget was spent, because nothing withdrew it in the first place.
+    expect(state.recallSpent).toBe(false);
   });
 
   it('remembers an advance across a route recomputed mid-leg', () => {
     // The remaining distance going *up* is the driver being sent a longer way round. A plain
     // subtraction would read that as going backwards and reset an advance already made.
-    const state = fold(INITIAL_GUIDANCE_PEEK, 'to_pickup', [
-      3000, // armed
-      2986, // 14 m covered — one short
-      3200, // route recomputed, longer than the baseline
-      3185, // driving the new route, still above the baseline
-    ]);
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2986);
     expect(state.advanceMeters).toBe(14);
-    expect(guidancePeekVisible(state, false)).toBe(true);
+    expect(shown(state)).toBe(false);
 
-    // And the advance still counts once the new route brings the distance back below the
-    // baseline: 3000 - 2984 = 16.
-    const read = observe(state, 'to_pickup', 2984);
-    expect(read.read).toBe(true);
-    expect(guidancePeekVisible(read, false)).toBe(false);
+    clock.set(T0 + 20_000);
+    state = clock.observe(state, 'to_pickup', 3200);
+    expect(state.advanceMeters).toBe(14);
+
+    clock.set(T0 + 30_000);
+    state = clock.observe(state, 'to_pickup', 2984);
+    expect(state.advanceMeters).toBe(16);
   });
 
-  it('does not re-announce a stage it has already retired', () => {
+  it('does not read a lengthened route as movement, so the stop clock keeps running', () => {
+    // The other half of the running maximum, and the one a careless implementation loses: a
+    // longer route is not ground covered, so it must not push the recall further away.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
+    expect(shown(state)).toBe(false);
+
+    // Recomputed, now longer, well before the recall falls due.
+    clock.set(T0 + 40_000);
+    state = clock.observe(state, 'to_pickup', 3400);
+
+    clock.set(T0 + 10_000 + GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 3400);
+    expect(shown(state)).toBe(true);
+  });
+
+  it('does not re-announce a stage it has already withdrawn', () => {
     // The stage is reported on every route tick, so "the stage is being reported" must not read
     // as "the stage just changed" — the bar would come back for the rest of the leg.
-    const read = fold(INITIAL_GUIDANCE_PEEK, 'to_pickup', [3000, 2900]);
-    expect(guidancePeekVisible(read, false)).toBe(false);
-    const later = fold(read, 'to_pickup', [2800, 2700, 2600, 2500]);
-    expect(later.read).toBe(true);
-    expect(guidancePeekVisible(later, false)).toBe(false);
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
 
-    // A route recomputed after the bar has retracted must not bring it back either. This is the
-    // same running maximum that keeps an advance honest, seen from the other side.
-    const recomputed = observe(later, 'to_pickup', 4000);
-    expect(recomputed.read).toBe(true);
-    expect(guidancePeekVisible(recomputed, false)).toBe(false);
+    for (const remaining of [2980, 2970, 2960, 2900]) {
+      clock.set(clock.now() + GUIDANCE_TICK_MS);
+      state = clock.observe(state, 'to_pickup', remaining);
+      expect(shown(state)).toBe(false);
+    }
+
+    // And a route recomputed after the withdrawal must not bring it back either.
+    clock.set(clock.now() + GUIDANCE_TICK_MS);
+    state = clock.observe(state, 'to_pickup', 4000);
+    expect(shown(state)).toBe(false);
   });
 
-  it('announces the next stage afresh, from the route that stage is on', () => {
-    const read = fold(INITIAL_GUIDANCE_PEEK, 'to_pickup', [3000, 2900]);
-    const next = observe(read, 'at_pickup', null);
-    expect(next.stage).toBe('at_pickup');
-    expect(next.read).toBe(false);
-    // Waiting at the pickup has no route to cover, so there is no baseline yet...
-    expect(next.baselineMeters).toBeNull();
-    // ...and no baseline means no retirement: the bar is up until the sheet takes over.
-    expect(guidancePeekVisible(next, false)).toBe(true);
+  it('adopts a baseline from the first fix, so a late route still withdraws it', () => {
+    // The stage lands before the route is computed. Without adoption, a stage whose route arrived
+    // a second late would keep a null baseline and never be withdrawn by movement at all.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_dropoff', null);
+    expect(state.baselineMeters).toBeNull();
+    expect(shown(state)).toBe(true);
+
+    clock.set(T0 + 1_000);
+    state = clock.observe(state, 'to_dropoff', 8000);
+    expect(state.baselineMeters).toBe(8000);
+    expect(state.advanceMeters).toBe(0);
+    expect(shown(state)).toBe(true);
+
+    clock.set(T0 + 20_000);
+    state = clock.observe(state, 'to_dropoff', 7970);
+    expect(shown(state)).toBe(false);
   });
 
-  it('adopts a baseline from the first fix, so a late route still retires it', () => {
-    // The stage lands before the route is computed. Without adoption, a stage whose route
-    // arrived a second late would never be retired by movement at all.
-    const armed = observe(INITIAL_GUIDANCE_PEEK, 'to_dropoff', null);
-    const withRoute = observe(armed, 'to_dropoff', 8000);
-    expect(withRoute.baselineMeters).toBe(8000);
-    expect(withRoute.advanceMeters).toBe(0);
-    expect(withRoute.read).toBe(false);
-
-    const read = fold(withRoute, 'to_dropoff', [7970, 8120, 8000]);
-    // 8000 - 7970 = 30, and the later 8120 does not undo it.
-    expect(read.read).toBe(true);
-  });
-
-  it('hands over to the trip sheet rather than doubling it', () => {
+  it('hands over to the trip sheet rather than doubling it, and charges nothing for it', () => {
     // The sheet settled on its trip body already carries the stage, the two addresses and the
-    // action button; the bar above it would be a second copy of the same sentence.
-    const armed = observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
-    expect(guidancePeekVisible(armed, true)).toBe(false);
-    // A filter, not a state: the announcement itself is untouched, so a stage transition is
-    // never swallowed by the sheet having been open when it arrived.
-    expect(armed.read).toBe(false);
-    expect(guidancePeekVisible(armed, false)).toBe(true);
+    // action button. Suppressing the bar there is not the driver having read it, so the budget
+    // must survive: a stage suppressed for a whole leg would otherwise have no recall left.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
+    expect(guidancePeekVisible(state, true)).toBe(false);
+
+    clock.set(T0 + 10 * GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'at_pickup', null);
+    expect(state.recallSpent).toBe(false);
+    expect(state.visible).toBe(true);
+
+    // And the moment the driver lowers the sheet, the instruction is there again.
+    expect(guidancePeekVisible(state, false)).toBe(true);
   });
 
   it('says nothing at all without a ride to say it about', () => {
-    const read = fold(INITIAL_GUIDANCE_PEEK, 'to_pickup', [3000, 2900]);
-    const ended = observe(read, null, null);
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + 10_000);
+    state = clock.observe(state, 'to_pickup', 2990);
+
+    const ended = clock.observe(state, null, null);
     expect(ended).toEqual(INITIAL_GUIDANCE_PEEK);
     expect(guidancePeekVisible(ended, false)).toBe(false);
   });
 
-  it('keeps its state when nothing changed, so a route tick does not churn', () => {
-    // The shape of the reducer the dashboard drives from an effect: an unchanged observation has
-    // to come back as the same object, or every route push would re-render the overlays.
-    const armed = observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
-    expect(observe(armed, 'to_pickup', 3000)).toBe(armed);
-    expect(observe(armed, 'to_pickup', 3200)).toBe(armed);
-    // And when it does change, it is a new object.
-    const moved = observe(armed, 'to_pickup', 2970);
+  it('keeps its state when nothing changed, so a heartbeat does not churn', () => {
+    // The shape of the reducer the dashboard drives: an unchanged observation has to come back as
+    // the same object, or a tick every five seconds would repaint the overlays for no reason.
+    const clock = makeClock();
+    const armed = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    clock.set(T0 + GUIDANCE_TICK_MS);
+    expect(clock.observe(armed, 'to_pickup', 3000)).toBe(armed);
+    // A longer route is also a non-event.
+    expect(clock.observe(armed, 'to_pickup', 3200)).toBe(armed);
+
+    clock.set(T0 + 2 * GUIDANCE_TICK_MS);
+    const moved = clock.observe(armed, 'to_pickup', 2970);
     expect(moved).not.toBe(armed);
     expect(moved.advanceMeters).toBeGreaterThan(armed.advanceMeters);
   });
 
-  it('is retired by a distance a driver could actually cover, not by a rounding error', () => {
-    // Guards the constant itself: zero would retire the bar the instant the route was computed,
-    // and a huge value would leave it on screen for the whole leg — the fixture this replaced.
-    expect(GUIDANCE_READ_METERS).toBeGreaterThan(5);
-    expect(GUIDANCE_READ_METERS).toBeLessThan(100);
+  it('is driven by thresholds a driver could actually produce', () => {
+    // Guards the constants themselves: zero would withdraw the bar the instant the route was
+    // computed, and a huge departure would leave it on screen for the whole leg — the fixture
+    // this replaced.
+    expect(GUIDANCE_DEPART_METERS).toBeGreaterThan(0);
+    expect(GUIDANCE_DEPART_METERS).toBeLessThanOrEqual(20);
+    // Long enough not to fire at a red light, short enough for the stop it is meant for.
+    expect(GUIDANCE_RECALL_MS).toBeGreaterThan(30_000);
+    // The heartbeat has to be well inside the stop it is watching, or the recall would land late
+    // enough to look like a separate bug.
+    expect(GUIDANCE_TICK_MS).toBeLessThan(GUIDANCE_RECALL_MS / 10);
   });
 });
 
@@ -189,11 +317,22 @@ function readSource(relativePath: string): string {
   return readFileSync(join(REPO_ROOT, relativePath), 'utf8');
 }
 
+/**
+ * The heartbeat effect, from its own guard to the end of the file.
+ *
+ * Anchored on the guard rather than on `setInterval(` because the dashboard runs other polls —
+ * a first-occurrence search would silently describe one of those instead, and the test would pass
+ * while asserting nothing about the heartbeat.
+ */
+function heartbeatSource(dashboard: string): string {
+  return dashboard.slice(dashboard.indexOf('if (tripStage === null) return;'));
+}
+
 describe('the wiring that feeds the announcement', () => {
-  it('is driven by the dashboard, from the stage and the route', () => {
+  it('is driven by the dashboard, from the stage, the route and a clock', () => {
     const dashboard = readSource(DASHBOARD);
     expect(dashboard).toContain(
-      'observeGuidancePeek({ stage: tripStage, remainingMeters })',
+      'observeGuidancePeek({ stage: tripStage, remainingMeters, nowMs: Date.now() });',
     );
     expect(dashboard).toContain(
       'guidancePeekVisible(guidancePeek, tripVisibleInSheet)',
@@ -201,6 +340,26 @@ describe('the wiring that feeds the announcement', () => {
     // The bar is told whether to show, rather than unmounted: the retraction has to animate.
     expect(dashboard).toContain('visible={guidanceVisible}');
     expect(dashboard).toContain('aboveGuidanceBar={guidanceVisible}');
+  });
+
+  it('beats only while a ride is in progress', () => {
+    const dashboard = readSource(DASHBOARD);
+    const heartbeat = heartbeatSource(dashboard);
+    expect(heartbeat).toContain('if (tripStage === null) return;');
+    expect(heartbeat).toContain('guidanceFactsRef.current');
+    expect(heartbeat).toContain('}, GUIDANCE_TICK_MS);');
+    expect(heartbeat).toContain('clearInterval(id)');
+  });
+
+  it('never lets a route push rebuild the heartbeat', () => {
+    // The subtle one, and the reason the heartbeat reads a ref: it exists to observe the
+    // *absence* of route progress, so making the distance a dependency would have every push tear
+    // the interval down and rebuild it. A timer rebuilt more often than its own period never
+    // fires, and the recall would simply never happen — with nothing in a log to say why.
+    const deps = /\n  \}, \[([^\]]*)\]\);/.exec(
+      heartbeatSource(readSource(DASHBOARD)),
+    );
+    expect(deps?.[1]).toBe('tripStage');
   });
 
   it('knows when the sheet is showing the trip, from the sheet itself', () => {
@@ -225,7 +384,7 @@ describe('the wiring that feeds the announcement', () => {
   });
 
   it('moves the bar and the chip it lifts on the same clock', () => {
-    // Two overlays move on the retraction — the bar sinking, the arrival chip dropping into the
+    // Two overlays move on the withdrawal — the bar sinking, the arrival chip dropping into the
     // slot under it — and they share the durations or they read as two elements arguing.
     for (const file of [GUIDANCE_BAR, ARRIVAL_HUD]) {
       const source = readSource(file);

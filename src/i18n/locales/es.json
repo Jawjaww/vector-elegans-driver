@@ -212,7 +212,12 @@
     "selectDocument": "Seleccionar Documento",
     "notAuthenticated": "No autenticado",
     "error": "Error",
-    "failedToUpload": "Error al subir documento"
+    "failedToUpload": "Error al subir documento",
+    "overlayStyle": {
+      "label": "Estilo de las capas",
+      "dark": "Cristal oscuro",
+      "light": "Cristal claro"
+    }
   },
   "navigation": {
     "home": "Inicio",

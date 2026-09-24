@@ -115,31 +115,160 @@ export const glassModalStyle = {
 };
 
 /**
- * Tokens for the panels that float directly above the live map.
+ * The complete description of the glass the panels above the live map are made of.
  *
- * Two decisions are baked in here rather than repeated at each call site.
+ * Every field here is a *layer*, and the layers are what the look is: a flat fill reads as a
+ * grey box, however nicely it is tinted. `GlassPanel` paints them in order and nothing animates,
+ * so the whole material is a one-off paint rather than something paid on each frame the map
+ * moves.
  *
- * **No backdrop blur.** `expo-blur` would have to re-capture its backdrop, and the backdrop
- * here is a map that never holds still — the blur would be recomputed on every frame the
- * driver moves, which is the most expensive thing on this screen. The glass is built instead
- * from a static diagonal sheen over a translucent charcoal: one gradient, painted once, no
- * per-frame cost at all.
+ * **No backdrop blur, and this is the load-bearing decision.** `expo-blur` would have to
+ * re-capture its backdrop, and the backdrop here is a map that never holds still — the blur
+ * would be recomputed on every frame the driver moves, the single most expensive thing on this
+ * screen. It is also not the sacrifice it sounds like: on Android `BlurView` defaults to
+ * `BlurMethod.NONE`, which paints a flat tint instead of blurring at all. The glass is *built*
+ * instead, which is why it can afford to be convincing.
  *
- * **A specular rim, lit on opposite corners.** The bright top-left arc against a dimmed
- * bottom-right one is what gives a flat panel a sense of thickness: it reads as light arriving
- * from one direction and glancing off an edge. A uniform border gives the same panel the look
- * of a box. The two colours are named for their role rather than for their position, so a
- * call site cannot pair `top` with `bottom` and lose the effect.
+ * The layers, in the order they are painted:
+ *
+ * 1. **Body** — a diagonal gradient, not a flat colour. Three stops give the panel a mass that
+ *    a single fill cannot: light corner, mid body, dark corner. The stops sit high in opacity
+ *    because the panel is legible or it is useless, and a translucent panel over pale map tiles
+ *    turns to mud long before it turns to glass.
+ * 2. **Sheen** — concentrated at the top and gone by halfway down, because light arriving from
+ *    above leaves a highlight on the near edge, not an even veil across the face.
+ * 3. **Specular rim** — the bright top-left arc against a dimmed bottom-right one. This is what
+ *    gives a flat panel a sense of thickness, and replacing it with a uniform border is what
+ *    makes the same panel read as a box. Named for their role, not their position, so a call
+ *    site cannot pair `top` with `bottom` and silently lose the effect.
+ * 4. **Inner bevel** — a second, inset ring lit on the top edge and shaded on the bottom. The
+ *    rim says the panel has an edge; the bevel says it has *thickness*.
+ * 5. **Halo** — a faint outer ring, the refraction of the map's own light around the panel.
+ *
+ * `text` and `textDim` live here too, and that is deliberate: a light material cannot be
+ * compared against a dark one while every call site hard-codes white.
  */
-export const GLASS_OVERLAY = {
-  /** Body. Translucent enough to read as glass, opaque enough to stay legible on pale tiles. */
-  body: 'rgba(20, 20, 22, 0.66)',
-  /** Sheen painted over the body, top-left toward bottom-right. Never a fill on its own. */
-  sheen: ['rgba(255, 255, 255, 0.10)', 'rgba(255, 255, 255, 0.015)'] as const,
-  sheenStart: { x: 0, y: 0 } as const,
-  sheenEnd: { x: 1, y: 1 } as const,
+export type GlassMaterial = {
+  /** Body gradient, diagonal. Three stops: lit corner, mid body, shaded corner. */
+  body: readonly [string, string, string];
+  bodyStart: { x: number; y: number };
+  bodyEnd: { x: number; y: number };
+  /**
+   * Solid colour under the gradient, and the one Android derives its elevation outline from.
+   *
+   * The gradient is translucent by design, so without this the shadow would be cast by nothing
+   * and `elevation` would have no outline to project.
+   */
+  bodyBase: string;
+  /** Sheen over the body, from the top edge downward. Never a fill on its own. */
+  sheen: readonly [string, string, string];
+  /** Stops for `sheen`, matched to its length: highlight, fade, gone. */
+  sheenLocations: readonly [number, number, number];
+  sheenStart: { x: number; y: number };
+  sheenEnd: { x: number; y: number };
   /** Lit rim — top-left and bottom-right, the two opposite arcs that carry the reflection. */
-  edgeLit: 'rgba(255, 255, 255, 0.42)',
+  edgeLit: string;
   /** Dimmed rim. Never fully transparent: the panel still needs an outline over dark tiles. */
-  edgeDim: 'rgba(255, 255, 255, 0.08)',
-} as const;
+  edgeDim: string;
+  /** Inner bevel: the top edge catches light, the bottom edge falls away from it. */
+  bevelTop: string;
+  bevelBottom: string;
+  /** Outer ring: refraction around the panel, not an outline. Kept very faint. */
+  halo: string;
+  /** Ambient shadow. Wide and weak rather than tight and dark, which is what glass casts. */
+  shadow: { offsetY: number; radius: number; opacity: number };
+  /** Primary type on the panel. */
+  text: string;
+  /** Supporting type: addresses, hints, the distance beside the clock. */
+  textDim: string;
+  /**
+   * Alpha appended to an accent colour for the icon chips, as in `${accent}${chipTintAlpha}`.
+   *
+   * A tint of the accent rather than a flat grey chip, so the glyph carries the stage's colour
+   * without a second colour entering the palette. It has to differ per material: the same alpha
+   * that reads as a tint on charcoal washes out completely on a pale body.
+   */
+  chipTintAlpha: string;
+};
+
+/**
+ * The two materials, side by side so they can be compared on a device.
+ *
+ * Both are *used* values — `useGlassMaterial` resolves to one of them, and the profile row lets
+ * the driver switch — so neither is dead code while the choice is open. Once it is settled the
+ * losing entry goes, and so does the row: the pair exists to make the comparison possible, not
+ * to become a setting.
+ */
+export const GLASS_MATERIALS = {
+  /**
+   * Charcoal glass. Sits with the offer card, which is opaque `#141414` with the same diagonal
+   * gradient — the two read as one material, which a translucent panel never did.
+   */
+  dark: {
+    body: [
+      'rgba(40, 40, 44, 0.90)',
+      'rgba(20, 20, 23, 0.94)',
+      'rgba(10, 10, 12, 0.96)',
+    ],
+    bodyStart: { x: 0.15, y: 0 },
+    bodyEnd: { x: 0.85, y: 1 },
+    bodyBase: '#121214',
+    sheen: [
+      'rgba(255, 255, 255, 0.14)',
+      'rgba(255, 255, 255, 0.035)',
+      'rgba(255, 255, 255, 0)',
+    ],
+    sheenLocations: [0, 0.22, 0.55],
+    sheenStart: { x: 0.5, y: 0 },
+    sheenEnd: { x: 0.5, y: 1 },
+    edgeLit: 'rgba(255, 255, 255, 0.42)',
+    edgeDim: 'rgba(255, 255, 255, 0.08)',
+    bevelTop: 'rgba(255, 255, 255, 0.20)',
+    bevelBottom: 'rgba(0, 0, 0, 0.35)',
+    halo: 'rgba(255, 255, 255, 0.10)',
+    shadow: { offsetY: 4, radius: 20, opacity: 0.24 },
+    text: '#ffffff',
+    textDim: 'rgba(255, 255, 255, 0.62)',
+    chipTintAlpha: '2e',
+  },
+  /**
+   * Frosted white glass, the closer reading of the reference.
+   *
+   * Its risk is stated rather than hidden: on pale map tiles a light panel with dark type needs
+   * a *more* opaque body than the dark one, and the more opaque it gets the closer it comes to
+   * the flat white card this is meant not to be. Whether it clears that bar is a question for a
+   * real screen, which is why it ships as a switch and not as the default.
+   */
+  light: {
+    body: [
+      'rgba(252, 253, 255, 0.88)',
+      'rgba(240, 243, 248, 0.92)',
+      'rgba(228, 233, 241, 0.95)',
+    ],
+    bodyStart: { x: 0.15, y: 0 },
+    bodyEnd: { x: 0.85, y: 1 },
+    bodyBase: '#eef2f7',
+    sheen: [
+      'rgba(255, 255, 255, 0.70)',
+      'rgba(255, 255, 255, 0.18)',
+      'rgba(255, 255, 255, 0)',
+    ],
+    sheenLocations: [0, 0.22, 0.55],
+    sheenStart: { x: 0.5, y: 0 },
+    sheenEnd: { x: 0.5, y: 1 },
+    edgeLit: 'rgba(255, 255, 255, 0.90)',
+    edgeDim: 'rgba(15, 20, 30, 0.10)',
+    bevelTop: 'rgba(255, 255, 255, 0.85)',
+    bevelBottom: 'rgba(15, 20, 30, 0.08)',
+    halo: 'rgba(255, 255, 255, 0.45)',
+    shadow: { offsetY: 4, radius: 18, opacity: 0.16 },
+    text: 'rgba(10, 14, 22, 0.92)',
+    textDim: 'rgba(10, 14, 22, 0.60)',
+    chipTintAlpha: '33',
+  },
+} as const satisfies Record<string, GlassMaterial>;
+
+export type GlassMaterialName = keyof typeof GLASS_MATERIALS;
+
+/** Charcoal: it sits with the opaque offer card, which is what the overlays belong beside. */
+export const DEFAULT_GLASS_MATERIAL: GlassMaterialName = 'dark';

@@ -44,6 +44,7 @@ import {
   visibleProvisionalOffer,
 } from "../../src/lib/utils/homeSheetSnap";
 import {
+  GUIDANCE_TICK_MS,
   guidancePeekReducer,
   guidancePeekVisible,
   INITIAL_GUIDANCE_PEEK,
@@ -1632,18 +1633,40 @@ export default function DashboardScreen() {
   // is in front of the driver" (the trip body) versus "it is below the fold" (`nav`, 14 px).
   const [sheetSettledAt, setSheetSettledAt] = useState<SheetSnapLevel | null>(null);
 
-  // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes and
-  // retracts once the driver is on their way. `tripGuidancePeek` holds the rule, including why
-  // the movement signal is route progress and not the location's speed.
+  // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes,
+  // withdraws once the driver pulls away, and returns after the driver has sat still long enough.
+  // `tripGuidancePeek` holds the rule, including why the movement signal is route progress and
+  // not the location's speed, and why a stop can only be seen as the absence of new progress.
   const [guidancePeek, observeGuidancePeek] = useReducer(
     guidancePeekReducer,
     INITIAL_GUIDANCE_PEEK,
   );
   const remainingMeters = navProgress?.distanceMeters ?? null;
 
+  // The latest trip facts, for the heartbeat to read. Assigned during render, like the other
+  // refs in this codebase.
+  const guidanceFactsRef = useRef({ stage: tripStage, remainingMeters });
+  guidanceFactsRef.current = { stage: tripStage, remainingMeters };
+
   useEffect(() => {
-    observeGuidancePeek({ stage: tripStage, remainingMeters });
+    observeGuidancePeek({ stage: tripStage, remainingMeters, nowMs: Date.now() });
   }, [tripStage, remainingMeters]);
+
+  // The heartbeat, and the one thing it must not do is depend on the distance.
+  //
+  // It exists to notice a *silence*: a parked driver receives no route progress at all, so
+  // without a tick the stop would never be observed and the announcement would never return.
+  // Taking `remainingMeters` as a dependency would destroy it — every route push would tear the
+  // interval down and rebuild it, and a timer that is rebuilt more often than its own period
+  // never fires. It reads the facts from a ref instead, so only a real stage change restarts it.
+  useEffect(() => {
+    if (tripStage === null) return;
+    const id = setInterval(() => {
+      const facts = guidanceFactsRef.current;
+      observeGuidancePeek({ ...facts, nowMs: Date.now() });
+    }, GUIDANCE_TICK_MS);
+    return () => clearInterval(id);
+  }, [tripStage]);
 
   // Either source means the trip is already spelled out inside the sheet, so the bar would be a
   // second copy of it. Both are needed: the palier the sheet is heading for is known in the same

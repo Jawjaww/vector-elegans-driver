@@ -9,6 +9,7 @@ import {
 } from '../lib/utils/navProgress';
 import { GlassPanel } from './GlassPanel';
 import { theme } from '../lib/theme';
+import { useGlassMaterial } from '../lib/glass/glassMaterialPreference';
 
 const HUD_RADIUS = 18;
 
@@ -26,6 +27,7 @@ type TripManeuverHudProps = Readonly<{
  */
 export function TripManeuverHud({ progress }: TripManeuverHudProps) {
   const insets = useSafeAreaInsets();
+  const material = useGlassMaterial();
   const man = progress.nextManeuver;
   const icon = man
     ? maneuverToFeatherIcon(man.type, man.modifier)
@@ -64,7 +66,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
               width: 52,
               height: 52,
               borderRadius: 14,
-              backgroundColor: `${theme.colors.accent}2e`,
+              backgroundColor: `${theme.colors.accent}${material.chipTintAlpha}`,
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -74,7 +76,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
           <View style={{ flex: 1 }}>
             <Text
               style={{
-                color: '#fff',
+                color: material.text,
                 fontSize: 16,
                 fontWeight: '800',
                 letterSpacing: 0.2,
@@ -87,7 +89,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
             {man?.name ? (
               <Text
                 style={{
-                  color: 'rgba(255,255,255,0.62)',
+                  color: material.textDim,
                   fontSize: 13,
                   marginTop: 3,
                   fontWeight: '600',
