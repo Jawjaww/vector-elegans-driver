@@ -20,8 +20,7 @@ else
   source "$ENV_FILE"
   set +a
   if [[ -z "${GOOGLE_SERVICES_JSON:-}" || ! -f "${GOOGLE_SERVICES_JSON}" ]]; then
-    echo "GOOGLE_SERVICES_JSON not resolved after eas env:pull preview" >&2
-    echo "Add GitHub secret GOOGLE_SERVICES_JSON (file body) or keep EAS preview file var." >&2
+    echo "GOOGLE_SERVICES_JSON not resolved after eas env:pull preview (file var is secret on EAS)." >&2
     exit 1
   fi
   cp "${GOOGLE_SERVICES_JSON}" "$TARGET"
