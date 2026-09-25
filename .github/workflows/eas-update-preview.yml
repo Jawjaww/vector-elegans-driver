@@ -37,10 +37,5 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: EAS Update (preview channel)
-        run: |
-          eas update \
-            --channel preview \
-            --environment preview \
-            --non-interactive \
-            --message "OTA from ${{ github.event.workflow_run.head_sha }}"
+      - name: EAS Update (preview channel, local APK runtime)
+        run: ./scripts/eas-update-preview.sh "${{ github.event.workflow_run.head_sha }}"
