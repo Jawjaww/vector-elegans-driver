@@ -67,6 +67,7 @@ import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisible
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
 import { VTCMap } from "../../src/map";
+import { BASEMAP_CANVAS } from "../../src/map/basemapTone";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
@@ -1738,7 +1739,7 @@ export default function DashboardScreen() {
     <AnimatedPage instant={notificationArrival}>
       <View
         ref={mapHostViewRef}
-        style={{ flex: 1, backgroundColor: "#e8eef4", zIndex: -1 }}
+        style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
       >
         {/* Single warm VTCMap — also used for offer overview + route */}
         <VTCMap
