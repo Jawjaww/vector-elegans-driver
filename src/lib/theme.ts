@@ -154,35 +154,22 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **Frost = blur plus a translucent white veil.** Only `GlassPanel` mounts `expo-blur`, at
- * `blurIntensity` tuned for a Control Center–style read on iOS.
- * On Android the view falls back to a flat tint (`experimentalBlurMethod` default `none`), so
- * most of the effect is the semi-transparent face letting the WebView map show through. iOS gets
- * a soft native blur on top of that; intensity stays low so a moving map does not dominate the
- * frame budget.
- *
- * **A neutral white frost, not a grey plate.** `fillTop` and `fillBottom` differ mainly in alpha so
- * the map reads through; RGB stays white so the veil does not tint the tiles underneath. The edge is a
- * one-point hairline on the face. The contour is beveled separately (`rimLight` / `rimShade`) with
- * corner glares on the top and bottom corners only — not across the type.
+ * **Frost matches a maps instruction chip:** a real backdrop blur under a thin white veil, a
+ * hairline edge, and a soft shadow. The veil stays light so the blur is what you see — a heavy
+ * fill paints a plate and hides the map. `GlassPanel` is the only blur mount. Android uses
+ * `dimezisBlurView` so the frost is not a flat tint; intensity is static (not animated).
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Top of the frosted face. Higher alpha than `fillBottom`, still translucent. */
+  /** Top of the frosted face. A thin white wash over the blur, not a plate. */
   fillTop: string;
   /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
   fillBottom: string;
-  /** Top of the beveled contour. Bright white, reads as light on the edge. */
-  rimLight: string;
-  /** Bottom of the beveled contour. Still white, dimmer — not a dark stroke. */
-  rimShade: string;
-  /** Specular in the top corner of the face, inside the bevel. */
-  cornerGlowTop: string;
-  /** Specular in the bottom corner of the face, inside the bevel. */
-  cornerGlowBottom: string;
+  /** One-point light edge around the frost. */
+  hairline: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -199,19 +186,16 @@ export type GlassMaterial = {
   accentStrong: string;
   /** Bare alpha appended to an accent for a chip tint: `${accent}${chipTintAlpha}`. */
   chipTintAlpha: string;
-  /** `expo-blur` intensity (1–100). Android treats this as a tint when blur is off. */
+  /** `expo-blur` intensity (1–100). Static; Android uses dimezis blur in `GlassPanel`. */
   blurIntensity: number;
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(255, 255, 255, 0.45)',
-  fillBottom: 'rgba(255, 255, 255, 0.35)',
-  blurIntensity: 45,
-  rimLight: 'rgba(255, 255, 255, 1)',
-  rimShade: 'rgba(255, 255, 255, 0.38)',
-  cornerGlowTop: 'rgba(255, 255, 255, 0.52)',
-  cornerGlowBottom: 'rgba(255, 255, 255, 0.26)',
-  shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
+  fillTop: 'rgba(255, 255, 255, 0.22)',
+  fillBottom: 'rgba(255, 255, 255, 0.12)',
+  blurIntensity: 72,
+  hairline: 'rgba(255, 255, 255, 0.55)',
+  shadow: { offsetY: 6, radius: 18, opacity: 0.16, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
   accent: VE_BLUE.base,
