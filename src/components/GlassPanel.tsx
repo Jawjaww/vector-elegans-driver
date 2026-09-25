@@ -5,29 +5,31 @@ import { GLASS_MATERIAL } from '../lib/theme';
 type GlassPanelProps = Readonly<{
   children?: React.ReactNode;
   /**
-   * Corner radius. A prop rather than a utility class: callers pass 16, 18, 24 and 999, and a
-   * static class cannot express a value the caller chooses.
+   * Corner radius. A prop rather than a utility class: callers pass a card radius or a circle,
+   * and a static class cannot express a value the caller chooses.
    */
   radius: number;
   style?: StyleProp<ViewStyle>;
 }>;
 
-/** The white bevel. Two points, so it reads on a pale map. The face covers the rest. */
-const RIM_PX = 2;
+/** Bevel thickness on the contour. Face is inset by this much. */
+export const GLASS_PANEL_BEVEL_PX = 2;
+
+export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 
 /**
  * The panel every overlay above the map is drawn on.
  *
- * Liquid glass, built, not blurred. The face is a full-height grey wash, lighter at the top.
- * The contour is white on every side and only brighter along the top, `RIM_PX` thick, because
- * the face is inset by that much. A dark rim on a pale map disappears, and a one-point rim
- * does too.
+ * The face stays a flat grey wash. The contour is a separate bevel: a bright rim on top, a dimmer
+ * one on the bottom, plus corner glares in the top and bottom corners only — never a band across
+ * the type.
  *
  * Android `elevation` stays off: a translucent fill plus elevation composites as a second plate.
  */
 export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   const material = GLASS_MATERIAL;
-  const faceRadius = Math.max(0, radius - RIM_PX);
+  const faceRadius = Math.max(0, radius - GLASS_PANEL_BEVEL_PX);
+  const cornerSize = Math.min(56, Math.max(28, radius * 1.4));
 
   return (
     <View
@@ -48,6 +50,7 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
         colors={[material.rimLight, material.rimShade]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
+        pointerEvents="none"
         style={{
           position: 'absolute',
           top: 0,
@@ -56,31 +59,49 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           left: 0,
           borderRadius: radius,
         }}
-        pointerEvents="none"
       />
-      <LinearGradient
-        colors={[material.fillTop, material.fillBottom]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
+      <View
         style={{
-          margin: RIM_PX,
+          margin: GLASS_PANEL_BEVEL_PX,
           borderRadius: faceRadius,
           overflow: 'hidden',
         }}
       >
-        <View
+        <LinearGradient
+          colors={[material.fillTop, material.fillBottom]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ borderRadius: faceRadius }}
+        >
+          {children}
+        </LinearGradient>
+        <LinearGradient
           pointerEvents="none"
+          colors={[material.cornerGlowTop, 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
-            right: 0,
-            height: 1,
-            backgroundColor: material.rimLight,
+            width: cornerSize,
+            height: cornerSize,
           }}
         />
-        {children}
-      </LinearGradient>
+        <LinearGradient
+          pointerEvents="none"
+          colors={[material.cornerGlowBottom, 'transparent']}
+          start={{ x: 1, y: 1 }}
+          end={{ x: 0, y: 0 }}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            right: 0,
+            width: cornerSize,
+            height: cornerSize,
+          }}
+        />
+      </View>
     </View>
   );
 }

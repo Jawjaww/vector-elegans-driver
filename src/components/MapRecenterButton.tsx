@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Pressable, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { GlassPanel } from './GlassPanel';
+import { GLASS_PANEL_BEVEL_INSET, GlassPanel } from './GlassPanel';
 import { GLASS_MATERIAL } from '../lib/theme';
 import {
   LIFT_OVER_INSTRUCTION,
@@ -11,9 +11,6 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
-
-/** The face inside the rim, so the panel keeps the footprint rather than growing by two points. */
-const FACE = MAP_CONTROL_SIZE - 2;
 
 type MapRecenterButtonProps = Readonly<{
   visible: boolean;
@@ -93,7 +90,10 @@ export function MapRecenterButton({
         <GlassPanel radius={MAP_CONTROL_SIZE / 2}>
           <View
             className="items-center justify-center"
-            style={{ width: FACE, height: FACE }}
+            style={{
+              width: MAP_CONTROL_SIZE - GLASS_PANEL_BEVEL_INSET,
+              height: MAP_CONTROL_SIZE - GLASS_PANEL_BEVEL_INSET,
+            }}
           >
             <Feather
               name={navigationMode ? 'navigation' : 'crosshair'}

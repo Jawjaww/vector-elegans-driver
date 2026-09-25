@@ -13,13 +13,11 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
-import { LANE_BASE_OFFSET } from '../lib/utils/overlayLane';
+import { LANE_BASE_OFFSET, OVERLAY_CARD_RADIUS } from '../lib/utils/overlayLane';
 import { GLASS_MATERIAL } from '../lib/theme';
 
 /** How far the bar dips towards the sheet as it retracts: a hint of a destination, not a ride. */
 const SINK_PX = 12;
-
-const BAR_RADIUS = 999;
 
 type TripGuidanceBarProps = Readonly<{
   stage: TripStage;
@@ -88,7 +86,6 @@ export function TripGuidanceBar({
         right: 12,
         bottom: sheetH + LANE_BASE_OFFSET,
         zIndex: 14,
-        alignItems: 'flex-start',
         opacity: shown,
         transform: [
           {
@@ -100,15 +97,24 @@ export function TripGuidanceBar({
         ],
       }}
     >
-      <GlassPanel radius={BAR_RADIUS} style={{ maxWidth: '100%' }}>
-        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
-          <Feather name={accent.icon} size={14} color={accent.ink} />
+      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+          }}
+        >
+          <Feather name={accent.icon} size={20} color={accent.ink} />
           <Text
             numberOfLines={2}
             style={{
               color: material.text,
-              fontSize: 12,
-              fontWeight: '500',
+              fontSize: 16,
+              lineHeight: 22,
+              fontWeight: '600',
               flexShrink: 1,
             }}
           >

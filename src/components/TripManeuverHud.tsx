@@ -9,8 +9,7 @@ import {
 } from '../lib/utils/navProgress';
 import { GlassPanel } from './GlassPanel';
 import { GLASS_MATERIAL } from '../lib/theme';
-
-const HUD_RADIUS = 999;
+import { OVERLAY_CARD_RADIUS } from '../lib/utils/overlayLane';
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
@@ -49,17 +48,25 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
         left: 12,
         right: 12,
         zIndex: 15,
-        alignItems: 'flex-start',
       }}
     >
-      <GlassPanel radius={HUD_RADIUS} style={{ maxWidth: '100%' }}>
-        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
-          <Feather name={icon} size={14} color={material.accentStrong} />
+      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+          }}
+        >
+          <Feather name={icon} size={20} color={material.accentStrong} />
           <Text
             style={{
               color: material.text,
-              fontSize: 12,
-              fontWeight: '500',
+              fontSize: 16,
+              lineHeight: 22,
+              fontWeight: '600',
               flexShrink: 1,
             }}
             numberOfLines={2}
