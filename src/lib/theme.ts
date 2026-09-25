@@ -154,10 +154,11 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **Frost matches a maps instruction chip:** a real backdrop blur under a thin white veil, a
- * hairline edge, and a soft shadow. The veil stays light so the blur is what you see — a heavy
- * fill paints a plate and hides the map. `GlassPanel` is the only blur mount. Android uses
- * `dimezisBlurView` so the frost is not a flat tint; intensity is static (not animated).
+ * **Frost is blur first, then a translucent white veil.** A heavy fill paints a plate. A veil
+ * that is too thin disappears under Android's blur, which samples the map and can look solid.
+ * The wash stays see-through (`fillTop` / `fillBottom`) so the strong blur underneath still
+ * reads as the map. `GlassPanel` is the only blur mount. Android uses `dimezisBlurView`.
+ * Intensity is static (not animated).
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
@@ -191,9 +192,9 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(255, 255, 255, 0.22)',
-  fillBottom: 'rgba(255, 255, 255, 0.12)',
-  blurIntensity: 72,
+  fillTop: 'rgba(255, 255, 255, 0.38)',
+  fillBottom: 'rgba(255, 255, 255, 0.28)',
+  blurIntensity: 100,
   hairline: 'rgba(255, 255, 255, 0.55)',
   shadow: { offsetY: 6, radius: 18, opacity: 0.16, color: '#000000' },
   text: '#111827',

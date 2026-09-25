@@ -3,6 +3,8 @@ export type NavManeuver = {
   modifier?: string;
   distanceMeters: number;
   name?: string;
+  /** OSRM roundabout exit, 1-based. Absent on ordinary turns. */
+  exit?: number;
 };
 
 export type NavProgress = {
@@ -91,21 +93,62 @@ export function formatArrivalClock(
   return `${hh}:${mm}`;
 }
 
-export function maneuverInstructionLabel(
+/** French ordinal for a roundabout exit: 1re, 2e, 3e. */
+export function frenchExitOrdinal(exit: number): string {
+  if (exit === 1) return '1re';
+  return `${exit}e`;
+}
+
+/**
+ * The action the driver reads first, without distance or street name.
+ * Slight and sharp modifiers are checked before a bare left/right.
+ */
+export function maneuverActionPhrase(
   type: string,
   modifier?: string,
+  exit?: number,
 ): string {
   const mod = (modifier || '').toLowerCase();
   const t = (type || '').toLowerCase();
-  if (t === 'arrive') return 'Arrivée';
+  if (t === 'arrive' || t === 'destination') return 'Vous êtes arrivé';
   if (t === 'depart') return 'Départ';
-  if (t === 'roundabout' || t === 'rotary') return 'Rond-point';
-  if (mod.includes('uturn') || mod.includes('u-turn')) return 'Demi-tour';
-  if (mod.includes('sharp left')) return 'À gauche';
-  if (mod.includes('sharp right')) return 'À droite';
-  if (mod.includes('slight left') || mod === 'left') return 'À gauche';
-  if (mod.includes('slight right') || mod === 'right') return 'À droite';
-  if (t === 'merge') return 'Insertion';
-  if (t === 'fork') return 'Bifurcation';
-  return 'Tout droit';
+  if (t === 'roundabout' || t === 'rotary') {
+    if (typeof exit === 'number' && exit >= 1) {
+      return `Prendre la ${frenchExitOrdinal(exit)} sortie`;
+    }
+    return 'Rond-point';
+  }
+  if (mod.includes('uturn') || mod.includes('u-turn')) return 'Faire demi-tour';
+  if (mod.includes('slight left')) return 'Tourner légèrement à gauche';
+  if (mod.includes('slight right')) return 'Tourner légèrement à droite';
+  if (mod.includes('sharp left')) return 'Tourner franchement à gauche';
+  if (mod.includes('sharp right')) return 'Tourner franchement à droite';
+  if (mod.includes('left')) return 'Tourner à gauche';
+  if (mod.includes('right')) return 'Tourner à droite';
+  if (t === 'merge') return "S'insérer";
+  if (t === 'fork') return 'Prendre la bifurcation';
+  return 'Continuer tout droit';
+}
+
+/**
+ * First line of the maneuver banner: the action, then the distance when it still matters.
+ * The street name is rendered on its own line by the HUD.
+ */
+export function maneuverBannerLine(
+  type: string,
+  modifier: string | undefined,
+  distanceMeters: number | null | undefined,
+  exit?: number,
+): string {
+  const action = maneuverActionPhrase(type, modifier, exit);
+  const arrived = action === 'Vous êtes arrivé';
+  if (
+    !arrived &&
+    typeof distanceMeters === 'number' &&
+    Number.isFinite(distanceMeters) &&
+    distanceMeters > 0
+  ) {
+    return `${action} dans ${formatRemainingDistance(distanceMeters)}`;
+  }
+  return action;
 }

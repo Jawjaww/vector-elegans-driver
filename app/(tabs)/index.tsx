@@ -1148,6 +1148,10 @@ export default function DashboardScreen() {
               modifier: nextManeuver.modifier ?? undefined,
               distanceMeters: nextManeuver.distanceMeters,
               name: nextManeuver.name,
+              exit:
+                typeof nextManeuver.exit === 'number'
+                  ? nextManeuver.exit
+                  : undefined,
             }
           : null,
       });

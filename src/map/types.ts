@@ -19,6 +19,8 @@ export type NavManeuverInfo = {
   modifier?: string | null;
   distanceMeters: number;
   name?: string;
+  /** 1-based roundabout exit from OSRM, when the step is a roundabout. */
+  exit?: number | null;
 };
 
 export interface MapProps {

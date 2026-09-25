@@ -67,6 +67,7 @@ function handleMapRouteInfoMessage(
         modifier?: string | null;
         distanceMeters?: number;
         name?: string;
+        exit?: number | null;
       }
     | null
     | undefined;
@@ -83,6 +84,7 @@ function handleMapRouteInfoMessage(
           modifier: next.modifier ?? null,
           distanceMeters: Number(next.distanceMeters) || 0,
           name: typeof next.name === 'string' ? next.name : '',
+          exit: typeof next.exit === 'number' ? next.exit : null,
         }
       : null,
     alongTrackMeters,
