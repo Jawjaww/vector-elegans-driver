@@ -124,20 +124,18 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('bevels the contour and lights the top and bottom corners only', () => {
+  it('draws a hairline frost, not a beveled plate', () => {
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('material.rimLight');
-    expect(code).toContain('material.rimShade');
-    expect(code).toContain('GLASS_PANEL_BEVEL_PX');
-    expect(code).toContain('cornerGlowTop');
-    expect(code).toContain('cornerGlowBottom');
-    expect(code).not.toContain('borderWidth');
-    const lit = rgbOf(GLASS_MATERIAL.rimLight);
-    const shade = rgbOf(GLASS_MATERIAL.rimShade);
-    expect(lit.r).toBe(255);
-    expect(shade.r).toBe(255);
-    expect(lit.a).toBeGreaterThan(shade.a);
-    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.15);
+    expect(code).toContain('material.hairline');
+    expect(code).toContain('borderWidth: StyleSheet.hairlineWidth');
+    expect(code).not.toContain('cornerGlowTop');
+    expect(code).not.toContain('rimLight');
+    expect(code).toContain('GLASS_PANEL_BEVEL_PX = 0');
+    const edge = rgbOf(GLASS_MATERIAL.hairline);
+    expect(edge.r).toBe(255);
+    expect(edge.a).toBeGreaterThan(0.3);
+    expect(edge.a).toBeLessThan(0.8);
+    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.22);
   });
 });
 
@@ -145,8 +143,8 @@ describe('the face of a panel', () => {
   it('frost the face with a neutral white veil, not a grey bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThanOrEqual(0.3);
-      expect(colour.a).toBeLessThanOrEqual(0.55);
+      expect(colour.a).toBeGreaterThanOrEqual(0.08);
+      expect(colour.a).toBeLessThanOrEqual(0.32);
       expect(colour.r).toBe(255);
       expect(colour.g).toBe(255);
       expect(colour.b).toBe(255);
@@ -159,7 +157,7 @@ describe('the face of a panel', () => {
     expect(code).toContain('material.fillTop');
     expect(code).toContain('material.fillBottom');
     expect(code).toContain('elevation: 0');
-    expect((code.match(/<LinearGradient\b/g) ?? []).length).toBe(4);
+    expect((code.match(/<LinearGradient\b/g) ?? []).length).toBe(1);
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
@@ -242,11 +240,11 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('keeps the face wash separate from the bevel and the corner glares', () => {
+  it('keeps the white wash over the blur, not a second plate', () => {
     const source = stripComments(readSource(GLASS_PANEL));
     expect(source).toContain('material.fillTop');
     expect(source).toContain('material.fillBottom');
-    expect(source).toContain('borderRadius: faceRadius');
+    expect(source).toContain('BlurView');
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -283,12 +281,9 @@ describe('one material, and the theme owns it', () => {
         'accentStrong',
         'blurIntensity',
         'chipTintAlpha',
-        'cornerGlowBottom',
-        'cornerGlowTop',
         'fillBottom',
         'fillTop',
-        'rimLight',
-        'rimShade',
+        'hairline',
         'shadow',
         'text',
         'textDim',
@@ -300,8 +295,9 @@ describe('one material, and the theme owns it', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
     expect(panel).toContain('expo-blur');
     expect(panel).toContain('material.blurIntensity');
-    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(30);
-    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(55);
+    expect(panel).toContain('dimezisBlurView');
+    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(55);
+    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(90);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
