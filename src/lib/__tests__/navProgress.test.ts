@@ -1,7 +1,8 @@
 import {
   formatArrivalClock,
   formatRemainingDistance,
-  maneuverInstructionLabel,
+  maneuverActionPhrase,
+  maneuverBannerLine,
   maneuverToFeatherIcon,
   optimisticEtaMinutes,
 } from '../utils/navProgress';
@@ -35,8 +36,27 @@ describe('navProgress', () => {
     expect(maneuverToFeatherIcon('arrive')).toBe('flag');
   });
 
-  it('maneuverInstructionLabel is French', () => {
-    expect(maneuverInstructionLabel('turn', 'left')).toBe('À gauche');
-    expect(maneuverInstructionLabel('arrive')).toBe('Arrivée');
+  it('maneuverBannerLine is a spoken French instruction', () => {
+    expect(maneuverBannerLine('turn', 'right', 60)).toBe(
+      'Tourner à droite dans 60 m',
+    );
+    expect(maneuverBannerLine('turn', 'slight left', 200)).toBe(
+      'Tourner légèrement à gauche dans 200 m',
+    );
+    expect(maneuverActionPhrase('continue', 'straight')).toBe(
+      'Continuer tout droit',
+    );
+    expect(maneuverBannerLine('arrive', undefined, 12)).toBe(
+      'Vous êtes arrivé',
+    );
+    expect(maneuverBannerLine('roundabout', undefined, 80, 2)).toBe(
+      'Prendre la 2e sortie dans 80 m',
+    );
+    expect(maneuverBannerLine('roundabout', undefined, 40, 1)).toBe(
+      'Prendre la 1re sortie dans 40 m',
+    );
+    expect(maneuverBannerLine('rotary', undefined, 30)).toBe(
+      'Rond-point dans 30 m',
+    );
   });
 });

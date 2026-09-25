@@ -143,8 +143,8 @@ describe('the face of a panel', () => {
   it('frost the face with a neutral white veil, not a grey bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThanOrEqual(0.08);
-      expect(colour.a).toBeLessThanOrEqual(0.32);
+      expect(colour.a).toBeGreaterThanOrEqual(0.22);
+      expect(colour.a).toBeLessThanOrEqual(0.5);
       expect(colour.r).toBe(255);
       expect(colour.g).toBe(255);
       expect(colour.b).toBe(255);
@@ -296,8 +296,8 @@ describe('one material, and the theme owns it', () => {
     expect(panel).toContain('expo-blur');
     expect(panel).toContain('material.blurIntensity');
     expect(panel).toContain('dimezisBlurView');
-    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(55);
-    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(90);
+    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(90);
+    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(100);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');

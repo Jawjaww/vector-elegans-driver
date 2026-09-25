@@ -16,6 +16,7 @@ export interface OSRMRoute {
       maneuver: {
         type: string;
         modifier?: string;
+        exit?: number;
         location: [number, number];
       };
     }>;

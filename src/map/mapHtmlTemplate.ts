@@ -912,6 +912,7 @@ export function buildMapHtmlTemplate(
           modifier: man.modifier || null,
           distanceMeters: Math.round(dist),
           name: step.name || "",
+          exit: typeof man.exit === "number" ? man.exit : null,
         };
       }
       const last = steps[steps.length - 1];
@@ -922,6 +923,7 @@ export function buildMapHtmlTemplate(
         modifier: man.modifier || null,
         distanceMeters: loc ? Math.round(haversineMeters(coords, loc)) : 0,
         name: (last && last.name) || "",
+        exit: typeof man.exit === "number" ? man.exit : null,
       };
     }
 
