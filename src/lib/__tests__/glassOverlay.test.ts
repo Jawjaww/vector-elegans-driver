@@ -132,23 +132,27 @@ describe('the edge of a panel', () => {
     expect(code).not.toContain('edgeGlow');
     const lit = rgbOf(GLASS_MATERIAL.rimLight);
     const shade = rgbOf(GLASS_MATERIAL.rimShade);
-    expect(lit.r + lit.g + lit.b).toBeGreaterThan(shade.r + shade.g + shade.b);
+    expect(lit.r).toBe(255);
+    expect(shade.r).toBe(255);
+    expect(lit.a).toBeGreaterThan(shade.a);
     expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.15);
   });
 });
 
 describe('the face of a panel', () => {
-  it('is the pale white veil of the reservation badge', () => {
-    // `bg-white/55` on the web, lifted because this screen has no blur. Still translucent, still
-    // white, still light once it sits on the map.
-    const fill = rgbOf(GLASS_MATERIAL.fill);
-    expect(fill.r).toBe(fill.g);
-    expect(fill.g).toBe(fill.b);
-    expect(fill.a).toBeGreaterThan(0.55);
-    expect(fill.a).toBeLessThan(0.9);
-    expect(overMap(GLASS_MATERIAL.fill)).toBeGreaterThan(680);
+  it('washes the face in a subtle grey, lighter at the top', () => {
+    for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
+      const colour = rgbOf(stop);
+      expect(colour.a).toBeGreaterThan(0.85);
+      expect(colour.b - colour.r).toBeLessThanOrEqual(16);
+      expect(overMap(stop)).toBeGreaterThan(620);
+    }
+    expect(lightness(GLASS_MATERIAL.fillTop)).toBeGreaterThan(
+      lightness(GLASS_MATERIAL.fillBottom),
+    );
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('backgroundColor: material.fill');
+    expect(code).toContain('material.fillTop');
+    expect(code).toContain('material.fillBottom');
     expect(code).toContain('elevation: 0');
   });
 
@@ -232,7 +236,7 @@ describe('one material, and the theme owns it', () => {
 
   it('paints one fill inside the bevel', () => {
     const source = readSource(GLASS_PANEL);
-    expect(source).toContain('backgroundColor: material.fill');
+    expect(source).toContain('material.fillTop');
     expect(source).toContain('borderRadius: faceRadius');
     expect(source).not.toMatch(/borderRadius:\s*\d/);
   });
@@ -270,7 +274,8 @@ describe('one material, and the theme owns it', () => {
         'accent',
         'accentStrong',
         'chipTintAlpha',
-        'fill',
+        'fillBottom',
+        'fillTop',
         'rimLight',
         'rimShade',
         'shadow',
