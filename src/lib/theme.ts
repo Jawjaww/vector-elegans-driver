@@ -173,11 +173,13 @@ export const VE_BLUE = {
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** The only fill. One colour, so the type never sits on a lighter rectangle. */
-  fill: string;
-  /** Lit edge of the bevel, and the one-point specular inside the top. */
+  /** Top of the grey wash. Lighter than `fillBottom`, still a grey. */
+  fillTop: string;
+  /** Bottom of the grey wash. One step darker, same alpha, full height of the card. */
+  fillBottom: string;
+  /** Bright white edge, the top of the bevel. */
   rimLight: string;
-  /** Shaded edge of the bevel, the bottom point only. */
+  /** White edge, dimmer, the bottom of the bevel. Still white, not a dark stroke. */
   rimShade: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
@@ -198,9 +200,10 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fill: 'rgba(255, 255, 255, 0.72)',
-  rimLight: 'rgba(255, 255, 255, 0.95)',
-  rimShade: 'rgba(15, 23, 42, 0.28)',
+  fillTop: 'rgba(248, 249, 251, 0.94)',
+  fillBottom: 'rgba(214, 218, 224, 0.94)',
+  rimLight: 'rgba(255, 255, 255, 1)',
+  rimShade: 'rgba(255, 255, 255, 0.45)',
   shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',

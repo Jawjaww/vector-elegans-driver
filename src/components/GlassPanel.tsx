@@ -12,17 +12,16 @@ type GlassPanelProps = Readonly<{
   style?: StyleProp<ViewStyle>;
 }>;
 
-/** Only this much of the bevel shows. The face covers the rest. */
-const RIM_PX = 1;
+/** The white bevel. Two points, so it reads on a pale map. The face covers the rest. */
+const RIM_PX = 2;
 
 /**
  * The panel every overlay above the map is drawn on.
  *
- * Liquid glass, built, not blurred. `expo-blur` paints a flat tint on Android and would be
- * recomputed every frame the map moves. The bevel is a vertical gradient that only a point of
- * shows — light along the top edge, dark along the bottom — because the face is inset by
- * `RIM_PX`. The face itself is one colour. A gradient across the face is what drew a white
- * rectangle behind the type.
+ * Liquid glass, built, not blurred. The face is a full-height grey wash, lighter at the top.
+ * The contour is white on every side and only brighter along the top, `RIM_PX` thick, because
+ * the face is inset by that much. A dark rim on a pale map disappears, and a one-point rim
+ * does too.
  *
  * Android `elevation` stays off: a translucent fill plus elevation composites as a second plate.
  */
@@ -59,11 +58,13 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
         }}
         pointerEvents="none"
       />
-      <View
+      <LinearGradient
+        colors={[material.fillTop, material.fillBottom]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
         style={{
           margin: RIM_PX,
           borderRadius: faceRadius,
-          backgroundColor: material.fill,
           overflow: 'hidden',
         }}
       >
@@ -79,7 +80,7 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           }}
         />
         {children}
-      </View>
+      </LinearGradient>
     </View>
   );
 }
