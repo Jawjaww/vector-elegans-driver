@@ -123,15 +123,16 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('uses the reservation badge rim: a white hairline, not a dark one', () => {
+  it('bevels the rim and keeps the specular to one point', () => {
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('borderColor: material.rim');
-    expect(code).not.toContain('LinearGradient');
+    expect(code).toContain('material.rimLight');
+    expect(code).toContain('material.rimShade');
+    expect(code).toContain('margin: RIM_PX');
+    expect(code).toContain('height: 1');
     expect(code).not.toContain('edgeGlow');
-    const rim = rgbOf(GLASS_MATERIAL.rim);
-    expect(rim.r).toBe(rim.g);
-    expect(rim.g).toBe(rim.b);
-    expect(rim.a).toBeGreaterThan(0.5);
+    const lit = rgbOf(GLASS_MATERIAL.rimLight);
+    const shade = rgbOf(GLASS_MATERIAL.rimShade);
+    expect(lit.r + lit.g + lit.b).toBeGreaterThan(shade.r + shade.g + shade.b);
     expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.15);
   });
 });
@@ -229,13 +230,11 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('paints one rounded fill and a white hairline', () => {
+  it('paints one fill inside the bevel', () => {
     const source = readSource(GLASS_PANEL);
     expect(source).toContain('backgroundColor: material.fill');
-    expect(source).toContain('borderColor: material.rim');
-    expect(source).toContain('borderRadius: radius');
+    expect(source).toContain('borderRadius: faceRadius');
     expect(source).not.toMatch(/borderRadius:\s*\d/);
-    expect(stripComments(source)).not.toContain('LinearGradient');
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -272,7 +271,8 @@ describe('one material, and the theme owns it', () => {
         'accentStrong',
         'chipTintAlpha',
         'fill',
-        'rim',
+        'rimLight',
+        'rimShade',
         'shadow',
         'text',
         'textDim',
