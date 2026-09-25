@@ -145,7 +145,8 @@ describe('the face of a panel', () => {
   it('washes the grey face in a barely visible step, not a bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThan(0.9);
+      expect(colour.a).toBeGreaterThanOrEqual(0.55);
+      expect(colour.a).toBeLessThanOrEqual(0.85);
       expect(colour.b - colour.r).toBeLessThanOrEqual(12);
       expect(overMap(stop)).toBeGreaterThan(680);
     }
@@ -286,6 +287,7 @@ describe('one material, and the theme owns it', () => {
       [
         'accent',
         'accentStrong',
+        'blurIntensity',
         'chipTintAlpha',
         'cornerGlowBottom',
         'cornerGlowTop',
@@ -300,12 +302,13 @@ describe('one material, and the theme owns it', () => {
     );
   });
 
-  it('never blurs, because the backdrop is a map that never stops moving', () => {
-    // `expo-blur` would re-capture its backdrop every frame the driver moves — and on Android it
-    // would not even blur: `BlurView` defaults to `BlurMethod.NONE`, which paints a flat tint.
-    // The frost is built from a translucent veil instead, so this is a performance decision that
-    // has to survive review, not an untried option.
-    for (const file of [GLASS_PANEL, ...GLASS_CONSUMERS]) {
+  it('blurs only inside the shared panel, lightly, and not in every overlay', () => {
+    const panel = stripComments(readSource(GLASS_PANEL));
+    expect(panel).toContain('expo-blur');
+    expect(panel).toContain('material.blurIntensity');
+    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(12);
+    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(40);
+    for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
       expect(code).not.toContain('BlurView');
