@@ -154,15 +154,12 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **The frost is faked, and that is the load-bearing decision.** `expo-blur` would have to
- * re-capture its backdrop, and the backdrop here is a map that never holds still — the blur would
- * be recomputed on every frame the driver moves, the single most expensive thing on this screen.
- * It is also not the sacrifice it sounds like: on Android `BlurView` defaults to
- * `BlurMethod.NONE` and paints a flat tint instead of blurring at all. A translucent neutral veil
- * gets most of the way there for none of the cost, because the map underneath is pale and busy
- * and flattening it *is* the effect. Measured on the guidance bar, roughly a quarter of the map's
- * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
- * a frosted pane occupies the range in between.
+ * **Frost = light blur plus a translucent veil, kept cheap.** Only `GlassPanel` mounts
+ * `expo-blur`, at a low `blurIntensity` — enough to soften the map, not a crisp backdrop filter.
+ * On Android the view falls back to a flat tint (`experimentalBlurMethod` default `none`), so
+ * most of the effect is the semi-transparent face letting the WebView map show through. iOS gets
+ * a soft native blur on top of that; intensity stays low so a moving map does not dominate the
+ * frame budget.
  *
  * **A flat grey face with a barely-there wash.** `fillTop` and `fillBottom` are one step apart so
  * the card reads as grey glass, not as a dome: a wide step reads as a bossed plate. The edge is a
@@ -202,11 +199,14 @@ export type GlassMaterial = {
   accentStrong: string;
   /** Bare alpha appended to an accent for a chip tint: `${accent}${chipTintAlpha}`. */
   chipTintAlpha: string;
+  /** `expo-blur` intensity (1–100). Kept low; Android treats this as a tint when blur is off. */
+  blurIntensity: number;
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(246, 247, 249, 0.96)',
-  fillBottom: 'rgba(236, 238, 242, 0.96)',
+  fillTop: 'rgba(246, 247, 249, 0.68)',
+  fillBottom: 'rgba(236, 238, 242, 0.64)',
+  blurIntensity: 22,
   rimLight: 'rgba(255, 255, 255, 1)',
   rimShade: 'rgba(255, 255, 255, 0.38)',
   cornerGlowTop: 'rgba(255, 255, 255, 0.52)',

@@ -1,4 +1,10 @@
-import { View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GLASS_MATERIAL } from '../lib/theme';
 
@@ -20,9 +26,9 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 /**
  * The panel every overlay above the map is drawn on.
  *
- * The face stays a flat grey wash. The contour is a separate bevel: a bright rim on top, a dimmer
- * one on the bottom, plus corner glares in the top and bottom corners only — never a band across
- * the type.
+ * The face is a light blur under a translucent grey wash so the map bleeds through. The contour
+ * is a separate bevel: bright rim on top, dimmer on the bottom, plus corner glares in two corners
+ * only — never a band across the type.
  *
  * Android `elevation` stays off: a translucent fill plus elevation composites as a second plate.
  */
@@ -67,6 +73,12 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
           overflow: 'hidden',
         }}
       >
+        <BlurView
+          intensity={material.blurIntensity}
+          tint="light"
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, { borderRadius: faceRadius }]}
+        />
         <LinearGradient
           colors={[material.fillTop, material.fillBottom]}
           start={{ x: 0.5, y: 0 }}
