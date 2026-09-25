@@ -123,35 +123,41 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('bounds a pale pane with a dark hairline and no white glow', () => {
-    // A white edge bar and a gradient lighter at the top both landed on the first line of type
-    // and read as a second rectangle. The rim is the only edge, and it is dark.
+  it('bevels the rim, light on top and dark underneath', () => {
+    // The contour is a full-height gradient inset by one point, so only the edge shows. A glow
+    // bar across the face is what painted a white rectangle behind the type.
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).not.toContain('LinearGradient');
+    expect(code).toContain('material.rimLight');
+    expect(code).toContain('material.rimShade');
+    expect(code).toContain('margin: RIM_PX');
     expect(code).not.toContain('edgeGlow');
     expect(code).not.toContain('edgeTop');
-    expect(code).not.toContain('edgeLeft');
-    const rim = rgbOf(GLASS_MATERIAL.rim);
-    expect(rim.r + rim.g + rim.b).toBeLessThan(200);
-    expect(rim.a).toBeLessThan(0.3);
-    expect(rim.a).toBeGreaterThan(0.05);
+    const lit = rgbOf(GLASS_MATERIAL.rimLight);
+    const shade = rgbOf(GLASS_MATERIAL.rimShade);
+    expect(lit.r + lit.g + lit.b).toBeGreaterThan(shade.r + shade.g + shade.b);
+    expect(shade.r + shade.g + shade.b).toBeLessThan(200);
     const shadow = rgbOf(GLASS_MATERIAL.shadow.color);
     expect(shadow.b).toBeGreaterThan(shadow.r);
   });
 });
 
 describe('the face of a panel', () => {
-  it('is one light fill, the same on every pixel', () => {
-    // A gradient lighter at the top is what the driver reads as a white band behind the first
-    // line. One colour, high enough alpha that the map does not print a second tone through it.
-    const fill = rgbOf(GLASS_MATERIAL.fill);
-    expect(fill.a).toBeGreaterThan(0.9);
-    expect(fill.a).toBeLessThan(1);
-    expect(overMap(GLASS_MATERIAL.fill)).toBeGreaterThan(680);
-    expect(fill.b).toBeGreaterThanOrEqual(fill.r);
-    expect(fill.b - fill.r).toBeLessThanOrEqual(22);
+  it('washes the face in a grey gradient, lighter at the top', () => {
+    // The notification card: one vertical grey, not a flat slab and not a white band. Both stops
+    // stay opaque enough that the map cannot print a second tone through the type.
+    for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
+      const colour = rgbOf(stop);
+      expect(colour.a).toBeGreaterThan(0.9);
+      expect(colour.b).toBeGreaterThanOrEqual(colour.r);
+      expect(colour.b - colour.r).toBeLessThanOrEqual(22);
+      expect(overMap(stop)).toBeGreaterThan(640);
+    }
+    expect(lightness(GLASS_MATERIAL.fillTop)).toBeGreaterThan(
+      lightness(GLASS_MATERIAL.fillBottom),
+    );
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('backgroundColor: material.fill');
+    expect(code).toContain('material.fillTop');
+    expect(code).toContain('material.fillBottom');
     expect(code).toContain('elevation: 0');
     expect(code).not.toContain('bodyBase');
   });
@@ -161,7 +167,7 @@ describe('the face of a panel', () => {
     expect(material.sheen).toBeUndefined();
     expect(material.body).toBeUndefined();
     expect(material.edgeGlow).toBeUndefined();
-    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('LinearGradient');
+    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('locations=');
   });
 
   it('spends its type on dark greys, because the face inverted', () => {
@@ -234,13 +240,13 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('paints one rounded fill and nothing over the type', () => {
+  it('paints the wash inside a one-point bevel', () => {
     const source = readSource(GLASS_PANEL);
-    expect(source).toContain('backgroundColor: material.fill');
-    expect(source).toContain('borderColor: material.rim');
+    expect(source).toContain('material.fillTop');
+    expect(source).toContain('material.rimLight');
     expect(source).toContain('borderRadius: radius');
+    expect(source).toContain('borderRadius: faceRadius');
     expect(source).not.toMatch(/borderRadius:\s*\d/);
-    expect(stripComments(source)).not.toContain('LinearGradient');
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -276,8 +282,10 @@ describe('one material, and the theme owns it', () => {
         'accent',
         'accentStrong',
         'chipTintAlpha',
-        'fill',
-        'rim',
+        'fillBottom',
+        'fillTop',
+        'rimLight',
+        'rimShade',
         'shadow',
         'text',
         'textDim',

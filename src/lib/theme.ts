@@ -164,30 +164,26 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * **One fill.** A gradient lighter at the top, a white edge glow, and a second plate under both
- * each read as a lighter rectangle behind the first line of type — the band reported on every
- * overlay. The face is a single neutral colour, opaque enough that the map tiles do not print a
- * second tone through it. The rim is a dark hairline: on a pale face a light outline vanishes.
+ * **A grey wash, and a bevel that is only the rim.** The face is a vertical grey gradient, lighter
+ * at the top — the notification card on HyperOS and on current iOS — opaque enough that the map
+ * does not print a second tone through it. The contour is a second gradient, white at the top
+ * edge and dark at the bottom, inset so only one point of it shows. That is the liquid-glass
+ * bevel. It is not a highlight band: a band peaks under the first line of type and reads as a
+ * white rectangle. These two gradients run the full height of the card.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /**
-   * The only fill. One colour, the same on every pixel of the card.
-   *
-   * High alpha on purpose: a pale map showing through a low alpha is what made the top of a short
-   * card read as a white band. Not fully opaque, so the pane still sits on the map rather than
-   * covering it.
-   */
-  fill: string;
-  /**
-   * Uniform hairline outline, and dark.
-   *
-   * The one thing that gives a pale pane an edge over pale map tiles.
-   */
-  rim: string;
+  /** Top of the grey wash. Lighter than `fillBottom`, still a grey, not white. */
+  fillTop: string;
+  /** Bottom of the grey wash. One step darker, same alpha, so the card has a top and a bottom. */
+  fillBottom: string;
+  /** Lit edge of the bevel, shown only as the top point of the rim. */
+  rimLight: string;
+  /** Shaded edge of the bevel, shown only as the bottom point of the rim. */
+  rimShade: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -207,8 +203,10 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fill: 'rgba(236, 239, 244, 0.94)',
-  rim: 'rgba(15, 23, 42, 0.16)',
+  fillTop: 'rgba(244, 245, 247, 0.96)',
+  fillBottom: 'rgba(210, 214, 220, 0.96)',
+  rimLight: 'rgba(255, 255, 255, 0.92)',
+  rimShade: 'rgba(15, 23, 42, 0.32)',
   shadow: { offsetY: 8, radius: 24, opacity: 0.18, color: VE_BLUE.shadow },
   text: '#111827',
   textDim: '#4b5563',
