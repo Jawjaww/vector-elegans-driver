@@ -306,8 +306,8 @@ describe('one material, and the theme owns it', () => {
     expect(map).toContain('paintFrost');
     expect(map).toContain('drawImage');
     expect(map).toContain('GLASS_MATERIAL.backdropBlurPx');
-    expect(GLASS_MATERIAL.backdropBlurPx).toBeGreaterThanOrEqual(16);
-    expect(GLASS_MATERIAL.backdropBlurPx).toBeLessThanOrEqual(32);
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeGreaterThanOrEqual(10);
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeLessThanOrEqual(18);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
