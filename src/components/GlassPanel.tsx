@@ -1,4 +1,5 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { GLASS_MATERIAL } from '../lib/theme';
 
 type GlassPanelProps = Readonly<{
@@ -11,28 +12,29 @@ type GlassPanelProps = Readonly<{
   style?: StyleProp<ViewStyle>;
 }>;
 
+/** Only this much of the bevel shows. The face covers the rest. */
+const RIM_PX = 1;
+
 /**
  * The panel every overlay above the map is drawn on.
  *
- * The same pill as the reservation map on the Next.js client: a pale white veil, a white
- * hairline, dark type, a soft shadow. `TripStatsBadge` can blur the map behind it; this screen
- * cannot — `expo-blur` paints a flat tint on Android and would be recomputed every frame the
- * driver moves — so the veil is a step more opaque than `bg-white/55` and still reads as glass.
+ * Liquid glass, built, not blurred. `expo-blur` paints a flat tint on Android and would be
+ * recomputed every frame the map moves. The bevel is a vertical gradient that only a point of
+ * shows — light along the top edge, dark along the bottom — because the face is inset by
+ * `RIM_PX`. The face itself is one colour. A gradient across the face is what drew a white
+ * rectangle behind the type.
  *
- * One fill. A second gradient over the type is what drew the white rectangle. Android
- * `elevation` stays off for the same reason.
+ * Android `elevation` stays off: a translucent fill plus elevation composites as a second plate.
  */
 export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   const material = GLASS_MATERIAL;
+  const faceRadius = Math.max(0, radius - RIM_PX);
 
   return (
     <View
       style={[
         {
           borderRadius: radius,
-          backgroundColor: material.fill,
-          borderWidth: 1,
-          borderColor: material.rim,
           overflow: 'hidden',
           shadowColor: material.shadow.color,
           shadowOffset: { width: 0, height: material.shadow.offsetY },
@@ -43,7 +45,41 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
         style,
       ]}
     >
-      {children}
+      <LinearGradient
+        colors={[material.rimLight, material.rimShade]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          borderRadius: radius,
+        }}
+        pointerEvents="none"
+      />
+      <View
+        style={{
+          margin: RIM_PX,
+          borderRadius: faceRadius,
+          backgroundColor: material.fill,
+          overflow: 'hidden',
+        }}
+      >
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 1,
+            backgroundColor: material.rimLight,
+          }}
+        />
+        {children}
+      </View>
     </View>
   );
 }

@@ -164,19 +164,21 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * **The reservation badge, without the blur.** `TripStatsBadge` on the Next.js map is
- * `bg-white/55`, `border-white/60`, dark type, a blue glyph, `shadow-black/10`. That is the
- * face here. The alpha is a step above 0.55 because this screen has no backdrop blur.
+ * **A bevel, not a second fill.** The face is one pale veil. The contour is a gradient that only
+ * the outer point shows: white on the top edge, dark on the bottom. A one-point specular sits on
+ * the inside of the top edge. Nothing else is painted over the type.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Pale white veil. More opaque than the web badge's 0.55, because there is no blur under it. */
+  /** The only fill. One colour, so the type never sits on a lighter rectangle. */
   fill: string;
-  /** White hairline, the same edge as `border-white/60` on the reservation badge. */
-  rim: string;
+  /** Lit edge of the bevel, and the one-point specular inside the top. */
+  rimLight: string;
+  /** Shaded edge of the bevel, the bottom point only. */
+  rimShade: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -196,8 +198,9 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fill: 'rgba(255, 255, 255, 0.78)',
-  rim: 'rgba(255, 255, 255, 0.70)',
+  fill: 'rgba(255, 255, 255, 0.72)',
+  rimLight: 'rgba(255, 255, 255, 0.95)',
+  rimShade: 'rgba(15, 23, 42, 0.28)',
   shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
