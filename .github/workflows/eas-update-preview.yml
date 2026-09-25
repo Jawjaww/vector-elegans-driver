@@ -38,4 +38,7 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: EAS Update (preview channel, local APK runtime)
+        env:
+          # Optional: same bytes as ./google-services.json on your machine (EAS file var is not in env:exec).
+          GOOGLE_SERVICES_JSON_CONTENT: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: ./scripts/eas-update-preview.sh "${{ github.event.workflow_run.head_sha }}"

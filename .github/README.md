@@ -11,6 +11,8 @@
 
 Add **`EXPO_TOKEN`** in GitHub → repo **Settings → Secrets and variables → Actions**.
 
+Add **`GOOGLE_SERVICES_JSON`** (optional but recommended): paste the **exact** contents of your local `google-services.json` so CI materializes it at the repo root before `eas update`, matching `./scripts/build-local-apk.sh` fingerprint. Without it, the job falls back to `eas env:pull preview` (file vars are not always exposed).
+
 Create token: https://expo.dev/accounts/jawjaww/settings/access-tokens (scope: at least **read/write** for EAS Update).
 
 Without this secret, CI passes but OTA job fails with `An Expo user account is required to proceed`.

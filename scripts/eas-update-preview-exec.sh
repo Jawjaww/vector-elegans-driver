@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Runs inside `eas env:exec preview` so EXPO_PUBLIC_* match the preview environment.
-# Copies the Firebase file to the repo root and points GOOGLE_SERVICES_JSON at it — same
-# layout as ./scripts/build-local-apk.sh, so the Android fingerprint matches local APKs.
 set -euo pipefail
 
 SHA="${1:?commit sha for OTA message}"
@@ -9,12 +6,15 @@ SHA="${1:?commit sha for OTA message}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -z "${GOOGLE_SERVICES_JSON:-}" || ! -f "${GOOGLE_SERVICES_JSON}" ]]; then
-  echo "GOOGLE_SERVICES_JSON is missing inside eas env:exec preview" >&2
-  exit 1
-fi
+"$ROOT/scripts/materialize-google-services-json.sh"
 
-cp "$GOOGLE_SERVICES_JSON" "$ROOT/google-services.json"
+ENV_FILE="$(mktemp)"
+trap 'rm -f "$ENV_FILE"' EXIT
+eas env:pull preview --non-interactive --path "$ENV_FILE"
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
 export GOOGLE_SERVICES_JSON="$ROOT/google-services.json"
 
 eas update \
