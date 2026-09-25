@@ -123,37 +123,32 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('bounds a pale pane with a dark hairline and no white glow', () => {
-    // A white edge bar and a gradient lighter at the top both landed on the first line of type
-    // and read as a second rectangle. The rim is the only edge, and it is dark.
+  it('uses the reservation badge rim: a white hairline, not a dark one', () => {
     const code = stripComments(readSource(GLASS_PANEL));
+    expect(code).toContain('borderColor: material.rim');
     expect(code).not.toContain('LinearGradient');
     expect(code).not.toContain('edgeGlow');
-    expect(code).not.toContain('edgeTop');
-    expect(code).not.toContain('edgeLeft');
     const rim = rgbOf(GLASS_MATERIAL.rim);
-    expect(rim.r + rim.g + rim.b).toBeLessThan(200);
-    expect(rim.a).toBeLessThan(0.3);
-    expect(rim.a).toBeGreaterThan(0.05);
-    const shadow = rgbOf(GLASS_MATERIAL.shadow.color);
-    expect(shadow.b).toBeGreaterThan(shadow.r);
+    expect(rim.r).toBe(rim.g);
+    expect(rim.g).toBe(rim.b);
+    expect(rim.a).toBeGreaterThan(0.5);
+    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.15);
   });
 });
 
 describe('the face of a panel', () => {
-  it('is one light fill, the same on every pixel', () => {
-    // A gradient lighter at the top is what the driver reads as a white band behind the first
-    // line. One colour, high enough alpha that the map does not print a second tone through it.
+  it('is the pale white veil of the reservation badge', () => {
+    // `bg-white/55` on the web, lifted because this screen has no blur. Still translucent, still
+    // white, still light once it sits on the map.
     const fill = rgbOf(GLASS_MATERIAL.fill);
-    expect(fill.a).toBeGreaterThan(0.9);
-    expect(fill.a).toBeLessThan(1);
+    expect(fill.r).toBe(fill.g);
+    expect(fill.g).toBe(fill.b);
+    expect(fill.a).toBeGreaterThan(0.55);
+    expect(fill.a).toBeLessThan(0.9);
     expect(overMap(GLASS_MATERIAL.fill)).toBeGreaterThan(680);
-    expect(fill.b).toBeGreaterThanOrEqual(fill.r);
-    expect(fill.b - fill.r).toBeLessThanOrEqual(22);
     const code = stripComments(readSource(GLASS_PANEL));
     expect(code).toContain('backgroundColor: material.fill');
     expect(code).toContain('elevation: 0');
-    expect(code).not.toContain('bodyBase');
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
@@ -161,7 +156,7 @@ describe('the face of a panel', () => {
     expect(material.sheen).toBeUndefined();
     expect(material.body).toBeUndefined();
     expect(material.edgeGlow).toBeUndefined();
-    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('LinearGradient');
+    expect(stripComments(readSource(GLASS_PANEL))).not.toContain('locations=');
   });
 
   it('spends its type on dark greys, because the face inverted', () => {
@@ -208,15 +203,15 @@ describe('the face of a panel', () => {
     }
   });
 
-  it('tints its chips from the panel accent, as a valid eight-digit colour', () => {
-    // The tint is assembled as `${accent}${chipTintAlpha}`, so a stray character here would not
-    // fail to compile — it would render transparent.
-    expect(GLASS_MATERIAL.chipTintAlpha).toBe(VE_BLUE.tintAlpha);
+  it('draws a bare glyph, the way the reservation badge does', () => {
+    // The badge is an icon and a line of type inside a pill. A tinted square behind the icon is
+    // a second panel, which is what these overlays used to be.
     expect(GLASS_MATERIAL.chipTintAlpha).toMatch(/^[0-9a-f]{2}$/);
-    for (const consumer of [GUIDANCE_BAR, MANEUVER_HUD]) {
-      expect(stripComments(readSource(consumer))).toContain(
-        'material.chipTintAlpha',
-      );
+    for (const consumer of [GUIDANCE_BAR, MANEUVER_HUD, ARRIVAL_HUD]) {
+      const code = stripComments(readSource(consumer));
+      expect(code).toMatch(/\b999\b/);
+      expect(code).toContain('size={14}');
+      expect(code).not.toContain('chipTintAlpha');
     }
   });
 });
@@ -234,7 +229,7 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('paints one rounded fill and nothing over the type', () => {
+  it('paints one rounded fill and a white hairline', () => {
     const source = readSource(GLASS_PANEL);
     expect(source).toContain('backgroundColor: material.fill');
     expect(source).toContain('borderColor: material.rim');
@@ -316,11 +311,11 @@ describe('the lane above the sheet', () => {
     // touches, so at rest it is painted straight across the sentence. These four numbers are the
     // whole geometry; if the lift ever drops out, the last assertion is what notices.
     const barTop = LANE_BASE_OFFSET + TRIP_GUIDANCE_BAR_HEIGHT;
-    const atRest = CONTROL_BASE_OFFSET + MAP_CONTROL_SIZE;
-    const lifted =
-      CONTROL_BASE_OFFSET + LIFT_OVER_INSTRUCTION + MAP_CONTROL_SIZE;
-    expect(atRest).toBeLessThan(barTop);
-    expect(lifted).toBeGreaterThanOrEqual(barTop);
+    const atRestTop = CONTROL_BASE_OFFSET + MAP_CONTROL_SIZE;
+    const liftedBottom = CONTROL_BASE_OFFSET + LIFT_OVER_INSTRUCTION;
+    expect(CONTROL_BASE_OFFSET).toBeLessThan(barTop);
+    expect(atRestTop).toBeGreaterThan(LANE_BASE_OFFSET);
+    expect(liftedBottom).toBeGreaterThanOrEqual(barTop);
 
     // And both controls in the lane move on that one figure rather than each carrying its own.
     for (const file of [ARRIVAL_HUD, RECENTER_BUTTON]) {

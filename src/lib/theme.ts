@@ -164,29 +164,18 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * **One fill.** A gradient lighter at the top, a white edge glow, and a second plate under both
- * each read as a lighter rectangle behind the first line of type — the band reported on every
- * overlay. The face is a single neutral colour, opaque enough that the map tiles do not print a
- * second tone through it. The rim is a dark hairline: on a pale face a light outline vanishes.
+ * **The reservation badge, without the blur.** `TripStatsBadge` on the Next.js map is
+ * `bg-white/55`, `border-white/60`, dark type, a blue glyph, `shadow-black/10`. That is the
+ * face here. The alpha is a step above 0.55 because this screen has no backdrop blur.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /**
-   * The only fill. One colour, the same on every pixel of the card.
-   *
-   * High alpha on purpose: a pale map showing through a low alpha is what made the top of a short
-   * card read as a white band. Not fully opaque, so the pane still sits on the map rather than
-   * covering it.
-   */
+  /** Pale white veil. More opaque than the web badge's 0.55, because there is no blur under it. */
   fill: string;
-  /**
-   * Uniform hairline outline, and dark.
-   *
-   * The one thing that gives a pale pane an edge over pale map tiles.
-   */
+  /** White hairline, the same edge as `border-white/60` on the reservation badge. */
   rim: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
@@ -207,9 +196,9 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fill: 'rgba(236, 239, 244, 0.94)',
-  rim: 'rgba(15, 23, 42, 0.16)',
-  shadow: { offsetY: 8, radius: 24, opacity: 0.18, color: VE_BLUE.shadow },
+  fill: 'rgba(255, 255, 255, 0.78)',
+  rim: 'rgba(255, 255, 255, 0.70)',
+  shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
   accent: VE_BLUE.base,

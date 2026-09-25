@@ -14,13 +14,13 @@ type GlassPanelProps = Readonly<{
 /**
  * The panel every overlay above the map is drawn on.
  *
- * One fill, one rim. A diagonal gradient, a white edge glow and a second translucent plate under
- * them each painted a lighter rectangle across the type: on a short bar the light stop lands on
- * the first line, which is the band drivers kept reporting. Android `elevation` on a translucent
- * view does the same thing, so the shadow is iOS-only.
+ * The same pill as the reservation map on the Next.js client: a pale white veil, a white
+ * hairline, dark type, a soft shadow. `TripStatsBadge` can blur the map behind it; this screen
+ * cannot — `expo-blur` paints a flat tint on Android and would be recomputed every frame the
+ * driver moves — so the veil is a step more opaque than `bg-white/55` and still reads as glass.
  *
- * `expo-blur` stays out. On Android it defaults to `BlurMethod.NONE` and paints a flat tint, and
- * over a map that never holds still a real blur would be recomputed every frame.
+ * One fill. A second gradient over the type is what drew the white rectangle. Android
+ * `elevation` stays off for the same reason.
  */
 export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   const material = GLASS_MATERIAL;
