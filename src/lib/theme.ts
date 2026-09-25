@@ -164,26 +164,19 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * **A grey wash, and a bevel that is only the rim.** The face is a vertical grey gradient, lighter
- * at the top — the notification card on HyperOS and on current iOS — opaque enough that the map
- * does not print a second tone through it. The contour is a second gradient, white at the top
- * edge and dark at the bottom, inset so only one point of it shows. That is the liquid-glass
- * bevel. It is not a highlight band: a band peaks under the first line of type and reads as a
- * white rectangle. These two gradients run the full height of the card.
+ * **The reservation badge, without the blur.** `TripStatsBadge` on the Next.js map is
+ * `bg-white/55`, `border-white/60`, dark type, a blue glyph, `shadow-black/10`. That is the
+ * face here. The alpha is a step above 0.55 because this screen has no backdrop blur.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Top of the grey wash. Lighter than `fillBottom`, still a grey, not white. */
-  fillTop: string;
-  /** Bottom of the grey wash. One step darker, same alpha, so the card has a top and a bottom. */
-  fillBottom: string;
-  /** Lit edge of the bevel, shown only as the top point of the rim. */
-  rimLight: string;
-  /** Shaded edge of the bevel, shown only as the bottom point of the rim. */
-  rimShade: string;
+  /** Pale white veil. More opaque than the web badge's 0.55, because there is no blur under it. */
+  fill: string;
+  /** White hairline, the same edge as `border-white/60` on the reservation badge. */
+  rim: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -203,11 +196,9 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(244, 245, 247, 0.96)',
-  fillBottom: 'rgba(210, 214, 220, 0.96)',
-  rimLight: 'rgba(255, 255, 255, 0.92)',
-  rimShade: 'rgba(15, 23, 42, 0.32)',
-  shadow: { offsetY: 8, radius: 24, opacity: 0.18, color: VE_BLUE.shadow },
+  fill: 'rgba(255, 255, 255, 0.78)',
+  rim: 'rgba(255, 255, 255, 0.70)',
+  shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
   accent: VE_BLUE.base,

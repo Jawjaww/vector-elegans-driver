@@ -1,4 +1,5 @@
 import { View, Text, Animated, Easing } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import {
   formatArrivalClock,
@@ -12,7 +13,6 @@ import {
   LIFT_OVER_INSTRUCTION,
 } from '../lib/utils/overlayLane';
 import { GlassPanel } from './GlassPanel';
-import { MAP_PALETTE } from '../lib/mapPalette';
 import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
@@ -94,35 +94,30 @@ export function TripArrivalHud({
       {/* Self-sizing rather than stretched: this chip is the short one, and a full-width pill
           would claim the same visual weight as the instruction bar under it. */}
       <GlassPanel radius={999}>
-        <View className="flex-row items-baseline gap-2 px-3.5 py-2">
+        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
+          <Feather name="navigation" size={14} color={material.accentStrong} />
           <Text
             style={{
               color: material.text,
-              fontSize: 17,
-              fontWeight: '800',
+              fontSize: 12,
+              fontWeight: '500',
               fontVariant: ['tabular-nums'],
-              letterSpacing: 0.3,
             }}
           >
-            {clock}
+            {formatRemainingDistance(progress.distanceMeters)}
           </Text>
-          <Text
-            style={{
-              color: material.textDim,
-              fontSize: 13,
-              fontWeight: '600',
-            }}
-          >
+          <Text style={{ color: material.textDim, fontSize: 12, fontWeight: '500' }}>
             ·
           </Text>
           <Text
             style={{
-              color: MAP_PALETTE.arrival,
-              fontSize: 13,
-              fontWeight: '700',
+              color: material.text,
+              fontSize: 12,
+              fontWeight: '500',
+              fontVariant: ['tabular-nums'],
             }}
           >
-            {formatRemainingDistance(progress.distanceMeters)}
+            {clock}
           </Text>
         </View>
       </GlassPanel>

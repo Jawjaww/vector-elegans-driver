@@ -123,43 +123,32 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('bevels the rim, light on top and dark underneath', () => {
-    // The contour is a full-height gradient inset by one point, so only the edge shows. A glow
-    // bar across the face is what painted a white rectangle behind the type.
+  it('uses the reservation badge rim: a white hairline, not a dark one', () => {
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('material.rimLight');
-    expect(code).toContain('material.rimShade');
-    expect(code).toContain('margin: RIM_PX');
+    expect(code).toContain('borderColor: material.rim');
+    expect(code).not.toContain('LinearGradient');
     expect(code).not.toContain('edgeGlow');
-    expect(code).not.toContain('edgeTop');
-    const lit = rgbOf(GLASS_MATERIAL.rimLight);
-    const shade = rgbOf(GLASS_MATERIAL.rimShade);
-    expect(lit.r + lit.g + lit.b).toBeGreaterThan(shade.r + shade.g + shade.b);
-    expect(shade.r + shade.g + shade.b).toBeLessThan(200);
-    const shadow = rgbOf(GLASS_MATERIAL.shadow.color);
-    expect(shadow.b).toBeGreaterThan(shadow.r);
+    const rim = rgbOf(GLASS_MATERIAL.rim);
+    expect(rim.r).toBe(rim.g);
+    expect(rim.g).toBe(rim.b);
+    expect(rim.a).toBeGreaterThan(0.5);
+    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.15);
   });
 });
 
 describe('the face of a panel', () => {
-  it('washes the face in a grey gradient, lighter at the top', () => {
-    // The notification card: one vertical grey, not a flat slab and not a white band. Both stops
-    // stay opaque enough that the map cannot print a second tone through the type.
-    for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
-      const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThan(0.9);
-      expect(colour.b).toBeGreaterThanOrEqual(colour.r);
-      expect(colour.b - colour.r).toBeLessThanOrEqual(22);
-      expect(overMap(stop)).toBeGreaterThan(640);
-    }
-    expect(lightness(GLASS_MATERIAL.fillTop)).toBeGreaterThan(
-      lightness(GLASS_MATERIAL.fillBottom),
-    );
+  it('is the pale white veil of the reservation badge', () => {
+    // `bg-white/55` on the web, lifted because this screen has no blur. Still translucent, still
+    // white, still light once it sits on the map.
+    const fill = rgbOf(GLASS_MATERIAL.fill);
+    expect(fill.r).toBe(fill.g);
+    expect(fill.g).toBe(fill.b);
+    expect(fill.a).toBeGreaterThan(0.55);
+    expect(fill.a).toBeLessThan(0.9);
+    expect(overMap(GLASS_MATERIAL.fill)).toBeGreaterThan(680);
     const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('material.fillTop');
-    expect(code).toContain('material.fillBottom');
+    expect(code).toContain('backgroundColor: material.fill');
     expect(code).toContain('elevation: 0');
-    expect(code).not.toContain('bodyBase');
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
@@ -240,13 +229,13 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('paints the wash inside a one-point bevel', () => {
+  it('paints one rounded fill and a white hairline', () => {
     const source = readSource(GLASS_PANEL);
-    expect(source).toContain('material.fillTop');
-    expect(source).toContain('material.rimLight');
+    expect(source).toContain('backgroundColor: material.fill');
+    expect(source).toContain('borderColor: material.rim');
     expect(source).toContain('borderRadius: radius');
-    expect(source).toContain('borderRadius: faceRadius');
     expect(source).not.toMatch(/borderRadius:\s*\d/);
+    expect(stripComments(source)).not.toContain('LinearGradient');
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -282,10 +271,8 @@ describe('one material, and the theme owns it', () => {
         'accent',
         'accentStrong',
         'chipTintAlpha',
-        'fillBottom',
-        'fillTop',
-        'rimLight',
-        'rimShade',
+        'fill',
+        'rim',
         'shadow',
         'text',
         'textDim',
