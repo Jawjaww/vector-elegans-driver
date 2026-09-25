@@ -6,10 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../src/lib/supabase';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  OtaUpdatePanel,
-  useOtaMenuDetail,
-} from '../../src/components/OtaUpdatePanel';
+import { useOtaMenuDetail } from '../../src/components/OtaUpdatePanel';
+import { ProfileSheetModal } from '../../src/components/ProfileSheetModal';
 import { DossierSystemTestRunner } from '../../src/components/DossierSystemTestRunner';
 import { DriverAvatar } from '../../src/components/DriverAvatar';
 import { resolveAvatarPreviewUrl } from '../../src/lib/avatarPreview';
@@ -45,7 +43,6 @@ export default function ProfileScreen() {
   const { t } = useTranslation();
   const otaMenuDetail = useOtaMenuDetail();
   const [showTestRunner, setShowTestRunner] = useState(false);
-  const [showOtaPanel, setShowOtaPanel] = useState(false);
   const [profile, setProfile] = useState<ProfileCard>({
     displayName: 'Driver',
     email: '',
@@ -164,7 +161,7 @@ export default function ProfileScreen() {
       icon: 'download-cloud',
       label: t('profile.updates.menu'),
       detail: otaMenuDetail,
-      action: () => setShowOtaPanel(true),
+      action: () => router.push('/updates'),
     },
     ...(offerSoundSupported
       ? [
@@ -300,41 +297,14 @@ export default function ProfileScreen() {
         </Pressable>
       </ScrollView>
 
-      {showOtaPanel && (
-        <View className="absolute inset-0 bg-black/80 z-50">
-          <View className="flex-1 bg-gray-900/95 m-4 rounded-2xl overflow-hidden">
-            <View className="flex-row items-center justify-between p-4 border-b border-white/10">
-              <Text className="text-white text-lg font-bold">
-                {t('profile.updates.title')}
-              </Text>
-              <Pressable onPress={() => setShowOtaPanel(false)}>
-                <Feather name="x" size={24} color="white" />
-              </Pressable>
-            </View>
-            <ScrollView className="flex-1">
-              <OtaUpdatePanel />
-            </ScrollView>
-          </View>
-        </View>
-      )}
-
-      {showTestRunner && (
-        <View className="absolute inset-0 bg-black/80 z-50">
-          <View className="flex-1 bg-gray-900/95 m-4 rounded-2xl overflow-hidden">
-            <View className="flex-row items-center justify-between p-4 border-b border-white/10">
-              <Text className="text-white text-lg font-bold">
-                Test Runner - Système de Dossiers
-              </Text>
-              <Pressable onPress={() => setShowTestRunner(false)}>
-                <Feather name="x" size={24} color="white" />
-              </Pressable>
-            </View>
-            <ScrollView className="flex-1">
-              <DossierSystemTestRunner />
-            </ScrollView>
-          </View>
-        </View>
-      )}
+      {showTestRunner ? (
+        <ProfileSheetModal
+          title="Test Runner"
+          onClose={() => setShowTestRunner(false)}
+        >
+          <DossierSystemTestRunner />
+        </ProfileSheetModal>
+      ) : null}
     </View>
   );
 }

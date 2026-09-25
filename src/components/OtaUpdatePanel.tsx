@@ -2,14 +2,16 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   Text,
   View,
+  type ViewStyle,
 } from 'react-native';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
+import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 
+import { ElegantButton } from './ElegantButton';
 import {
   runOtaCheck,
   runOtaFetch,
@@ -21,8 +23,32 @@ import {
   type OtaUiPhase,
 } from '../lib/updates/otaUpdateStatus';
 
+const CHROME_CARD: ViewStyle = {
+  backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  borderWidth: 1,
+  borderColor: 'rgba(255, 255, 255, 0.05)',
+};
+
 function phaseMessageKey(phase: OtaUiPhase): string {
   return `profile.updates.phase.${phase}`;
+}
+
+function phaseIcon(phase: OtaUiPhase): keyof typeof Feather.glyphMap {
+  switch (phase) {
+    case 'checking':
+    case 'downloading':
+      return 'refresh-cw';
+    case 'available':
+      return 'download-cloud';
+    case 'pending':
+      return 'check-circle';
+    case 'error':
+      return 'alert-circle';
+    case 'disabled':
+      return 'slash';
+    default:
+      return 'cloud';
+  }
 }
 
 export function useOtaMenuDetail(): string | undefined {
@@ -75,18 +101,21 @@ export function OtaUpdatePanel() {
     : t('profile.updates.bundleOta');
 
   const lastCheckLabel = useMemo(() => {
-    if (!lastCheckForUpdateTimeSinceRestart) return t('profile.updates.lastCheckNever');
+    if (!lastCheckForUpdateTimeSinceRestart) {
+      return t('profile.updates.lastCheckNever');
+    }
     return lastCheckForUpdateTimeSinceRestart.toLocaleString();
   }, [lastCheckForUpdateTimeSinceRestart, t]);
 
   const showUpToDate =
     upToDateAfterCheck && phase === 'idle' && !isUpdateAvailable;
 
+  const statusMessage = showUpToDate
+    ? t('profile.updates.phase.upToDate')
+    : t(phaseMessageKey(phase));
+
   const errorText =
-    actionError ??
-    checkError?.message ??
-    downloadError?.message ??
-    null;
+    actionError ?? checkError?.message ?? downloadError?.message ?? null;
 
   const handleCheck = useCallback(async () => {
     setActionError(null);
@@ -142,84 +171,115 @@ export function OtaUpdatePanel() {
   }, [t]);
 
   const busy = isChecking || isDownloading || isRestarting;
+  const iconName = showUpToDate ? 'check-circle' : phaseIcon(phase);
+  const iconColor =
+    phase === 'error' ? '#f87171' : showUpToDate ? '#34d399' : '#94a3b8';
 
   return (
-    <View className="p-4 gap-5">
-      <View className="rounded-2xl border border-white/10 bg-white/5 p-4 gap-3">
-        <Text className="text-white font-semibold text-base">
-          {t('profile.updates.statusHeading')}
-        </Text>
-        <View className="flex-row items-center gap-2">
-          {busy ? <ActivityIndicator color="#94a3b8" /> : null}
-          <Text className="text-slate-300 text-sm flex-1">
-            {showUpToDate
-              ? t('profile.updates.phase.upToDate')
-              : t(phaseMessageKey(phase))}
+    <View className="gap-6">
+      <View className="overflow-hidden rounded-2xl" style={CHROME_CARD}>
+        <View className="p-6">
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              {t('profile.updates.statusHeading')}
+            </Text>
+            {busy ? (
+              <ActivityIndicator color="#10b981" size="small" />
+            ) : (
+              <Feather name={iconName} size={18} color={iconColor} />
+            )}
+          </View>
+          <Text className="text-base font-semibold leading-snug text-white">
+            {statusMessage}
           </Text>
+          {phase === 'downloading' && typeof downloadProgress === 'number' ? (
+            <View className="mt-4">
+              <View className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <View
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.round(downloadProgress * 100)}%` }}
+                />
+              </View>
+              <Text className="mt-2 text-xs font-medium text-slate-500">
+                {t('profile.updates.downloadProgress', {
+                  percent: Math.round(downloadProgress * 100),
+                })}
+              </Text>
+            </View>
+          ) : null}
+          {errorText ? (
+            <Text className="mt-3 text-xs font-medium text-red-400">{errorText}</Text>
+          ) : null}
         </View>
-        {phase === 'downloading' &&
-        typeof downloadProgress === 'number' ? (
-          <Text className="text-slate-500 text-xs">
-            {t('profile.updates.downloadProgress', {
-              percent: Math.round(downloadProgress * 100),
-            })}
-          </Text>
-        ) : null}
-        {errorText && phase === 'error' ? (
-          <Text className="text-red-400 text-xs">{errorText}</Text>
-        ) : null}
-        {actionError && phase !== 'error' ? (
-          <Text className="text-red-400 text-xs">{actionError}</Text>
-        ) : null}
       </View>
 
-      <View className="rounded-2xl border border-white/10 bg-white/5 p-4 gap-2">
-        <Text className="text-white font-semibold text-base mb-1">
-          {t('profile.updates.buildHeading')}
-        </Text>
-        <InfoRow label={t('profile.updates.channel')} value={currentlyRunning.channel ?? '—'} />
-        <InfoRow
-          label={t('profile.updates.updateId')}
-          value={formatUpdateId(currentlyRunning.updateId)}
-        />
-        <InfoRow
-          label={t('profile.updates.runtimeVersion')}
-          value={currentlyRunning.runtimeVersion ?? '—'}
-        />
-        <InfoRow label={t('profile.updates.bundleType')} value={bundleLabel} />
-        <InfoRow
-          label={t('profile.updates.appVersion')}
-          value={`${appVersion} (${versionCode})`}
-        />
-        <InfoRow label={t('profile.updates.lastCheck')} value={lastCheckLabel} />
+      <View className="overflow-hidden rounded-2xl" style={CHROME_CARD}>
+        <View className="p-6">
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              {t('profile.updates.buildHeading')}
+            </Text>
+            <Feather name="cpu" size={16} color="#94a3b8" />
+          </View>
+          <InfoRow
+            label={t('profile.updates.channel')}
+            value={currentlyRunning.channel ?? '—'}
+          />
+          <InfoRow
+            label={t('profile.updates.updateId')}
+            value={formatUpdateId(currentlyRunning.updateId)}
+            mono
+          />
+          <InfoRow
+            label={t('profile.updates.runtimeVersion')}
+            value={currentlyRunning.runtimeVersion ?? '—'}
+            mono
+          />
+          <InfoRow label={t('profile.updates.bundleType')} value={bundleLabel} />
+          <InfoRow
+            label={t('profile.updates.appVersion')}
+            value={`${appVersion} (${versionCode})`}
+          />
+          <InfoRow label={t('profile.updates.lastCheck')} value={lastCheckLabel} />
+        </View>
       </View>
 
       <View className="gap-3">
-        <ActionButton
-          label={t('profile.updates.checkButton')}
+        <ElegantButton
+          title={t('profile.updates.checkButton')}
+          variant="outline"
+          size="large"
           onPress={() => void handleCheck()}
           disabled={!isEnabled || busy}
+          loading={isChecking}
+          className="w-full"
         />
         {isUpdateAvailable && !isUpdatePending ? (
-          <ActionButton
-            label={t('profile.updates.downloadButton')}
+          <ElegantButton
+            title={t('profile.updates.downloadButton')}
+            variant="primary"
+            size="large"
             onPress={() => void handleDownload()}
             disabled={!isEnabled || busy}
-            primary
+            loading={isDownloading}
+            className="w-full"
           />
         ) : null}
         {isUpdatePending ? (
-          <ActionButton
-            label={t('profile.updates.reloadButton')}
+          <ElegantButton
+            title={t('profile.updates.reloadButton')}
+            variant="primary"
+            size="large"
             onPress={handleReloadPress}
             disabled={!isEnabled || busy}
-            primary
+            loading={isRestarting}
+            className="w-full"
           />
         ) : null}
       </View>
 
       {!isEnabled ? (
-        <Text className="text-slate-500 text-xs text-center px-2">
+        <Text className="text-center text-xs leading-relaxed text-slate-500 px-1">
           {t('profile.updates.devHint')}
         </Text>
       ) : null}
@@ -230,42 +290,19 @@ export function OtaUpdatePanel() {
 function InfoRow({
   label,
   value,
-}: Readonly<{ label: string; value: string }>) {
+  mono,
+}: Readonly<{ label: string; value: string; mono?: boolean }>) {
   return (
-    <View className="flex-row justify-between gap-4 py-1">
-      <Text className="text-slate-500 text-sm shrink-0">{label}</Text>
+    <View className="flex-row justify-between gap-4 border-b border-white/5 py-3 last:border-b-0 last:pb-0">
+      <Text className="shrink-0 text-xs font-bold uppercase tracking-wide text-slate-500">
+        {label}
+      </Text>
       <Text
-        className="text-slate-200 text-sm font-medium text-right flex-1"
+        className={`flex-1 text-right text-sm font-semibold text-white ${mono ? 'font-mono text-xs' : ''}`}
         selectable
       >
         {value}
       </Text>
     </View>
-  );
-}
-
-function ActionButton({
-  label,
-  onPress,
-  disabled,
-  primary,
-}: Readonly<{
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  primary?: boolean;
-}>) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      className={`rounded-xl py-3.5 items-center border ${
-        primary
-          ? 'bg-blue-600 border-blue-500'
-          : 'bg-white/10 border-white/15'
-      } ${disabled ? 'opacity-40' : 'active:opacity-80'}`}
-    >
-      <Text className="text-white font-bold text-sm">{label}</Text>
-    </Pressable>
   );
 }
