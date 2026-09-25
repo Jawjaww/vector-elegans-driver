@@ -11,7 +11,7 @@
 
 Add **`EXPO_TOKEN`** in GitHub → repo **Settings → Secrets and variables → Actions**.
 
-Add **`GOOGLE_SERVICES_JSON`** (optional but recommended): paste the **exact** contents of your local `google-services.json` so CI materializes it at the repo root before `eas update`, matching `./scripts/build-local-apk.sh` fingerprint. Without it, the job falls back to `eas env:pull preview` (file vars are not always exposed).
+Add **`GOOGLE_SERVICES_JSON`** as a secret on the GitHub Environment **`GOOGLE_SERVICES_JSON`** (the OTA job sets `environment:` to that name). Paste the exact contents of local `google-services.json`. Without it, the job falls back to `eas update --environment preview` (cloud runtime only). Leave required reviewers and the wait timer off unless you want every OTA to pause.
 
 Create token: https://expo.dev/accounts/jawjaww/settings/access-tokens (scope: at least **read/write** for EAS Update).
 
