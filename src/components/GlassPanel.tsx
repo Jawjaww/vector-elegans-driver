@@ -1,16 +1,15 @@
+import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import {
-  Platform,
   StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { GLASS_MATERIAL } from '../lib/theme';
+import { clearFrostRect, publishFrostRect } from '../map/frostRects';
 
 type GlassPanelProps = Readonly<{
-  children?: React.ReactNode;
+  children?: ReactNode;
   /**
    * Corner radius. A prop rather than a utility class: callers pass a card radius or a circle,
    * and a static class cannot express a value the caller chooses.
@@ -27,21 +26,38 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 /**
  * The panel every overlay above the map is drawn on.
  *
- * A maps-style frost: backdrop blur, a thin white wash, a hairline, and a soft shadow.
- * No bevel and no corner glare — those read as a plate and hide the map.
+ * The view itself is clear. The frost (a blurred copy of the map, then a thin white wash)
+ * is painted in the map document, aligned to this frame. A native blur samples the window
+ * behind the WebView and then covers it with an opaque tint, so the map never shows through.
  *
- * Android `elevation` stays off: a translucent fill plus elevation composites as a second plate.
- * `dimezisBlurView` is required or Android paints a flat tint instead of blurring.
+ * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */
 export function GlassPanel({ children, radius, style }: GlassPanelProps) {
+  const id = useId();
+  const ref = useRef<View>(null);
   const material = GLASS_MATERIAL;
+
+  const report = useCallback(() => {
+    ref.current?.measureInWindow((x, y, width, height) => {
+      if (width <= 0 || height <= 0) return;
+      publishFrostRect({ id, x, y, width, height, radius });
+    });
+  }, [id, radius]);
+
+  useEffect(() => {
+    report();
+    return () => clearFrostRect(id);
+  }, [id, report]);
 
   return (
     <View
+      ref={ref}
+      onLayout={report}
       style={[
         {
           borderRadius: radius,
           overflow: 'hidden',
+          backgroundColor: 'transparent',
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: material.hairline,
           shadowColor: material.shadow.color,
@@ -53,23 +69,7 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
         style,
       ]}
     >
-      <BlurView
-        intensity={material.blurIntensity}
-        tint="light"
-        experimentalBlurMethod={
-          Platform.OS === 'android' ? 'dimezisBlurView' : undefined
-        }
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
-      />
-      <LinearGradient
-        colors={[material.fillTop, material.fillBottom]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={{ borderRadius: radius }}
-      >
-        {children}
-      </LinearGradient>
+      {children}
     </View>
   );
 }

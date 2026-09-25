@@ -1,6 +1,7 @@
 import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
+import { GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
@@ -51,6 +52,16 @@ export function buildMapHtmlTemplate(
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #map { width: 100%; height: 100%; overflow: hidden; background-color: #e8eef4; }
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    /* Frost cards. The blur is a copy of the map canvas; the veil sits on that copy. */
+    #ve-frost {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 4;
+    }
     #map canvas { background-color: #e8eef4; }
 
     /* Hide noisy OpenMapTiles / OSM chrome under address overlays */
@@ -113,6 +124,7 @@ export function buildMapHtmlTemplate(
 </head>
 <body>
   <div id="map"></div>
+  <div id="ve-frost"></div>
   <div id="debug-overlay"></div>
   <script>
     // --- Performance tracing (debug mode) ---
@@ -204,6 +216,8 @@ export function buildMapHtmlTemplate(
     // Keep canvas sized if the RN WebView layout settles late
     setTimeout(() => { try { map.resize(); } catch (_) {} }, 250);
     setTimeout(() => { try { map.resize(); } catch (_) {} }, 1000);
+
+    window.__veMap = map;
 
     perfMeasure('init');
 
@@ -513,6 +527,123 @@ export function buildMapHtmlTemplate(
       });
     });
 
+    // Cards above the map. Native blur cannot sample this WebView, so each card is a
+    // blurred copy of the canvas plus a thin white wash. The RN panel stays clear.
+    const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
+    const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
+
+    function frostCard(root, id) {
+      const nodes = root.children;
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].getAttribute("data-frost") === id) return nodes[i];
+      }
+      return null;
+    }
+
+    function applyFrost(rects) {
+      const root = document.getElementById("ve-frost");
+      if (!root) return;
+      const next = Array.isArray(rects) ? rects : [];
+      window.__veFrostRects = next;
+      const keep = {};
+      for (let i = 0; i < next.length; i++) {
+        const r = next[i];
+        if (!r || r.w <= 0 || r.h <= 0) continue;
+        const id = String(r.id);
+        keep[id] = true;
+        let card = frostCard(root, id);
+        if (!card) {
+          card = document.createElement("div");
+          card.setAttribute("data-frost", id);
+          card.style.position = "absolute";
+          card.style.overflow = "hidden";
+          card.style.pointerEvents = "none";
+          card.style.backdropFilter = "blur(" + FROST_BLUR_PX + "px)";
+          card.style.webkitBackdropFilter = "blur(" + FROST_BLUR_PX + "px)";
+          const canvas = document.createElement("canvas");
+          canvas.style.position = "absolute";
+          canvas.style.left = "0";
+          canvas.style.top = "0";
+          card.appendChild(canvas);
+          const veil = document.createElement("div");
+          veil.style.position = "absolute";
+          veil.style.left = "0";
+          veil.style.top = "0";
+          veil.style.right = "0";
+          veil.style.bottom = "0";
+          veil.style.background = FROST_VEIL;
+          card.appendChild(veil);
+          root.appendChild(card);
+        }
+        card.style.left = r.x + "px";
+        card.style.top = r.y + "px";
+        card.style.width = r.w + "px";
+        card.style.height = r.h + "px";
+        card.style.borderRadius = (r.radius || 0) + "px";
+      }
+      const cards = root.querySelectorAll("[data-frost]");
+      for (let i = cards.length - 1; i >= 0; i--) {
+        if (!keep[cards[i].getAttribute("data-frost")]) cards[i].remove();
+      }
+      try { if (window.__veMap) window.__veMap.triggerRepaint(); } catch (e) {}
+    }
+
+    function paintFrost() {
+      const mapRef = window.__veMap;
+      const rects = window.__veFrostRects || [];
+      const root = document.getElementById("ve-frost");
+      if (!mapRef || !root || !rects.length) return;
+      const src = mapRef.getCanvas();
+      if (!src || !src.width || !src.clientWidth) return;
+      const scaleX = src.width / src.clientWidth;
+      const scaleY = src.height / src.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const pad = FROST_BLUR_PX;
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        const card = frostCard(root, String(r.id));
+        if (!card) continue;
+        const canvas = card.firstChild;
+        if (!canvas || !canvas.getContext) continue;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        const bw = Math.max(1, Math.round(r.w * dpr));
+        const bh = Math.max(1, Math.round(r.h * dpr));
+        if (canvas.width !== bw) canvas.width = bw;
+        if (canvas.height !== bh) canvas.height = bh;
+        canvas.style.width = r.w + "px";
+        canvas.style.height = r.h + "px";
+        ctx.clearRect(0, 0, bw, bh);
+        ctx.save();
+        ctx.filter = "blur(" + (FROST_BLUR_PX * dpr) + "px)";
+        try {
+          ctx.drawImage(
+            src,
+            (r.x - pad) * scaleX,
+            (r.y - pad) * scaleY,
+            (r.w + pad * 2) * scaleX,
+            (r.h + pad * 2) * scaleY,
+            -pad * dpr,
+            -pad * dpr,
+            (r.w + pad * 2) * dpr,
+            (r.h + pad * 2) * dpr
+          );
+        } catch (e) {}
+        ctx.restore();
+      }
+    }
+
+    let frostPaintAt = 0;
+    if (window.__veMap) {
+      window.__veMap.on("render", function () {
+        if (!window.__veFrostRects || !window.__veFrostRects.length) return;
+        const now = performance.now();
+        if (now - frostPaintAt < 32) return;
+        frostPaintAt = now;
+        paintFrost();
+      });
+    }
+
     // --- RN → Web bridge (iOS: window, Android: document) ---
     function handleNativeMessage(event) {
       try {
@@ -553,6 +684,8 @@ export function buildMapHtmlTemplate(
           }
         } else if (msg.type === "prefetchBounds" && Array.isArray(msg.bounds)) {
           prefetchBounds(msg.bounds, msg.zoomLevels || [10, 11, 12]);
+        } else if (msg.type === "setFrost" && Array.isArray(msg.rects)) {
+          applyFrost(msg.rects);
         }
       } catch (e) {
         console.error("Message parse error:", e);
