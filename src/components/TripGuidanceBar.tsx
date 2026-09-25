@@ -13,13 +13,13 @@ import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
 } from '../lib/utils/tripGuidancePeek';
-import { TRIP_GUIDANCE_BAR_HEIGHT, LANE_BASE_OFFSET } from '../lib/utils/overlayLane';
+import { LANE_BASE_OFFSET } from '../lib/utils/overlayLane';
 import { GLASS_MATERIAL } from '../lib/theme';
 
 /** How far the bar dips towards the sheet as it retracts: a hint of a destination, not a ride. */
 const SINK_PX = 12;
 
-const BAR_RADIUS = 16;
+const BAR_RADIUS = 999;
 
 type TripGuidanceBarProps = Readonly<{
   stage: TripStage;
@@ -88,6 +88,7 @@ export function TripGuidanceBar({
         right: 12,
         bottom: sheetH + LANE_BASE_OFFSET,
         zIndex: 14,
+        alignItems: 'flex-start',
         opacity: shown,
         transform: [
           {
@@ -99,39 +100,20 @@ export function TripGuidanceBar({
         ],
       }}
     >
-      <GlassPanel radius={BAR_RADIUS}>
-        <View
-          className="flex-row items-center gap-2.5 px-3"
-          style={{ height: TRIP_GUIDANCE_BAR_HEIGHT }}
-        >
-          <View
-            className="h-8 w-8 items-center justify-center rounded-[10px]"
-            // A tint of the stage's own colour rather than a flat grey chip, so the accent
-            // carries into the glyph without a second colour entering the palette. The alpha
-            // comes from the material: a figure that reads as a tint on charcoal washes out on a
-            // pale body, and the glyph itself is drawn in `accent.ink` for the same reason.
-            style={{ backgroundColor: `${accent.color}${material.chipTintAlpha}` }}
+      <GlassPanel radius={BAR_RADIUS} style={{ maxWidth: '100%' }}>
+        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
+          <Feather name={accent.icon} size={14} color={accent.ink} />
+          <Text
+            numberOfLines={2}
+            style={{
+              color: material.text,
+              fontSize: 12,
+              fontWeight: '500',
+              flexShrink: 1,
+            }}
           >
-            <Feather name={accent.icon} size={16} color={accent.ink} />
-          </View>
-          <View className="flex-1">
-            {/* `numberOfLines={2}`, never `1`. The instruction is a sentence, and the row it
-                used to share with an address line cut it mid-word on the longest locale — an
-                ellipsis in an instruction reads as a place the driver is not being told about.
-                Two lines is exactly the room the retired second row freed, so the bar's fixed
-                height still holds it and nothing in the lane above has to move. */}
-            <Text
-              numberOfLines={2}
-              style={{
-                color: material.text,
-                fontSize: 14,
-                fontWeight: '800',
-                letterSpacing: 0.2,
-              }}
-            >
-              {t(tripGuidanceTitleKey(stage))}
-            </Text>
-          </View>
+            {t(tripGuidanceTitleKey(stage))}
+          </Text>
         </View>
       </GlassPanel>
     </Animated.View>

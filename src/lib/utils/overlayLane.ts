@@ -26,7 +26,7 @@
  * decision — the second line of the old address row is what the title now wraps into, which is
  * why the bar did not have to grow when that row went.
  */
-export const TRIP_GUIDANCE_BAR_HEIGHT = 58;
+export const TRIP_GUIDANCE_BAR_HEIGHT = 40;
 
 /** Gap between two stacked overlays, and between the lower one and the sheet. */
 export const OVERLAY_STACK_GAP = 6;

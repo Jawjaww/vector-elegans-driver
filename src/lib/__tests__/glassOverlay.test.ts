@@ -203,15 +203,15 @@ describe('the face of a panel', () => {
     }
   });
 
-  it('tints its chips from the panel accent, as a valid eight-digit colour', () => {
-    // The tint is assembled as `${accent}${chipTintAlpha}`, so a stray character here would not
-    // fail to compile — it would render transparent.
-    expect(GLASS_MATERIAL.chipTintAlpha).toBe(VE_BLUE.tintAlpha);
+  it('draws a bare glyph, the way the reservation badge does', () => {
+    // The badge is an icon and a line of type inside a pill. A tinted square behind the icon is
+    // a second panel, which is what these overlays used to be.
     expect(GLASS_MATERIAL.chipTintAlpha).toMatch(/^[0-9a-f]{2}$/);
-    for (const consumer of [GUIDANCE_BAR, MANEUVER_HUD]) {
-      expect(stripComments(readSource(consumer))).toContain(
-        'material.chipTintAlpha',
-      );
+    for (const consumer of [GUIDANCE_BAR, MANEUVER_HUD, ARRIVAL_HUD]) {
+      const code = stripComments(readSource(consumer));
+      expect(code).toMatch(/\b999\b/);
+      expect(code).toContain('size={14}');
+      expect(code).not.toContain('chipTintAlpha');
     }
   });
 });
@@ -311,11 +311,11 @@ describe('the lane above the sheet', () => {
     // touches, so at rest it is painted straight across the sentence. These four numbers are the
     // whole geometry; if the lift ever drops out, the last assertion is what notices.
     const barTop = LANE_BASE_OFFSET + TRIP_GUIDANCE_BAR_HEIGHT;
-    const atRest = CONTROL_BASE_OFFSET + MAP_CONTROL_SIZE;
-    const lifted =
-      CONTROL_BASE_OFFSET + LIFT_OVER_INSTRUCTION + MAP_CONTROL_SIZE;
-    expect(atRest).toBeLessThan(barTop);
-    expect(lifted).toBeGreaterThanOrEqual(barTop);
+    const atRestTop = CONTROL_BASE_OFFSET + MAP_CONTROL_SIZE;
+    const liftedBottom = CONTROL_BASE_OFFSET + LIFT_OVER_INSTRUCTION;
+    expect(CONTROL_BASE_OFFSET).toBeLessThan(barTop);
+    expect(atRestTop).toBeGreaterThan(LANE_BASE_OFFSET);
+    expect(liftedBottom).toBeGreaterThanOrEqual(barTop);
 
     // And both controls in the lane move on that one figure rather than each carrying its own.
     for (const file of [ARRIVAL_HUD, RECENTER_BUTTON]) {

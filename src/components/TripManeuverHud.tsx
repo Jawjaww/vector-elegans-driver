@@ -10,7 +10,7 @@ import {
 import { GlassPanel } from './GlassPanel';
 import { GLASS_MATERIAL } from '../lib/theme';
 
-const HUD_RADIUS = 18;
+const HUD_RADIUS = 999;
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
@@ -49,43 +49,25 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
         left: 12,
         right: 12,
         zIndex: 15,
+        alignItems: 'flex-start',
       }}
     >
-      <GlassPanel radius={HUD_RADIUS}>
-        <View className="flex-row items-center gap-3 px-3 py-2.5">
-          <View
-            className="h-[52px] w-[52px] items-center justify-center rounded-[14px]"
-            style={{ backgroundColor: `${material.accent}${material.chipTintAlpha}` }}
+      <GlassPanel radius={HUD_RADIUS} style={{ maxWidth: '100%' }}>
+        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
+          <Feather name={icon} size={14} color={material.accentStrong} />
+          <Text
+            style={{
+              color: material.text,
+              fontSize: 12,
+              fontWeight: '500',
+              flexShrink: 1,
+            }}
+            numberOfLines={2}
           >
-            <Feather name={icon} size={28} color={material.accentStrong} />
-          </View>
-          <View className="flex-1">
-            <Text
-              style={{
-                color: material.text,
-                fontSize: 16,
-                fontWeight: '800',
-                letterSpacing: 0.2,
-              }}
-              numberOfLines={1}
-            >
-              {instruction}
-              {manDist ? ` · ${manDist}` : ''}
-            </Text>
-            {man?.name ? (
-              <Text
-                style={{
-                  color: material.textDim,
-                  fontSize: 13,
-                  marginTop: 3,
-                  fontWeight: '600',
-                }}
-                numberOfLines={1}
-              >
-                {man.name}
-              </Text>
-            ) : null}
-          </View>
+            {instruction}
+            {manDist ? ` · ${manDist}` : ''}
+            {man?.name ? ` · ${man.name}` : ''}
+          </Text>
         </View>
       </GlassPanel>
     </View>
