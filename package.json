@@ -15,7 +15,7 @@
     "format:check": "prettier --check .",
     "test:ci": "jest --ci --coverage --watchAll=false",
     "test:staged": "jest --bail --findRelatedTests",
-    "update:preview": "eas update --channel preview --environment preview --message",
+    "update:preview": "bash scripts/eas-update-preview.sh",
     "build:local:apk": "./scripts/build-local-apk.sh"
   },
   "dependencies": {

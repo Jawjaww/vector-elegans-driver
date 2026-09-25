@@ -5,7 +5,7 @@
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `ci.yml` | push/PR `main` | Jest + TypeScript |
-| `eas-update-preview.yml` | after CI succeeds on `main` push | `eas update --channel preview` |
+| `eas-update-preview.yml` | after CI succeeds on `main` push | `scripts/eas-update-preview.sh` (local APK fingerprint) |
 
 ## Required secret
 
@@ -18,5 +18,7 @@ Without this secret, CI passes but OTA job fails with `An Expo user account is r
 ## Manual OTA (fallback)
 
 ```bash
-npm run update:preview -- "your message"
+./scripts/eas-update-preview.sh "$(git rev-parse HEAD)"
 ```
+
+Uses the same `google-services.json` layout as `build-local-apk.sh` (not for routine use — merge to `main` instead).
