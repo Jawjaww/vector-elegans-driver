@@ -5,6 +5,11 @@ import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../src/lib/supabase';
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  OtaUpdatePanel,
+  useOtaMenuDetail,
+} from '../../src/components/OtaUpdatePanel';
 import { DossierSystemTestRunner } from '../../src/components/DossierSystemTestRunner';
 import { DriverAvatar } from '../../src/components/DriverAvatar';
 import { resolveAvatarPreviewUrl } from '../../src/lib/avatarPreview';
@@ -37,7 +42,10 @@ function formatDriverName(
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const otaMenuDetail = useOtaMenuDetail();
   const [showTestRunner, setShowTestRunner] = useState(false);
+  const [showOtaPanel, setShowOtaPanel] = useState(false);
   const [profile, setProfile] = useState<ProfileCard>({
     displayName: 'Driver',
     email: '',
@@ -152,7 +160,12 @@ export default function ProfileScreen() {
           'Vehicle management will be available shortly.',
         ),
     },
-    { icon: 'settings', label: 'Settings', action: () => {} },
+    {
+      icon: 'download-cloud',
+      label: t('profile.updates.menu'),
+      detail: otaMenuDetail,
+      action: () => setShowOtaPanel(true),
+    },
     ...(offerSoundSupported
       ? [
           {
@@ -286,6 +299,24 @@ export default function ProfileScreen() {
           </Text>
         </Pressable>
       </ScrollView>
+
+      {showOtaPanel && (
+        <View className="absolute inset-0 bg-black/80 z-50">
+          <View className="flex-1 bg-gray-900/95 m-4 rounded-2xl overflow-hidden">
+            <View className="flex-row items-center justify-between p-4 border-b border-white/10">
+              <Text className="text-white text-lg font-bold">
+                {t('profile.updates.title')}
+              </Text>
+              <Pressable onPress={() => setShowOtaPanel(false)}>
+                <Feather name="x" size={24} color="white" />
+              </Pressable>
+            </View>
+            <ScrollView className="flex-1">
+              <OtaUpdatePanel />
+            </ScrollView>
+          </View>
+        </View>
+      )}
 
       {showTestRunner && (
         <View className="absolute inset-0 bg-black/80 z-50">
