@@ -18,6 +18,7 @@ import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import type { MapProps, LatLng, DriverMarker, MapBounds } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
+import { getFrostRects, subscribeFrostRects, type FrostRect } from './frostRects';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 import { gpsMovedEnough, haversineMeters } from '../lib/utils/gpsThrottle';
 
@@ -181,6 +182,7 @@ export function WebViewMap({
   prefetchConfig?: PrefetchConfig;
 }) {
   const webViewRef = useRef<WebView>(null);
+  const hostRef = useRef<View>(null);
   const appState = useRef(AppState.currentState);
 
   const seedCenter = initialCenter ?? { lat: 48.8566, lng: 2.3522 };
@@ -232,6 +234,37 @@ export function WebViewMap({
       `(function(){try{if(window.__veHandleNativeMessage){window.__veHandleNativeMessage({data:${JSON.stringify(json)}});} }catch(e){console.error(e);}true;})();`,
     );
   }, []);
+
+  const pushFrost = useCallback(
+    (rects: FrostRect[]) => {
+      hostRef.current?.measureInWindow((originX, originY) => {
+        postToMap({
+          type: 'setFrost',
+          rects: rects.map((rect) => ({
+            id: rect.id,
+            x: rect.x - originX,
+            y: rect.y - originY,
+            w: rect.width,
+            h: rect.height,
+            radius: rect.radius,
+          })),
+        });
+      });
+    },
+    [postToMap],
+  );
+
+  useEffect(() => {
+    return subscribeFrostRects((rects) => {
+      if (!isMapReadyRef.current) return;
+      pushFrost(rects);
+    });
+  }, [pushFrost]);
+
+  useEffect(() => {
+    if (!isMapReady) return;
+    pushFrost(getFrostRects());
+  }, [isMapReady, pushFrost]);
 
   const prefetchBounds = useCallback(
     (bounds: MapBounds, zoomLevels: number[] = [10, 11, 12]) => {
@@ -605,7 +638,13 @@ export function WebViewMap({
   );
 
   return (
-    <View style={[styles.container, style]}>
+    <View
+      ref={hostRef}
+      style={[styles.container, style]}
+      onLayout={() => {
+        if (isMapReadyRef.current) pushFrost(getFrostRects());
+      }}
+    >
       <WebView
         key={mapInstanceKey ?? 'default-map'}
         ref={webViewRef}

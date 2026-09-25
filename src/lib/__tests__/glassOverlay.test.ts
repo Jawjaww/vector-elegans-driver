@@ -34,6 +34,7 @@ import {
 const REPO_ROOT = process.cwd();
 
 const GLASS_PANEL = 'src/components/GlassPanel.tsx';
+const MAP_TEMPLATE = 'src/map/mapHtmlTemplate.ts';
 const THEME = 'src/lib/theme.ts';
 const GUIDANCE_BAR = 'src/components/TripGuidanceBar.tsx';
 const ARRIVAL_HUD = 'src/components/TripArrivalHud.tsx';
@@ -153,11 +154,12 @@ describe('the face of a panel', () => {
     const top = rgbOf(GLASS_MATERIAL.fillTop);
     const bottom = rgbOf(GLASS_MATERIAL.fillBottom);
     expect(top.a).toBeGreaterThan(bottom.a);
-    const code = stripComments(readSource(GLASS_PANEL));
-    expect(code).toContain('material.fillTop');
-    expect(code).toContain('material.fillBottom');
-    expect(code).toContain('elevation: 0');
-    expect((code.match(/<LinearGradient\b/g) ?? []).length).toBe(1);
+    const panel = stripComments(readSource(GLASS_PANEL));
+    const map = stripComments(readSource(MAP_TEMPLATE));
+    expect(panel).toContain('elevation: 0');
+    expect(panel).not.toContain('LinearGradient');
+    expect(map).toContain('GLASS_MATERIAL.fillTop');
+    expect(map).toContain('GLASS_MATERIAL.fillBottom');
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
@@ -241,10 +243,13 @@ describe('one material, and the theme owns it', () => {
   });
 
   it('keeps the white wash over the blur, not a second plate', () => {
-    const source = stripComments(readSource(GLASS_PANEL));
-    expect(source).toContain('material.fillTop');
-    expect(source).toContain('material.fillBottom');
-    expect(source).toContain('BlurView');
+    const map = stripComments(readSource(MAP_TEMPLATE));
+    const panel = stripComments(readSource(GLASS_PANEL));
+    expect(map).toContain('GLASS_MATERIAL.fillTop');
+    expect(map).toContain('GLASS_MATERIAL.fillBottom');
+    expect(map).toContain('FROST_VEIL');
+    expect(panel).not.toContain('BlurView');
+    expect(panel).toContain("backgroundColor: 'transparent'");
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -279,7 +284,7 @@ describe('one material, and the theme owns it', () => {
       [
         'accent',
         'accentStrong',
-        'blurIntensity',
+        'backdropBlurPx',
         'chipTintAlpha',
         'fillBottom',
         'fillTop',
@@ -291,13 +296,18 @@ describe('one material, and the theme owns it', () => {
     );
   });
 
-  it('blurs only inside the shared panel, lightly, and not in every overlay', () => {
+  it('blurs the map under the card, not a native plate over the WebView', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
-    expect(panel).toContain('expo-blur');
-    expect(panel).toContain('material.blurIntensity');
-    expect(panel).toContain('dimezisBlurView');
-    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(90);
-    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(100);
+    const map = stripComments(readSource(MAP_TEMPLATE));
+    expect(panel).toContain('measureInWindow');
+    expect(panel).toContain('publishFrostRect');
+    expect(panel).not.toContain('expo-blur');
+    expect(panel).not.toContain('dimezisBlurView');
+    expect(map).toContain('paintFrost');
+    expect(map).toContain('drawImage');
+    expect(map).toContain('GLASS_MATERIAL.backdropBlurPx');
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeGreaterThanOrEqual(16);
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeLessThanOrEqual(32);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
