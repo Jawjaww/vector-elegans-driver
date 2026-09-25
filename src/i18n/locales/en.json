@@ -145,6 +145,7 @@
       "menu": "Software updates",
       "menuReady": "Update ready — restart",
       "title": "Software updates",
+      "subtitle": "Over-the-air bundle",
       "statusHeading": "Update status",
       "buildHeading": "Build info",
       "channel": "Channel",

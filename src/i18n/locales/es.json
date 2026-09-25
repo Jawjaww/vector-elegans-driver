@@ -140,6 +140,7 @@
       "menu": "Actualizaciones",
       "menuReady": "Actualización lista — reiniciar",
       "title": "Actualizaciones",
+      "subtitle": "Bundle OTA",
       "statusHeading": "Estado de la actualización",
       "buildHeading": "Información del build",
       "channel": "Canal",
