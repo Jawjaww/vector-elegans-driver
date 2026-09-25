@@ -84,6 +84,11 @@ export type GuidancePeekState = {
   baselineMeters: number | null;
   /** Greatest advance observed since, in metres. */
   advanceMeters: number;
+  /**
+   * Along-track metres when the stage was armed.
+   * `null` until a snapped fix arrives. Remaining distance is the fallback.
+   */
+  baselineAlongMeters: number | null;
   /** When ground was last covered. Also the arming time, before the driver has moved at all. */
   lastProgressAtMs: number;
   /** Whether the announcement is currently on screen. */
@@ -96,6 +101,7 @@ export const INITIAL_GUIDANCE_PEEK: GuidancePeekState = {
   stage: null,
   baselineMeters: null,
   advanceMeters: 0,
+  baselineAlongMeters: null,
   lastProgressAtMs: 0,
   visible: false,
   recallSpent: false,
@@ -105,6 +111,13 @@ export type GuidancePeekObservation = {
   stage: TripStage | null;
   /** Remaining route distance, or `null` when no route has been computed yet. */
   remainingMeters: number | null;
+  /**
+   * Metres from the start of the current polyline to the snapped GPS.
+   *
+   * Posted on every navigation fix. Remaining distance is scaled and used to be
+   * throttled, so it could stay flat while the car was already moving.
+   */
+  alongTrackMeters?: number | null;
   /**
    * Wall clock for this observation, passed in rather than read here.
    *
@@ -133,6 +146,7 @@ export function guidancePeekReducer(
   observation: GuidancePeekObservation,
 ): GuidancePeekState {
   const { stage, remainingMeters, nowMs } = observation;
+  const alongTrackMeters = finiteOrNull(observation.alongTrackMeters ?? null);
 
   if (stage === null) {
     return state.stage === null ? state : INITIAL_GUIDANCE_PEEK;
@@ -143,17 +157,31 @@ export function guidancePeekReducer(
       stage,
       baselineMeters: finiteOrNull(remainingMeters),
       advanceMeters: 0,
+      baselineAlongMeters: alongTrackMeters,
       lastProgressAtMs: nowMs,
       visible: true,
-      // A new stage earns a new recall: the driver has a different job and the same right to one
-      // lapse of attention on it.
       recallSpent: false,
     };
   }
 
   const baselineMeters = state.baselineMeters ?? finiteOrNull(remainingMeters);
+  let baselineAlong = state.baselineAlongMeters;
+  if (alongTrackMeters !== null) {
+    if (baselineAlong === null) {
+      baselineAlong = alongTrackMeters;
+    } else if (alongTrackMeters + 30 < baselineAlong) {
+      // The polyline was replaced. Keep the advance already earned and measure the new line
+      // from here, so a reroute does not look like the driver has stopped.
+      baselineAlong = alongTrackMeters - state.advanceMeters;
+    }
+  }
+  const alongAdvance =
+    baselineAlong !== null && alongTrackMeters !== null
+      ? Math.max(0, alongTrackMeters - baselineAlong)
+      : 0;
   const advanceMeters = Math.max(
     state.advanceMeters,
+    alongAdvance,
     advanceSince(baselineMeters, remainingMeters),
   );
   // Whether *this* observation covered ground, which the running maximum cannot answer: it stays
@@ -182,6 +210,7 @@ export function guidancePeekReducer(
   if (
     baselineMeters === state.baselineMeters &&
     advanceMeters === state.advanceMeters &&
+    baselineAlong === state.baselineAlongMeters &&
     lastProgressAtMs === state.lastProgressAtMs &&
     visible === state.visible &&
     recallSpent === state.recallSpent
@@ -196,6 +225,7 @@ export function guidancePeekReducer(
     stage,
     baselineMeters,
     advanceMeters,
+    baselineAlongMeters: baselineAlong,
     lastProgressAtMs,
     visible,
     recallSpent,

@@ -71,6 +71,9 @@ function handleMapRouteInfoMessage(
     | null
     | undefined;
 
+  const alongRaw = Number(msg.alongTrackMeters);
+  const alongTrackMeters = Number.isFinite(alongRaw) ? alongRaw : null;
+
   onRouteReady?.(
     distanceMeters,
     durationSeconds,
@@ -82,6 +85,7 @@ function handleMapRouteInfoMessage(
           name: typeof next.name === 'string' ? next.name : '',
         }
       : null,
+    alongTrackMeters,
   );
 }
 

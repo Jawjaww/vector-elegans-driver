@@ -9,6 +9,8 @@ export type NavProgress = {
   distanceMeters: number;
   durationSeconds: number;
   nextManeuver?: NavManeuver | null;
+  /** Metres already covered along the snapped polyline. */
+  alongTrackMeters?: number | null;
 };
 
 type FeatherIconName =

@@ -55,7 +55,14 @@ function makeClock(startMs: number = T0) {
       state: GuidancePeekState,
       stage: TripStage | null,
       remainingMeters: number | null,
-    ) => guidancePeekReducer(state, { stage, remainingMeters, nowMs: now }),
+      alongTrackMeters?: number | null,
+    ) =>
+      guidancePeekReducer(state, {
+        stage,
+        remainingMeters,
+        alongTrackMeters,
+        nowMs: now,
+      }),
   };
 }
 
@@ -96,6 +103,17 @@ describe('the announcement the guidance bar is', () => {
     // it back.
     expect(moved.stage).toBe('to_pickup');
     expect(moved.recallSpent).toBe(false);
+  });
+
+  it('withdraws on along-track metres even when the remaining distance stays flat', () => {
+    const clock = makeClock();
+    const armed = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000, 0);
+    expect(shown(armed)).toBe(true);
+    clock.set(T0 + 4_000);
+    const still = clock.observe(armed, 'to_pickup', 3000, GUIDANCE_DEPART_METERS - 1);
+    expect(shown(still)).toBe(true);
+    const moved = clock.observe(armed, 'to_pickup', 3000, GUIDANCE_DEPART_METERS);
+    expect(shown(moved)).toBe(false);
   });
 
   it('comes back after the driver has been stopped long enough, and not a moment before', () => {
@@ -331,9 +349,9 @@ function heartbeatSource(dashboard: string): string {
 describe('the wiring that feeds the announcement', () => {
   it('is driven by the dashboard, from the stage, the route and a clock', () => {
     const dashboard = readSource(DASHBOARD);
-    expect(dashboard).toContain(
-      'observeGuidancePeek({ stage: tripStage, remainingMeters, nowMs: Date.now() });',
-    );
+    expect(dashboard).toContain('alongTrackMeters');
+    expect(dashboard).toContain('remainingMeters');
+    expect(dashboard).toContain('nowMs: Date.now()');
     expect(dashboard).toContain(
       'guidancePeekVisible(guidancePeek, tripVisibleInSheet)',
     );
