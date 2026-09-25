@@ -197,7 +197,7 @@ export type GlassMaterial = {
 export const GLASS_MATERIAL: GlassMaterial = {
   fillTop: 'rgba(255, 255, 255, 0.38)',
   fillBottom: 'rgba(255, 255, 255, 0.28)',
-  backdropBlurPx: 22,
+  backdropBlurPx: 12,
   hairline: 'rgba(255, 255, 255, 0.55)',
   shadow: { offsetY: 6, radius: 18, opacity: 0.16, color: '#000000' },
   text: '#111827',
