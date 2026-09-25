@@ -11,6 +11,7 @@ import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
 import {
   LANE_BASE_OFFSET,
   LIFT_OVER_INSTRUCTION,
+  OVERLAY_CARD_RADIUS,
 } from '../lib/utils/overlayLane';
 import { GlassPanel } from './GlassPanel';
 import {
@@ -91,29 +92,35 @@ export function TripArrivalHud({
         ],
       }}
     >
-      {/* Self-sizing rather than stretched: this chip is the short one, and a full-width pill
-          would claim the same visual weight as the instruction bar under it. */}
-      <GlassPanel radius={999}>
-        <View className="flex-row items-center gap-1.5 px-3 py-1.5">
-          <Feather name="navigation" size={14} color={material.accentStrong} />
+      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+          }}
+        >
+          <Feather name="navigation" size={18} color={material.accentStrong} />
           <Text
             style={{
               color: material.text,
-              fontSize: 12,
-              fontWeight: '500',
+              fontSize: 15,
+              fontWeight: '600',
               fontVariant: ['tabular-nums'],
             }}
           >
             {formatRemainingDistance(progress.distanceMeters)}
           </Text>
-          <Text style={{ color: material.textDim, fontSize: 12, fontWeight: '500' }}>
+          <Text style={{ color: material.textDim, fontSize: 15, fontWeight: '500' }}>
             ·
           </Text>
           <Text
             style={{
               color: material.text,
-              fontSize: 12,
-              fontWeight: '500',
+              fontSize: 15,
+              fontWeight: '600',
               fontVariant: ['tabular-nums'],
             }}
           >

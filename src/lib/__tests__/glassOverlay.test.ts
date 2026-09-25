@@ -16,6 +16,7 @@ import {
   LIFT_OVER_INSTRUCTION,
   MAP_CONTROL_SIZE,
   OVERLAY_STACK_GAP,
+  OVERLAY_CARD_RADIUS,
   TRIP_GUIDANCE_BAR_HEIGHT,
 } from '../utils/overlayLane';
 
@@ -123,13 +124,14 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('bevels the rim and keeps the specular to one point', () => {
+  it('bevels the contour and lights the top and bottom corners only', () => {
     const code = stripComments(readSource(GLASS_PANEL));
     expect(code).toContain('material.rimLight');
     expect(code).toContain('material.rimShade');
-    expect(code).toContain('margin: RIM_PX');
-    expect(code).toContain('height: 1');
-    expect(code).not.toContain('edgeGlow');
+    expect(code).toContain('GLASS_PANEL_BEVEL_PX');
+    expect(code).toContain('cornerGlowTop');
+    expect(code).toContain('cornerGlowBottom');
+    expect(code).not.toContain('borderWidth');
     const lit = rgbOf(GLASS_MATERIAL.rimLight);
     const shade = rgbOf(GLASS_MATERIAL.rimShade);
     expect(lit.r).toBe(255);
@@ -140,13 +142,21 @@ describe('the edge of a panel', () => {
 });
 
 describe('the face of a panel', () => {
-  it('washes the face in a subtle grey, lighter at the top', () => {
+  it('washes the grey face in a barely visible step, not a bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThan(0.85);
-      expect(colour.b - colour.r).toBeLessThanOrEqual(16);
-      expect(overMap(stop)).toBeGreaterThan(620);
+      expect(colour.a).toBeGreaterThan(0.9);
+      expect(colour.b - colour.r).toBeLessThanOrEqual(12);
+      expect(overMap(stop)).toBeGreaterThan(680);
     }
+    const top = rgbOf(GLASS_MATERIAL.fillTop);
+    const bottom = rgbOf(GLASS_MATERIAL.fillBottom);
+    const delta =
+      Math.abs(top.r - bottom.r) +
+      Math.abs(top.g - bottom.g) +
+      Math.abs(top.b - bottom.b);
+    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeLessThanOrEqual(36);
     expect(lightness(GLASS_MATERIAL.fillTop)).toBeGreaterThan(
       lightness(GLASS_MATERIAL.fillBottom),
     );
@@ -154,6 +164,7 @@ describe('the face of a panel', () => {
     expect(code).toContain('material.fillTop');
     expect(code).toContain('material.fillBottom');
     expect(code).toContain('elevation: 0');
+    expect((code.match(/<LinearGradient\b/g) ?? []).length).toBe(4);
   });
 
   it('has no highlight band, because a band over a short bar lands on the type', () => {
@@ -214,10 +225,12 @@ describe('the face of a panel', () => {
     expect(GLASS_MATERIAL.chipTintAlpha).toMatch(/^[0-9a-f]{2}$/);
     for (const consumer of [GUIDANCE_BAR, MANEUVER_HUD, ARRIVAL_HUD]) {
       const code = stripComments(readSource(consumer));
-      expect(code).toMatch(/\b999\b/);
-      expect(code).toContain('size={14}');
+      expect(code).toContain('OVERLAY_CARD_RADIUS');
+      expect(code).not.toMatch(/\b999\b/);
+      expect(code).toContain('paddingHorizontal: 16');
       expect(code).not.toContain('chipTintAlpha');
     }
+    expect(OVERLAY_CARD_RADIUS).toBeLessThan(40);
   });
 });
 
@@ -234,11 +247,11 @@ describe('one material, and the theme owns it', () => {
     expect(() => readSource(DELETED_GLASS_CARD)).toThrow();
   });
 
-  it('paints one fill inside the bevel', () => {
-    const source = readSource(GLASS_PANEL);
+  it('keeps the face wash separate from the bevel and the corner glares', () => {
+    const source = stripComments(readSource(GLASS_PANEL));
     expect(source).toContain('material.fillTop');
+    expect(source).toContain('material.fillBottom');
     expect(source).toContain('borderRadius: faceRadius');
-    expect(source).not.toMatch(/borderRadius:\s*\d/);
   });
 
   it('is the single source of the look, reused by every overlay above the map', () => {
@@ -274,6 +287,8 @@ describe('one material, and the theme owns it', () => {
         'accent',
         'accentStrong',
         'chipTintAlpha',
+        'cornerGlowBottom',
+        'cornerGlowTop',
         'fillBottom',
         'fillTop',
         'rimLight',

@@ -164,23 +164,28 @@ export const VE_BLUE = {
  * own detail survives behind the veil: a real blur leaves none, clear glass leaves all of it, and
  * a frosted pane occupies the range in between.
  *
- * **A bevel, not a second fill.** The face is one pale veil. The contour is a gradient that only
- * the outer point shows: white on the top edge, dark on the bottom. A one-point specular sits on
- * the inside of the top edge. Nothing else is painted over the type.
+ * **A flat grey face with a barely-there wash.** `fillTop` and `fillBottom` are one step apart so
+ * the card reads as grey glass, not as a dome: a wide step reads as a bossed plate. The edge is a
+ * one-point hairline on the face. The contour is beveled separately (`rimLight` / `rimShade`) with
+ * corner glares on the top and bottom corners only — not across the type.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Top of the grey wash. Lighter than `fillBottom`, still a grey. */
+  /** Top of the grey face. One step lighter than `fillBottom`, not a highlight. */
   fillTop: string;
-  /** Bottom of the grey wash. One step darker, same alpha, full height of the card. */
+  /** Bottom of the grey face. One step darker; the delta must stay almost invisible. */
   fillBottom: string;
-  /** Bright white edge, the top of the bevel. */
+  /** Top of the beveled contour. Bright white, reads as light on the edge. */
   rimLight: string;
-  /** White edge, dimmer, the bottom of the bevel. Still white, not a dark stroke. */
+  /** Bottom of the beveled contour. Still white, dimmer — not a dark stroke. */
   rimShade: string;
+  /** Specular in the top corner of the face, inside the bevel. */
+  cornerGlowTop: string;
+  /** Specular in the bottom corner of the face, inside the bevel. */
+  cornerGlowBottom: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -200,10 +205,12 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(248, 249, 251, 0.94)',
-  fillBottom: 'rgba(214, 218, 224, 0.94)',
+  fillTop: 'rgba(246, 247, 249, 0.96)',
+  fillBottom: 'rgba(236, 238, 242, 0.96)',
   rimLight: 'rgba(255, 255, 255, 1)',
-  rimShade: 'rgba(255, 255, 255, 0.45)',
+  rimShade: 'rgba(255, 255, 255, 0.38)',
+  cornerGlowTop: 'rgba(255, 255, 255, 0.52)',
+  cornerGlowBottom: 'rgba(255, 255, 255, 0.26)',
   shadow: { offsetY: 8, radius: 16, opacity: 0.1, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
