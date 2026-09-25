@@ -154,15 +154,15 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **Frost = light blur plus a translucent veil, kept cheap.** Only `GlassPanel` mounts
- * `expo-blur`, at a low `blurIntensity` — enough to soften the map, not a crisp backdrop filter.
+ * **Frost = blur plus a translucent white veil.** Only `GlassPanel` mounts `expo-blur`, at
+ * `blurIntensity` tuned for a Control Center–style read on iOS.
  * On Android the view falls back to a flat tint (`experimentalBlurMethod` default `none`), so
  * most of the effect is the semi-transparent face letting the WebView map show through. iOS gets
  * a soft native blur on top of that; intensity stays low so a moving map does not dominate the
  * frame budget.
  *
- * **A flat grey face with a barely-there wash.** `fillTop` and `fillBottom` are one step apart so
- * the card reads as grey glass, not as a dome: a wide step reads as a bossed plate. The edge is a
+ * **A neutral white frost, not a grey plate.** `fillTop` and `fillBottom` differ mainly in alpha so
+ * the map reads through; RGB stays white so the veil does not tint the tiles underneath. The edge is a
  * one-point hairline on the face. The contour is beveled separately (`rimLight` / `rimShade`) with
  * corner glares on the top and bottom corners only — not across the type.
  *
@@ -171,9 +171,9 @@ export const VE_BLUE = {
  * The type is dark for the same reason the rim is: the face inverted, so everything on it did.
  */
 export type GlassMaterial = {
-  /** Top of the grey face. One step lighter than `fillBottom`, not a highlight. */
+  /** Top of the frosted face. Higher alpha than `fillBottom`, still translucent. */
   fillTop: string;
-  /** Bottom of the grey face. One step darker; the delta must stay almost invisible. */
+  /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
   fillBottom: string;
   /** Top of the beveled contour. Bright white, reads as light on the edge. */
   rimLight: string;
@@ -199,14 +199,14 @@ export type GlassMaterial = {
   accentStrong: string;
   /** Bare alpha appended to an accent for a chip tint: `${accent}${chipTintAlpha}`. */
   chipTintAlpha: string;
-  /** `expo-blur` intensity (1–100). Kept low; Android treats this as a tint when blur is off. */
+  /** `expo-blur` intensity (1–100). Android treats this as a tint when blur is off. */
   blurIntensity: number;
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(246, 247, 249, 0.68)',
-  fillBottom: 'rgba(236, 238, 242, 0.64)',
-  blurIntensity: 22,
+  fillTop: 'rgba(255, 255, 255, 0.45)',
+  fillBottom: 'rgba(255, 255, 255, 0.35)',
+  blurIntensity: 45,
   rimLight: 'rgba(255, 255, 255, 1)',
   rimShade: 'rgba(255, 255, 255, 0.38)',
   cornerGlowTop: 'rgba(255, 255, 255, 0.52)',
