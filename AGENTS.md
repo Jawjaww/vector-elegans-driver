@@ -374,7 +374,7 @@ Le script nomme l'APK d'après ce qu'il contient — `ve-driver-<version>+<versi
 
 - **CI** : [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — Jest + `tsc` on push/PR to `main` (paths : `src/**`, `app/**`, `modules/**`, `app.config.js`, `app.json`, `tsconfig.json`, `package*.json`).
 - **OTA preview** : [`.github/workflows/eas-update-preview.yml`](.github/workflows/eas-update-preview.yml) — after CI on `main`, runs [`scripts/eas-update-preview.sh`](scripts/eas-update-preview.sh) : copie `google-services.json` à la racine du dépôt (comme `build-local-apk.sh`) puis `eas update` sur le canal `preview`, pour que l'empreinte Android cible les APK **preview-local** et pas seulement les builds cloud.
-- **Secret** : `EXPO_TOKEN` in GitHub repo secrets (`vector-elegans-driver`).
+- **Secrets** : `EXPO_TOKEN` ; **`GOOGLE_SERVICES_JSON`** (paste du `google-services.json` local, identique au fichier EAS preview) pour que l'OTA CI cible l'empreinte des APK `build-local-apk.sh`. Sans ce secret, le job retombe sur `eas update --environment preview` (runtime cloud seulement).
 - Manual OTA remains: `npm run update:preview -- "message"`.
 
 ## Commandes Docker
