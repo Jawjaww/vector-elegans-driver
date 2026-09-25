@@ -1,6 +1,7 @@
 import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
+import { snapToNavLine } from "../lib/utils/routeSnap";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
@@ -593,6 +594,8 @@ export function buildMapHtmlTemplate(
       return (Math.atan2(y, x) * toDeg + 360) % 360;
     }
 
+    ${snapToNavLine.toString()}
+
     /** Point ~lookAheadM along the nav polyline ahead of current position */
     function lookAheadPoint(coords, line, lookAheadM) {
       if (!line || !line.length) return null;
@@ -748,9 +751,12 @@ export function buildMapHtmlTemplate(
       return 0;
     }
 
-    function upsertGpsCanvasPuck(coords) {
+    function upsertGpsCanvasPuck(coords, bearingOverride) {
       if (!coords) return;
-      var bearing = gpsBearingAlongTrack(coords);
+      var bearing =
+        typeof bearingOverride === "number"
+          ? bearingOverride
+          : gpsBearingAlongTrack(coords);
       ensureOfferMarkerImages(map, function () {
         if (!map.hasImage("gps-chevron")) return;
         var data = {
@@ -794,29 +800,41 @@ export function buildMapHtmlTemplate(
       });
     }
 
-    function syncGpsPuck(coords) {
+    function syncGpsPuck(coords, bearingOverride) {
       if (!coords) return;
       window.__veLastGpsCoords = coords;
       if (window.__veUseCanvasGpsPuck) {
         hideHtmlGpsMarker();
-        upsertGpsCanvasPuck(coords);
+        upsertGpsCanvasPuck(coords, bearingOverride);
         return;
       }
       removeGpsCanvasPuck();
       const marker = ensureGpsArrowMarker();
       marker.setLngLat(coords);
-      // The HTML puck only gets its position from MapLibre, so the arrow would
-      // otherwise stay frozen pointing north.
-      marker.setRotation(gpsBearingAlongTrack(coords));
+      marker.setRotation(
+        typeof bearingOverride === "number"
+          ? bearingOverride
+          : gpsBearingAlongTrack(coords),
+      );
       if (!window.__veGpsMarkerAdded) {
         marker.addTo(map);
         window.__veGpsMarkerAdded = true;
       }
     }
 
-    function postRouteProgress(coords) {
+    function postRouteProgress(coords, traveledMeters) {
       try {
         if (!window.ReactNativeWebView) return;
+        const forced = typeof traveledMeters === "number";
+        const now = Date.now();
+        if (
+          !forced &&
+          window.__veLastProgressAt &&
+          now - window.__veLastProgressAt < 2000
+        ) {
+          return;
+        }
+        window.__veLastProgressAt = now;
         const line = window.__veNavLine;
         const steps = window.__veNavSteps;
         let distanceMeters = 0;
@@ -825,26 +843,38 @@ export function buildMapHtmlTemplate(
           distanceMeters = window.__veRouteMeta.distanceMeters || 0;
           durationSeconds = window.__veRouteMeta.durationSeconds || 0;
         }
-        // Scale remaining roughly by fraction of polyline left from nearest point
+        // Remaining distance follows the snapped point on the segment. A nearest-vertex
+        // ratio, and a 2% floor, both kept this number from falling when the car moved.
+        let alongTrackMeters = null;
         if (line && line.length > 1 && coords) {
-          let nearestIdx = 0;
-          let nearestDist = Infinity;
-          for (let i = 0; i < line.length; i++) {
-            const d = haversineMeters(coords, line[i]);
-            if (d < nearestDist) {
-              nearestDist = d;
-              nearestIdx = i;
-            }
+          let totalLine = 0;
+          for (let i = 0; i < line.length - 1; i++) {
+            totalLine += haversineMeters(line[i], line[i + 1]);
           }
           let remainingLine = 0;
-          for (let i = nearestIdx; i < line.length - 1; i++) {
-            remainingLine += haversineMeters(line[i], line[i + 1]);
+          if (typeof traveledMeters === "number") {
+            alongTrackMeters = Math.round(Math.max(0, traveledMeters));
+            remainingLine = Math.max(0, totalLine - traveledMeters);
+          } else {
+            let nearestIdx = 0;
+            let nearestDist = Infinity;
+            for (let i = 0; i < line.length; i++) {
+              const d = haversineMeters(coords, line[i]);
+              if (d < nearestDist) {
+                nearestDist = d;
+                nearestIdx = i;
+              }
+            }
+            for (let i = nearestIdx; i < line.length - 1; i++) {
+              remainingLine += haversineMeters(line[i], line[i + 1]);
+            }
           }
-          const totalLine = window.__veRouteMeta && window.__veRouteMeta.lineMeters
-            ? window.__veRouteMeta.lineMeters
-            : remainingLine;
-          if (totalLine > 0 && distanceMeters > 0) {
-            const ratio = Math.min(1, Math.max(0.02, remainingLine / totalLine));
+          const metaLine =
+            window.__veRouteMeta && window.__veRouteMeta.lineMeters
+              ? window.__veRouteMeta.lineMeters
+              : totalLine;
+          if (metaLine > 0 && distanceMeters > 0) {
+            const ratio = Math.min(1, Math.max(0, remainingLine / metaLine));
             distanceMeters = Math.round(distanceMeters * ratio);
             durationSeconds = Math.round(durationSeconds * ratio);
           } else if (remainingLine > 0) {
@@ -858,6 +888,7 @@ export function buildMapHtmlTemplate(
             type: "routeInfo",
             distanceMeters: distanceMeters,
             durationSeconds: durationSeconds,
+            alongTrackMeters: alongTrackMeters,
             nextManeuver: nextManeuver,
           })
         );
@@ -895,21 +926,87 @@ export function buildMapHtmlTemplate(
     }
 
     function resolveNavBearing(coords, opts) {
-      // Prefer route look-ahead so the map faces the road (classic GPS).
-      const ahead = lookAheadPoint(coords, window.__veNavLine, 70);
-      if (ahead) return bearingDegrees(coords, ahead);
+      const line = window.__veNavLine;
+      if (line && line.length > 1) {
+        const snap = snapToNavLine(coords, line, 60);
+        if (snap) return snap.bearing;
+      }
       if (opts && typeof opts.heading === "number" && opts.heading >= 0) {
         return opts.heading;
       }
       return map.getBearing();
     }
 
+    function cancelNavGlide() {
+      window.__veGlideToken = (window.__veGlideToken || 0) + 1;
+      if (window.__veGlideRaf) {
+        cancelAnimationFrame(window.__veGlideRaf);
+        window.__veGlideRaf = 0;
+      }
+    }
+
+    /** Glide the puck and the camera between snapped fixes. A 400 ms easeTo then a pause is a jump. */
+    function startNavGlide(snap, opts) {
+      const target = snap.point;
+      const bearing = snap.bearing;
+      const from = window.__veDisplayCoords || target;
+      const fromB =
+        typeof window.__veDisplayBearing === "number"
+          ? window.__veDisplayBearing
+          : bearing;
+      const t0 = window.performance ? performance.now() : Date.now();
+      const duration = 1400;
+      window.__veGlideToken = (window.__veGlideToken || 0) + 1;
+      const token = window.__veGlideToken;
+      beginProgrammaticCamera(duration);
+      if (window.__veGlideRaf) cancelAnimationFrame(window.__veGlideRaf);
+
+      function frame(now) {
+        if (token !== window.__veGlideToken) return;
+        const u = Math.min(1, (now - t0) / duration);
+        const pos = [
+          from[0] + (target[0] - from[0]) * u,
+          from[1] + (target[1] - from[1]) * u,
+        ];
+        const delta = ((bearing - fromB + 540) % 360) - 180;
+        const brg = (fromB + delta * u + 360) % 360;
+        window.__veDisplayCoords = pos;
+        window.__veDisplayBearing = brg;
+        syncGpsPuck(pos, brg);
+        const zoom = (opts && opts.zoom) || 16;
+        const pitch =
+          opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
+        try {
+          map.jumpTo({
+            center: pos,
+            zoom: zoom,
+            bearing: brg,
+            pitch: pitch,
+          });
+        } catch (e) {}
+        if (u < 1) window.__veGlideRaf = requestAnimationFrame(frame);
+      }
+      window.__veGlideRaf = requestAnimationFrame(frame);
+    }
+
     function updateGps(coords, opts) {
+      const follow = !(opts && opts.followCamera === false);
+      const line = window.__veNavLine;
+      if (follow && line && line.length > 1) {
+        const snap = snapToNavLine(coords, line, 60);
+        if (snap) {
+          startNavGlide(snap, opts);
+          postRouteProgress(snap.point, snap.traveledMeters);
+          return;
+        }
+      }
+
+      cancelNavGlide();
+      window.__veDisplayCoords = null;
+      window.__veDisplayBearing = null;
       syncGpsPuck(coords);
 
-      if (opts && opts.followCamera === false) {
-        return;
-      }
+      if (!follow) return;
 
       const zoom = (opts && opts.zoom) || 16;
       const duration = (opts && opts.duration) || 800;
@@ -927,14 +1024,7 @@ export function buildMapHtmlTemplate(
         essential: true,
       });
 
-      const now = Date.now();
-      if (
-        !window.__veLastProgressAt ||
-        now - window.__veLastProgressAt > 2000
-      ) {
-        window.__veLastProgressAt = now;
-        postRouteProgress(coords);
-      }
+      postRouteProgress(coords);
     }
 
     // --- Routes OSRM: trip (pickup→dropoff) + dashed approach (driver→pickup) ---
@@ -965,6 +1055,9 @@ export function buildMapHtmlTemplate(
       window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
       offerRoutePresented = false;
       window.__veNavLine = null;
+      cancelNavGlide();
+      window.__veDisplayCoords = null;
+      window.__veDisplayBearing = null;
       window.__veApproachLine = null;
       window.__veNavSteps = null;
       window.__veRouteMeta = null;

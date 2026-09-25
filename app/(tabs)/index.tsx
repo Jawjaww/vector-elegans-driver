@@ -1135,11 +1135,13 @@ export default function DashboardScreen() {
       distanceMeters: number,
       durationSeconds: number,
       nextManeuver?: NavManeuverInfo | null,
+      alongTrackMeters?: number | null,
     ) => {
       if (mapInOfferMode) return;
       pushNavProgress({
         distanceMeters,
         durationSeconds,
+        alongTrackMeters: alongTrackMeters ?? null,
         nextManeuver: nextManeuver
           ? {
               type: nextManeuver.type,
@@ -1651,15 +1653,23 @@ export default function DashboardScreen() {
     INITIAL_GUIDANCE_PEEK,
   );
   const remainingMeters = navProgress?.distanceMeters ?? null;
+  const alongTrackMeters = navProgress?.alongTrackMeters ?? null;
 
-  // The latest trip facts, for the heartbeat to read. Assigned during render, like the other
-  // refs in this codebase.
-  const guidanceFactsRef = useRef({ stage: tripStage, remainingMeters });
-  guidanceFactsRef.current = { stage: tripStage, remainingMeters };
+  const guidanceFactsRef = useRef({
+    stage: tripStage,
+    remainingMeters,
+    alongTrackMeters,
+  });
+  guidanceFactsRef.current = { stage: tripStage, remainingMeters, alongTrackMeters };
 
   useEffect(() => {
-    observeGuidancePeek({ stage: tripStage, remainingMeters, nowMs: Date.now() });
-  }, [tripStage, remainingMeters]);
+    observeGuidancePeek({
+      stage: tripStage,
+      remainingMeters,
+      alongTrackMeters,
+      nowMs: Date.now(),
+    });
+  }, [tripStage, remainingMeters, alongTrackMeters]);
 
   // The heartbeat, and the one thing it must not do is depend on the distance.
   //

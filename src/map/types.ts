@@ -76,6 +76,7 @@ export interface MapProps {
     distanceMeters: number,
     durationSeconds: number,
     nextManeuver?: NavManeuverInfo | null,
+    alongTrackMeters?: number | null,
   ) => void;
   /** Fired once when offer map has OSRM + final camera (presentation=offer). */
   onRoutePresented?: () => void;
