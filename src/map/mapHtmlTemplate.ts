@@ -1,6 +1,7 @@
 import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
+import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
 import { GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
 import {
@@ -45,12 +46,12 @@ export function buildMapHtmlTemplate(
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
   />
   <meta name="color-scheme" content="light" />
-  <meta name="theme-color" content="#e8eef4" />
+  <meta name="theme-color" content="${BASEMAP_CANVAS}" />
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body, #map { width: 100%; height: 100%; overflow: hidden; background-color: #e8eef4; }
+    html, body, #map { width: 100%; height: 100%; overflow: hidden; background-color: ${BASEMAP_CANVAS}; }
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
     /* Frost cards. The blur is a copy of the map canvas; the veil sits on that copy. */
     #ve-frost {
@@ -62,7 +63,7 @@ export function buildMapHtmlTemplate(
       pointer-events: none;
       z-index: 4;
     }
-    #map canvas { background-color: #e8eef4; }
+    #map canvas { background-color: ${BASEMAP_CANVAS}; }
 
     /* Hide noisy OpenMapTiles / OSM chrome under address overlays */
     .maplibregl-ctrl-attrib,
@@ -184,9 +185,12 @@ export function buildMapHtmlTemplate(
     const AGGRESSIVE_MODE = ${aggressiveMode};
 
     // --- MapLibre init avec WebGL optimisations ---
+    ${BASEMAP_TONE_JS}
+
+    function __veBoot(mapStyle) {
     const map = new maplibregl.Map({
       container: "map",
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: mapStyle,
       center: INITIAL_CENTER,
       zoom: INITIAL_ZOOM,
       pitch: 0,
@@ -1792,6 +1796,17 @@ export function buildMapHtmlTemplate(
     }
 
     // Service Worker intentionally not registered — stale tile cache blanked the map.
+    }
+
+    fetch("https://tiles.openfreemap.org/styles/liberty")
+      .then(function (res) { return res.json(); })
+      .then(function (style) {
+        toneBasemapStyle(style);
+        __veBoot(style);
+      })
+      .catch(function () {
+        __veBoot("https://tiles.openfreemap.org/styles/liberty");
+      });
   </script>
 </body>
 </html>

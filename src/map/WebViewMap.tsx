@@ -18,6 +18,7 @@ import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import type { MapProps, LatLng, DriverMarker, MapBounds } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
+import { BASEMAP_CANVAS } from './basemapTone';
 import { getFrostRects, subscribeFrostRects, type FrostRect } from './frostRects';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 import { gpsMovedEnough, haversineMeters } from '../lib/utils/gpsThrottle';
@@ -685,6 +686,6 @@ export const usePrefetchControl = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e8eef4' },
-  map: { flex: 1, backgroundColor: '#e8eef4' },
+  container: { flex: 1, backgroundColor: BASEMAP_CANVAS },
+  map: { flex: 1, backgroundColor: BASEMAP_CANVAS },
 });
