@@ -142,25 +142,19 @@ describe('the edge of a panel', () => {
 });
 
 describe('the face of a panel', () => {
-  it('washes the grey face in a barely visible step, not a bossed plate', () => {
+  it('frost the face with a neutral white veil, not a grey bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThanOrEqual(0.55);
-      expect(colour.a).toBeLessThanOrEqual(0.85);
-      expect(colour.b - colour.r).toBeLessThanOrEqual(12);
+      expect(colour.a).toBeGreaterThanOrEqual(0.3);
+      expect(colour.a).toBeLessThanOrEqual(0.55);
+      expect(colour.r).toBe(255);
+      expect(colour.g).toBe(255);
+      expect(colour.b).toBe(255);
       expect(overMap(stop)).toBeGreaterThan(680);
     }
     const top = rgbOf(GLASS_MATERIAL.fillTop);
     const bottom = rgbOf(GLASS_MATERIAL.fillBottom);
-    const delta =
-      Math.abs(top.r - bottom.r) +
-      Math.abs(top.g - bottom.g) +
-      Math.abs(top.b - bottom.b);
-    expect(delta).toBeGreaterThan(0);
-    expect(delta).toBeLessThanOrEqual(36);
-    expect(lightness(GLASS_MATERIAL.fillTop)).toBeGreaterThan(
-      lightness(GLASS_MATERIAL.fillBottom),
-    );
+    expect(top.a).toBeGreaterThan(bottom.a);
     const code = stripComments(readSource(GLASS_PANEL));
     expect(code).toContain('material.fillTop');
     expect(code).toContain('material.fillBottom');
@@ -306,8 +300,8 @@ describe('one material, and the theme owns it', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
     expect(panel).toContain('expo-blur');
     expect(panel).toContain('material.blurIntensity');
-    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(12);
-    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(40);
+    expect(GLASS_MATERIAL.blurIntensity).toBeGreaterThanOrEqual(30);
+    expect(GLASS_MATERIAL.blurIntensity).toBeLessThanOrEqual(55);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
