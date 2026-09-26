@@ -271,7 +271,7 @@ describe('the announcement the guidance bar is', () => {
     // must survive: a stage suppressed for a whole leg would otherwise have no recall left.
     const clock = makeClock();
     let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
-    expect(guidancePeekVisible(state, true)).toBe(false);
+    expect(guidancePeekVisible(state, true, 'at_pickup')).toBe(false);
 
     clock.set(T0 + 10 * GUIDANCE_RECALL_MS);
     state = clock.observe(state, 'at_pickup', null);
@@ -279,7 +279,13 @@ describe('the announcement the guidance bar is', () => {
     expect(state.visible).toBe(true);
 
     // And the moment the driver lowers the sheet, the instruction is there again.
-    expect(guidancePeekVisible(state, false)).toBe(true);
+    expect(guidancePeekVisible(state, false, 'at_pickup')).toBe(true);
+  });
+
+  it('still announces to_dropoff when the trip sheet stayed raised after pickup', () => {
+    const clock = makeClock();
+    const state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_dropoff', 5000);
+    expect(guidancePeekVisible(state, true, 'to_dropoff')).toBe(true);
   });
 
   it('says nothing at all without a ride to say it about', () => {
@@ -353,8 +359,9 @@ describe('the wiring that feeds the announcement', () => {
     expect(dashboard).toContain('remainingMeters');
     expect(dashboard).toContain('nowMs: Date.now()');
     expect(dashboard).toContain(
-      'guidancePeekVisible(guidancePeek, tripVisibleInSheet)',
+      'guidancePeekVisible(guidancePeek, tripVisibleInSheet, tripStage)',
     );
+    expect(dashboard).toContain('sheetVisibleH={overlaySheetVisibleH}');
     // The bar is told whether to show, rather than unmounted: the retraction has to animate.
     expect(dashboard).toContain('visible={guidanceVisible}');
     expect(dashboard).toContain('aboveGuidanceBar={guidanceVisible}');

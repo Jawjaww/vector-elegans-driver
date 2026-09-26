@@ -20,6 +20,8 @@ type GlassPanelProps = Readonly<{
    */
   radius: number;
   style?: StyleProp<ViewStyle>;
+  /** When false, map frost is cleared and not republished (hidden overlays must not paint frost). */
+  frostEnabled?: boolean;
 }>;
 
 /** Kept at zero: the frost is one sheet, not a beveled inset. */
@@ -36,12 +38,21 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
  *
  * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */
-export function GlassPanel({ children, radius, style }: GlassPanelProps) {
+export function GlassPanel({
+  children,
+  radius,
+  style,
+  frostEnabled = true,
+}: GlassPanelProps) {
   const id = useId();
   const ref = useRef<View>(null);
   const material = GLASS_MATERIAL;
 
   const report = useCallback(() => {
+    if (!frostEnabled) {
+      clearFrostRect(id);
+      return;
+    }
     const node = ref.current;
     const anchor = getFrostScene();
     if (!node || !anchor) return;
@@ -53,9 +64,13 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
       },
       () => {},
     );
-  }, [id, radius]);
+  }, [frostEnabled, id, radius]);
 
   useEffect(() => {
+    if (!frostEnabled) {
+      clearFrostRect(id);
+      return;
+    }
     let alive = true;
     let raf = 0;
     const loop = () => {
@@ -69,7 +84,7 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
       cancelAnimationFrame(raf);
       clearFrostRect(id);
     };
-  }, [id, report]);
+  }, [frostEnabled, id, report]);
 
   return (
     <View

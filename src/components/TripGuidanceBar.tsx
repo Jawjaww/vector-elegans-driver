@@ -2,7 +2,6 @@ import { View, Text, Animated, Easing } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
 import { GlassPanel } from './GlassPanel';
 import {
   tripGuidanceAccent,
@@ -21,8 +20,8 @@ const SINK_PX = 12;
 
 type TripGuidanceBarProps = Readonly<{
   stage: TripStage;
-  /** Place above the taller trip sheet (waiting at pickup). */
-  aboveTripSheet?: boolean;
+  /** Visible height of the bottom sheet the lane must clear (settled palier, not a boolean). */
+  sheetVisibleH: number;
   /**
    * Whether the announcement is currently worth showing.
    *
@@ -58,14 +57,13 @@ type TripGuidanceBarProps = Readonly<{
  */
 export function TripGuidanceBar({
   stage,
-  aboveTripSheet = false,
+  sheetVisibleH,
   visible = true,
 }: TripGuidanceBarProps) {
   const { t } = useTranslation();
   const material = GLASS_MATERIAL;
   const accent = tripGuidanceAccent(stage);
-  const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
-  const laneBottom = sheetH + LANE_BASE_OFFSET;
+  const laneBottom = sheetVisibleH + LANE_BASE_OFFSET;
 
   const shown = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
@@ -96,7 +94,7 @@ export function TripGuidanceBar({
         opacity: shown,
       }}
     >
-      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+      <GlassPanel radius={OVERLAY_CARD_RADIUS} frostEnabled={visible}>
         <View
           style={{
             flexDirection: 'row',
