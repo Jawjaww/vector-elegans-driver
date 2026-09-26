@@ -4,7 +4,9 @@ import {
   maneuverActionPhrase,
   maneuverBannerLine,
   maneuverToFeatherIcon,
+  nextManeuverAlongTrack,
   optimisticEtaMinutes,
+  type OsrmStepLike,
 } from '../utils/navProgress';
 
 describe('navProgress', () => {
@@ -58,5 +60,57 @@ describe('navProgress', () => {
     expect(maneuverBannerLine('rotary', undefined, 30)).toBe(
       'Rond-point dans 30 m',
     );
+  });
+
+  const steps: OsrmStepLike[] = [
+    { distance: 100, name: 'Rue A', maneuver: { type: 'depart' } },
+    {
+      distance: 80,
+      name: 'Rue B',
+      maneuver: { type: 'turn', modifier: 'right' },
+    },
+    {
+      distance: 20,
+      name: 'Rue C',
+      maneuver: { type: 'turn', modifier: 'left' },
+    },
+    { distance: 0, name: 'Arrivée', maneuver: { type: 'arrive' } },
+  ];
+
+  it('names the turn still ahead along the route', () => {
+    const next = nextManeuverAlongTrack(steps, 40);
+    expect(next).toMatchObject({
+      type: 'turn',
+      modifier: 'right',
+      distanceMeters: 60,
+      name: 'Rue B',
+    });
+  });
+
+  it('skips a turn already passed, including one only a few metres back', () => {
+    const passed = nextManeuverAlongTrack(steps, 110);
+    expect(passed).toMatchObject({
+      modifier: 'left',
+      distanceMeters: 70,
+      name: 'Rue C',
+    });
+    const close = nextManeuverAlongTrack(steps, 175);
+    expect(close).toMatchObject({
+      modifier: 'left',
+      distanceMeters: 5,
+      name: 'Rue C',
+    });
+  });
+
+  it('reports arrival from the remaining along-track distance', () => {
+    expect(nextManeuverAlongTrack(steps, 190)).toMatchObject({
+      type: 'arrive',
+      distanceMeters: 10,
+    });
+    expect(nextManeuverAlongTrack(steps, 250)).toMatchObject({
+      type: 'arrive',
+      distanceMeters: 0,
+    });
+    expect(nextManeuverAlongTrack([], 0)).toBeNull();
   });
 });

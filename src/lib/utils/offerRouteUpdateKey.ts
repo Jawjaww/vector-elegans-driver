@@ -6,18 +6,22 @@ export type OfferRouteUpdateKeyInput = {
   navigationFollow: boolean;
   presentation: string;
   offerOverview: boolean;
+  /**
+   * Bumped only after an off-route latch. Navigation follow otherwise ignores
+   * the moving GPS origin so ticks do not abort the in-flight OSRM request.
+   */
+  rerouteGeneration?: number;
 };
 
 /**
  * Identity for posting updateRoute.
  * GPS / driverMarker is intentionally omitted — ticks must not abort OSRM.
+ * In navigation the origin is omitted too; a new route is a new generation.
  */
 export function buildOfferRouteUpdateKey(input: OfferRouteUpdateKeyInput): string {
-  const startDigits = input.navigationFollow ? 4 : 5;
-  const startKey = [
-    input.start.lat.toFixed(startDigits),
-    input.start.lng.toFixed(startDigits),
-  ].join('|');
+  const startKey = input.navigationFollow
+    ? `reroute:${input.rerouteGeneration ?? 0}`
+    : [input.start.lat.toFixed(5), input.start.lng.toFixed(5)].join('|');
   const endKey = [input.end.lat.toFixed(5), input.end.lng.toFixed(5)].join('|');
   return [
     startKey,

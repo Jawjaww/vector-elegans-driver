@@ -18,6 +18,51 @@ export function haversineMeters(
   return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+/** Drop a later fix coarser than this once a position is already held. */
+export const GPS_MAX_ACCURACY_METERS = 40;
+
+/** Reject an implied speed above this (~200 km/h) as a GPS jump. */
+export const GPS_MAX_SPEED_MPS = 55;
+
+export function gpsFixAcceptable(input: {
+  accuracy: number | null | undefined;
+  prev: GpsCoord | null;
+  next: GpsCoord;
+  elapsedMs: number;
+  hasFix: boolean;
+}): boolean {
+  if (!Number.isFinite(input.next.lat) || !Number.isFinite(input.next.lng)) {
+    return false;
+  }
+  if (
+    input.hasFix &&
+    typeof input.accuracy === 'number' &&
+    Number.isFinite(input.accuracy) &&
+    input.accuracy > GPS_MAX_ACCURACY_METERS
+  ) {
+    return false;
+  }
+  if (input.hasFix && input.prev && input.elapsedMs > 0) {
+    const speed = haversineMeters(input.prev, input.next) / (input.elapsedMs / 1000);
+    if (speed > GPS_MAX_SPEED_MPS) return false;
+  }
+  return true;
+}
+
+/** Street-level follow camera from ground speed (m/s). */
+export function navCameraForSpeed(speedMps: number | null | undefined): {
+  zoom: number;
+  pitch: number;
+} {
+  const kmh =
+    typeof speedMps === 'number' && Number.isFinite(speedMps) && speedMps > 0
+      ? speedMps * 3.6
+      : 0;
+  if (kmh > 70) return { zoom: 16, pitch: 40 };
+  if (kmh >= 30) return { zoom: 17, pitch: 45 };
+  return { zoom: 18, pitch: 50 };
+}
+
 /** True when we should write location into React state / Zustand. */
 export function gpsMovedEnough(
   prev: GpsCoord | null | undefined,
