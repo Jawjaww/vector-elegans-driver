@@ -40,7 +40,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
     : 'navigation';
   const instruction = man
     ? maneuverBannerLine(man.type, man.modifier, man.distanceMeters, man.exit)
-    : 'Suivre le trajet';
+    : 'Calcul de l’itinéraire…';
   const street = man?.name?.trim() ? man.name.trim() : null;
 
   return (
@@ -51,10 +51,14 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
         top: insets.top + 8,
         left: 12,
         right: 12,
-        zIndex: 15,
+        zIndex: 50,
+        elevation: 50,
       }}
     >
-      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+      <GlassPanel
+        radius={OVERLAY_CARD_RADIUS}
+        style={{ backgroundColor: material.fillTop }}
+      >
         <View
           style={{
             flexDirection: 'row',

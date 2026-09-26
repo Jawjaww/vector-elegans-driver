@@ -1810,15 +1810,23 @@ export default function DashboardScreen() {
           />
         ) : null}
 
+        {tripStage === 'to_pickup' || tripStage === 'to_dropoff' ? (
+          <TripManeuverHud
+            progress={
+              navProgress ?? {
+                distanceMeters: 0,
+                durationSeconds: 0,
+                nextManeuver: null,
+              }
+            }
+          />
+        ) : null}
         {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
-          <>
-            <TripManeuverHud progress={navProgress} />
-            <TripArrivalHud
-              progress={navProgress}
-              sheetVisibleH={overlaySheetVisibleH}
-              aboveGuidanceBar={guidanceVisible}
-            />
-          </>
+          <TripArrivalHud
+            progress={navProgress}
+            sheetVisibleH={overlaySheetVisibleH}
+            aboveGuidanceBar={guidanceVisible}
+          />
         ) : null}
 
         {offerCarouselElement}
