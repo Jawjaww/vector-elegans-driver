@@ -4,6 +4,7 @@ import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
 import { GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
+import { nextManeuverAlongTrack } from "../lib/utils/navProgress";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
@@ -731,6 +732,7 @@ export function buildMapHtmlTemplate(
     }
 
     ${snapToNavLine.toString()}
+    ${nextManeuverAlongTrack.toString()}
 
     /** Point ~lookAheadM along the nav polyline ahead of current position */
     function lookAheadPoint(coords, line, lookAheadM) {
@@ -1018,7 +1020,13 @@ export function buildMapHtmlTemplate(
           }
         }
 
-        const nextManeuver = pickNextManeuver(coords, steps);
+        const maneuverAt =
+          typeof traveledMeters === "number"
+            ? traveledMeters
+            : typeof alongTrackMeters === "number"
+              ? alongTrackMeters
+              : 0;
+        const nextManeuver = nextManeuverAlongTrack(steps, maneuverAt);
         window.ReactNativeWebView.postMessage(
           JSON.stringify({
             type: "routeInfo",
@@ -1031,39 +1039,72 @@ export function buildMapHtmlTemplate(
       } catch (e) {}
     }
 
-    function pickNextManeuver(coords, steps) {
-      if (!steps || !steps.length || !coords) return null;
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        const man = step.maneuver || {};
-        const loc = man.location;
-        if (!loc || loc.length < 2) continue;
-        const t = (man.type || "").toLowerCase();
-        if (t === "depart") continue;
-        const dist = haversineMeters(coords, loc);
-        // Skip maneuvers we already passed (behind / very close)
-        if (dist < 25 && t !== "arrive") continue;
-        return {
-          type: man.type || "turn",
-          modifier: man.modifier || null,
-          distanceMeters: Math.round(dist),
-          name: step.name || "",
-          exit: typeof man.exit === "number" ? man.exit : null,
-        };
+    var OFF_ROUTE_METERS = 45;
+    var OFF_ROUTE_FIXES = 3;
+
+    function clearOffRouteLatch() {
+      window.__veOffRouteStreak = 0;
+      window.__veAwaitingReroute = false;
+    }
+
+    /** True once the driver has stayed more than 45 m off the line for 3 fixes. */
+    function latchOffRoute(coords, dist) {
+      if (window.__veAwaitingReroute) return true;
+      if (!(dist > OFF_ROUTE_METERS)) {
+        window.__veOffRouteStreak = 0;
+        return false;
       }
-      const last = steps[steps.length - 1];
-      const man = (last && last.maneuver) || {};
-      const loc = man.location;
-      return {
-        type: man.type || "arrive",
-        modifier: man.modifier || null,
-        distanceMeters: loc ? Math.round(haversineMeters(coords, loc)) : 0,
-        name: (last && last.name) || "",
-        exit: typeof man.exit === "number" ? man.exit : null,
-      };
+      window.__veOffRouteStreak = (window.__veOffRouteStreak || 0) + 1;
+      if (window.__veOffRouteStreak < OFF_ROUTE_FIXES) return false;
+      window.__veAwaitingReroute = true;
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: "offRoute",
+              lng: coords[0],
+              lat: coords[1],
+            })
+          );
+        }
+      } catch (e) {}
+      return true;
+    }
+
+    function heldBearing(desired, opts) {
+      const speed = opts && typeof opts.speed === "number" ? opts.speed : null;
+      if (
+        speed !== null &&
+        speed < 1 &&
+        typeof window.__veDisplayBearing === "number"
+      ) {
+        return window.__veDisplayBearing;
+      }
+      return desired;
+    }
+
+    function navLookaheadPadding(opts) {
+      if (!opts || opts.navigation !== true) {
+        return { top: 0, bottom: 0, left: 0, right: 0 };
+      }
+      var h = 0;
+      try {
+        h = map.getContainer().clientHeight || 0;
+      } catch (e) {}
+      return { top: 0, bottom: Math.round(h * 0.35), left: 0, right: 0 };
+    }
+
+    function rememberNavCamera(opts) {
+      if (!opts || opts.navigation !== true) return;
+      if (typeof opts.zoom === "number") window.__veNavZoom = opts.zoom;
+      if (typeof opts.pitch === "number") window.__veNavPitch = opts.pitch;
+      if (typeof opts.speed === "number") window.__veNavSpeed = opts.speed;
+      if (typeof opts.heading === "number") window.__veNavHeading = opts.heading;
     }
 
     function resolveNavBearing(coords, opts) {
+      const held = heldBearing(null, opts);
+      if (typeof held === "number") return held;
       const line = window.__veNavLine;
       if (line && line.length > 1) {
         const snap = snapToNavLine(coords, line, 60);
@@ -1086,14 +1127,14 @@ export function buildMapHtmlTemplate(
     /** Glide the puck and the camera between snapped fixes. A 400 ms easeTo then a pause is a jump. */
     function startNavGlide(snap, opts) {
       const target = snap.point;
-      const bearing = snap.bearing;
+      const bearing = heldBearing(snap.bearing, opts);
       const from = window.__veDisplayCoords || target;
       const fromB =
         typeof window.__veDisplayBearing === "number"
           ? window.__veDisplayBearing
           : bearing;
       const t0 = window.performance ? performance.now() : Date.now();
-      const duration = 1400;
+      const duration = 900;
       window.__veGlideToken = (window.__veGlideToken || 0) + 1;
       const token = window.__veGlideToken;
       beginProgrammaticCamera(duration);
@@ -1120,6 +1161,7 @@ export function buildMapHtmlTemplate(
             zoom: zoom,
             bearing: brg,
             pitch: pitch,
+            padding: navLookaheadPadding(opts),
           });
         } catch (e) {}
         if (u < 1) window.__veGlideRaf = requestAnimationFrame(frame);
@@ -1128,20 +1170,33 @@ export function buildMapHtmlTemplate(
     }
 
     function updateGps(coords, opts) {
+      rememberNavCamera(opts);
       const follow = !(opts && opts.followCamera === false);
       const line = window.__veNavLine;
-      if (follow && line && line.length > 1) {
-        const snap = snapToNavLine(coords, line, 60);
-        if (snap) {
-          startNavGlide(snap, opts);
-          postRouteProgress(snap.point, snap.traveledMeters);
-          return;
-        }
+      let snapped = null;
+      if (line && line.length > 1) {
+        snapped = snapToNavLine(coords, line, 60);
+      }
+      const offRoute =
+        follow && snapped
+          ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
+          : false;
+
+      if (follow && snapped && !offRoute) {
+        startNavGlide(snapped, opts);
+        postRouteProgress(snapped.point, snapped.traveledMeters);
+        return;
       }
 
+      const held =
+        typeof window.__veDisplayBearing === "number"
+          ? window.__veDisplayBearing
+          : null;
       cancelNavGlide();
       window.__veDisplayCoords = null;
-      window.__veDisplayBearing = null;
+      if (!(opts && typeof opts.speed === "number" && opts.speed < 1)) {
+        window.__veDisplayBearing = null;
+      }
       syncGpsPuck(coords);
 
       if (!follow) return;
@@ -1150,7 +1205,20 @@ export function buildMapHtmlTemplate(
       const duration = (opts && opts.duration) || 800;
       const pitch =
         opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
-      const bearing = resolveNavBearing(coords, opts);
+      let bearing;
+      if (opts && typeof opts.speed === "number" && opts.speed < 1 && held !== null) {
+        bearing = held;
+        window.__veDisplayBearing = held;
+      } else if (offRoute) {
+        bearing =
+          opts && typeof opts.heading === "number" && opts.heading >= 0
+            ? opts.heading
+            : held !== null
+              ? held
+              : map.getBearing();
+      } else {
+        bearing = resolveNavBearing(coords, opts);
+      }
 
       beginProgrammaticCamera(duration);
       map.easeTo({
@@ -1158,11 +1226,12 @@ export function buildMapHtmlTemplate(
         zoom: zoom,
         bearing: bearing,
         pitch: pitch,
+        padding: navLookaheadPadding(opts),
         duration: duration,
         essential: true,
       });
 
-      postRouteProgress(coords);
+      postRouteProgress(coords, snapped ? snapped.traveledMeters : undefined);
     }
 
     // --- Routes OSRM: trip (pickup→dropoff) + dashed approach (driver→pickup) ---
@@ -1199,6 +1268,7 @@ export function buildMapHtmlTemplate(
       window.__veApproachLine = null;
       window.__veNavSteps = null;
       window.__veRouteMeta = null;
+      clearOffRouteLatch();
       [
         "route-line", "route-line-glow", "route-casing",
         "approach-line", "approach-line-glow", "approach-casing",
@@ -1614,11 +1684,15 @@ export function buildMapHtmlTemplate(
       }
       function recenterTripNavCamera() {
         if (shouldFitBounds || isOffer) return;
+        clearOffRouteLatch();
         const coords = window.__veLastGpsCoords;
         if (!coords) return;
         updateGps(coords, {
-          zoom: 18,
-          pitch: 50,
+          zoom: window.__veNavZoom || 18,
+          pitch: typeof window.__veNavPitch === "number" ? window.__veNavPitch : 50,
+          speed: window.__veNavSpeed,
+          heading: window.__veNavHeading,
+          navigation: true,
           duration: 450,
           followCamera: true,
         });

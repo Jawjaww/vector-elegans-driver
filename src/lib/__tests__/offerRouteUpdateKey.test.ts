@@ -40,4 +40,20 @@ describe('buildOfferRouteUpdateKey', () => {
     });
     expect(seeded).toBe(sameSeeded);
   });
+
+  it('ignores GPS drift while navigating and changes on a reroute generation', () => {
+    const nav = {
+      ...base,
+      navigationFollow: true,
+      presentation: 'trip',
+    };
+    const parked = buildOfferRouteUpdateKey(nav);
+    const drifted = buildOfferRouteUpdateKey({
+      ...nav,
+      start: { lat: 48.7812, lng: 1.951 },
+    });
+    expect(drifted).toBe(parked);
+    const rerouted = buildOfferRouteUpdateKey({ ...nav, rerouteGeneration: 1 });
+    expect(rerouted).not.toBe(parked);
+  });
 });

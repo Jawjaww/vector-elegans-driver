@@ -7,6 +7,62 @@ export type NavManeuver = {
   exit?: number;
 };
 
+/** One OSRM step, only the fields the along-track picker reads. */
+export type OsrmStepLike = {
+  distance?: number;
+  name?: string;
+  maneuver?: {
+    type?: string;
+    modifier?: string | null;
+    exit?: number | null;
+  };
+};
+
+export type AlongTrackManeuver = {
+  type: string;
+  modifier: string | null;
+  distanceMeters: number;
+  name: string;
+  exit: number | null;
+};
+
+/**
+ * Next instruction measured along the route, not as the crow flies.
+ *
+ * OSRM places each maneuver at the start of its step. The distance to it is
+ * the sum of the previous steps' lengths. A maneuver already reached
+ * (cumulative <= traveled) is skipped, including two turns a few metres apart.
+ */
+export function nextManeuverAlongTrack(
+  steps: OsrmStepLike[] | null | undefined,
+  traveledMeters: number,
+): AlongTrackManeuver | null {
+  if (!steps?.length) return null;
+  const traveled = Number.isFinite(traveledMeters)
+    ? Math.max(0, traveledMeters)
+    : 0;
+  let cumulative = 0;
+  let fallback: AlongTrackManeuver | null = null;
+  for (const step of steps) {
+    const man = step?.maneuver ?? {};
+    const type = String(man.type || 'turn').toLowerCase();
+    const at = cumulative;
+    const stepDist = Number(step?.distance);
+    if (Number.isFinite(stepDist) && stepDist > 0) cumulative += stepDist;
+    if (type === 'depart') continue;
+    const maneuver: AlongTrackManeuver = {
+      type: man.type || 'turn',
+      modifier: man.modifier || null,
+      distanceMeters: Math.max(0, Math.round(at - traveled)),
+      name: step?.name || '',
+      exit: typeof man.exit === 'number' ? man.exit : null,
+    };
+    fallback = maneuver;
+    if (at > traveled) return maneuver;
+  }
+  return fallback;
+}
+
 export type NavProgress = {
   distanceMeters: number;
   durationSeconds: number;
