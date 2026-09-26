@@ -7,7 +7,6 @@ import {
   optimisticEtaMinutes,
   type NavProgress,
 } from '../lib/utils/navProgress';
-import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
 import {
   LANE_BASE_OFFSET,
   LIFT_OVER_INSTRUCTION,
@@ -22,8 +21,8 @@ import { GLASS_MATERIAL } from '../lib/theme';
 
 type TripArrivalHudProps = Readonly<{
   progress: NavProgress;
-  /** Place above the taller trip sheet (waiting at pickup). */
-  aboveTripSheet?: boolean;
+  /** Visible height of the bottom sheet the lane must clear. */
+  sheetVisibleH: number;
   /**
    * Ride above the guidance bar while the bar is on screen.
    *
@@ -52,7 +51,7 @@ type TripArrivalHudProps = Readonly<{
  */
 export function TripArrivalHud({
   progress,
-  aboveTripSheet = false,
+  sheetVisibleH,
   aboveGuidanceBar = false,
 }: TripArrivalHudProps) {
   const material = GLASS_MATERIAL;
@@ -61,8 +60,7 @@ export function TripArrivalHud({
     progress.distanceMeters,
   );
   const clock = formatArrivalClock(eta);
-  const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
-  const laneBottom = sheetH + LANE_BASE_OFFSET;
+  const laneBottom = sheetVisibleH + LANE_BASE_OFFSET;
 
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
 

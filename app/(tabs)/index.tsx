@@ -63,7 +63,12 @@ import {
   resolveOfferRingAction,
 } from "../../src/lib/notifications/offerRing";
 import { AnimatedPage } from "../../src/components/AnimatedPage";
-import { BottomSheet, type SheetSnapLevel, NAV_SHEET_VISIBLE_H, tripSheetVisibleHeight } from "../../src/components/BottomSheet";
+import {
+  BottomSheet,
+  type SheetSnapLevel,
+  NAV_SHEET_VISIBLE_H,
+  sheetVisibleHeight,
+} from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
 import { VTCMap } from "../../src/map";
@@ -555,13 +560,10 @@ function shouldShowTripNavigationHud(
 function resolveMapRecenterBottomOffset(
   activeRide: Ride | null,
   noticesHeight: number,
+  sheetLevel: SheetSnapLevel,
 ): number {
   if (!activeRide) return 56;
-  const waitingAtPickup =
-    activeRide.status === "scheduled" && Boolean(activeRide.driver_arrived_at);
-  return waitingAtPickup
-    ? tripSheetVisibleHeight(noticesHeight)
-    : NAV_SHEET_VISIBLE_H;
+  return sheetVisibleHeight(sheetLevel, noticesHeight);
 }
 
 /**
@@ -1623,9 +1625,27 @@ export default function DashboardScreen() {
     [activeRide, offerCardVisible, hasNotices],
   );
 
+  // The palier the sheet has *actually* settled on, reported by the sheet itself: the
+  // `bottomSheetSnapLevel` above is only what the sheet is asked for, and a driver who drags it
+  // settles wherever they let go. The difference is the whole point of the two props — "the trip
+  // is in front of the driver" (the trip body) versus "it is below the fold" (`nav`, 14 px).
+  const [sheetSettledAt, setSheetSettledAt] = useState<SheetSnapLevel | null>(null);
+
+  const overlaySheetLevel = sheetSettledAt ?? bottomSheetSnapLevel;
+
+  const overlaySheetVisibleH = useMemo(
+    () => sheetVisibleHeight(overlaySheetLevel, noticesHeight),
+    [overlaySheetLevel, noticesHeight],
+  );
+
   const mapRecenterBottomOffset = useMemo(
-    () => resolveMapRecenterBottomOffset(activeRide, noticesHeight),
-    [activeRide, activeRide?.status, activeRide?.driver_arrived_at, noticesHeight],
+    () =>
+      resolveMapRecenterBottomOffset(
+        activeRide,
+        noticesHeight,
+        overlaySheetLevel,
+      ),
+    [activeRide, noticesHeight, overlaySheetLevel],
   );
 
   // The instruction the driver is meant to be reading. Read off the same two fields the sheet
@@ -1638,17 +1658,6 @@ export default function DashboardScreen() {
       ),
     [activeRide?.status, activeRide?.driver_arrived_at],
   );
-
-  // Waiting at the pickup is the one stage whose sheet is taller than `nav`, so the overlays
-  // above it have to clear a different height — same rule as `resolveMapRecenterBottomOffset`.
-  const waitingAtPickup =
-    activeRide?.status === "scheduled" && Boolean(activeRide?.driver_arrived_at);
-
-  // The palier the sheet has *actually* settled on, reported by the sheet itself: the
-  // `bottomSheetSnapLevel` above is only what the sheet is asked for, and a driver who drags it
-  // settles wherever they let go. The difference is the whole point of the two props — "the trip
-  // is in front of the driver" (the trip body) versus "it is below the fold" (`nav`, 14 px).
-  const [sheetSettledAt, setSheetSettledAt] = useState<SheetSnapLevel | null>(null);
 
   // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes,
   // withdraws once the driver pulls away, and returns after the driver has sat still long enough.
@@ -1700,7 +1709,8 @@ export default function DashboardScreen() {
     bottomSheetSnapLevel === "trip" || sheetSettledAt === "trip";
 
   const guidanceVisible =
-    !mapInOfferMode && guidancePeekVisible(guidancePeek, tripVisibleInSheet);
+    !mapInOfferMode &&
+    guidancePeekVisible(guidancePeek, tripVisibleInSheet, tripStage);
 
   // The offer overlay is rendered by both branches below; see `DashboardOfferOverlay` for the
   // single visibility rule it applies. Nothing branches here on purpose: the element is the
@@ -1795,7 +1805,7 @@ export default function DashboardScreen() {
         {tripStage && !mapInOfferMode ? (
           <TripGuidanceBar
             stage={tripStage}
-            aboveTripSheet={waitingAtPickup}
+            sheetVisibleH={overlaySheetVisibleH}
             visible={guidanceVisible}
           />
         ) : null}
@@ -1805,7 +1815,7 @@ export default function DashboardScreen() {
             <TripManeuverHud progress={navProgress} />
             <TripArrivalHud
               progress={navProgress}
-              aboveTripSheet={waitingAtPickup}
+              sheetVisibleH={overlaySheetVisibleH}
               aboveGuidanceBar={guidanceVisible}
             />
           </>

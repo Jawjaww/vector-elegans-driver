@@ -246,11 +246,30 @@ export function guidancePeekReducer(
  * It also cannot consume a recall: suppressing the bar because the sheet is already showing the
  * same words is not the driver having read it, so the stage keeps whatever budget it had.
  */
+/**
+ * Whether the raised trip sheet already carries the same instruction as the bar.
+ *
+ * `to_dropoff` is excluded on purpose: once the leg starts, the driver may still have the sheet
+ * expanded from the pickup swipe, and the next announcement must sit above that sheet rather than
+ * vanish or leave a frost ghost with no text.
+ */
+export function guidanceSuppressedByRaisedTripSheet(
+  stage: TripStage | null,
+  tripVisibleInSheet: boolean,
+): boolean {
+  if (!tripVisibleInSheet || stage === null) return false;
+  return stage !== 'to_dropoff';
+}
+
 export function guidancePeekVisible(
   state: GuidancePeekState,
   tripVisibleInSheet: boolean,
+  stage: TripStage | null = null,
 ): boolean {
-  return state.visible && !tripVisibleInSheet;
+  return (
+    state.visible &&
+    !guidanceSuppressedByRaisedTripSheet(stage, tripVisibleInSheet)
+  );
 }
 
 /**

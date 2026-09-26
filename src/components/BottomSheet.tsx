@@ -127,6 +127,33 @@ export function tripSheetVisibleHeight(noticesBodyH = NOTICES_BODY_H): number {
 
 export const TRIP_SHEET_VISIBLE_H = tripSheetVisibleHeight();
 
+/** Visible body height (px from scene bottom) for a settled snap palier. */
+export function sheetVisibleHeight(
+  level: SheetSnapLevel,
+  noticesBodyH = NOTICES_BODY_H,
+): number {
+  const online = HANDLE_H + ONLINE_BODY_H;
+  const notices = online + Math.max(0, noticesBodyH);
+  const trip = notices + TRIP_BODY_H;
+  const rides = notices + RIDES_BODY_H;
+  const stats = rides + STATS_BODY_H;
+  switch (level) {
+    case 'peek':
+    case 'nav':
+      return HANDLE_ONLY_VISIBLE;
+    case 'online':
+      return online;
+    case 'notices':
+      return notices;
+    case 'trip':
+      return trip;
+    case 'rides':
+      return rides;
+    case 'stats':
+      return stats;
+  }
+}
+
 function resolveAllowedOrder(
   allowedSnaps?: readonly SheetSnapLevel[],
 ): SheetSnapLevel[] {
