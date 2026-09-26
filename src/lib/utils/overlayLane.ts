@@ -36,14 +36,18 @@ export const OVERLAY_CARD_RADIUS = 20;
 /** Gap between two stacked overlays, and between the lower one and the sheet. */
 export const OVERLAY_STACK_GAP = 6;
 
-/** Distance from the top of the visible sheet to the bottom of the instruction bar. */
-export const LANE_BASE_OFFSET = 10;
+/**
+ * Distance from the top of the visible sheet to the bottom of the instruction bar.
+ *
+ * Wide enough that the card's shadow does not land on the sheet. A 10 px gap read as contact.
+ */
+export const LANE_BASE_OFFSET = 28;
 
 /**
- * The same distance for a small control in the lane.
+ * Resting distance from the sheet to a small control, while the instruction bar is hidden.
  *
- * Two points above the bar, so a control and the bar never share a baseline even when the control
- * is at rest — the offset is what makes the two read as a stack rather than as one thick panel.
+ * Lower than the bar on purpose: the control only climbs (`LIFT_OVER_INSTRUCTION`) once the bar
+ * is on screen. At rest it stays in the strip the bar leaves behind.
  */
 export const CONTROL_BASE_OFFSET = 12;
 
@@ -53,8 +57,11 @@ export const MAP_CONTROL_SIZE = 48;
 /**
  * How far a small control rises to clear the instruction bar while the bar is on screen.
  *
- * The bar's own height plus the gap, so a lifted control sits in the lane above it rather than
- * over it. Both the arrival chip and the recenter control use this figure and nothing else: the
- * lift is the only thing between a control and the sentence underneath it.
+ * The bar is anchored higher than the control (`LANE_BASE_OFFSET` versus `CONTROL_BASE_OFFSET`),
+ * so the lift is the bar's height, the stack gap, and that extra baseline. Without the baseline
+ * the control's top lands inside the sentence once the bar is raised off the sheet.
  */
-export const LIFT_OVER_INSTRUCTION = TRIP_GUIDANCE_BAR_HEIGHT + OVERLAY_STACK_GAP;
+export const LIFT_OVER_INSTRUCTION =
+  TRIP_GUIDANCE_BAR_HEIGHT +
+  OVERLAY_STACK_GAP +
+  (LANE_BASE_OFFSET - CONTROL_BASE_OFFSET);
