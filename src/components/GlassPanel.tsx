@@ -67,23 +67,8 @@ export function GlassPanel({
   }, [frostEnabled, id, radius]);
 
   useEffect(() => {
-    if (!frostEnabled) {
-      clearFrostRect(id);
-      return;
-    }
-    let alive = true;
-    let raf = 0;
-    const loop = () => {
-      if (!alive) return;
-      report();
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-      clearFrostRect(id);
-    };
+    report();
+    return () => clearFrostRect(id);
   }, [frostEnabled, id, report]);
 
   return (

@@ -241,7 +241,9 @@ export function WebViewMap({
     );
   }, []);
 
-  const pushFrost = useCallback(
+  const frostPushRafRef = useRef(0);
+  const latestFrostRectsRef = useRef<FrostRect[]>([]);
+  const pushFrostNow = useCallback(
     (rects: FrostRect[]) => {
       const scene = getFrostScene();
       const host = hostRef.current;
@@ -267,6 +269,18 @@ export function WebViewMap({
       );
     },
     [postToMap],
+  );
+
+  const pushFrost = useCallback(
+    (rects: FrostRect[]) => {
+      latestFrostRectsRef.current = rects;
+      if (frostPushRafRef.current) return;
+      frostPushRafRef.current = requestAnimationFrame(() => {
+        frostPushRafRef.current = 0;
+        pushFrostNow(latestFrostRectsRef.current);
+      });
+    },
+    [pushFrostNow],
   );
 
   useEffect(() => {
@@ -594,6 +608,11 @@ export function WebViewMap({
       presentation,
       offerOverview: useOfferOverview,
     });
+
+    if (navigationFollow) {
+      setPaused(false);
+      postGpsCamera(locationRef.current, true, lastHeadingRef.current);
+    }
   }, [
     isMapReady,
     start?.lat,
@@ -612,6 +631,8 @@ export function WebViewMap({
     presentation,
     offerOverview,
     postToMap,
+    postGpsCamera,
+    setPaused,
   ]);
 
   useEffect(() => {

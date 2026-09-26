@@ -1612,6 +1612,18 @@ export function buildMapHtmlTemplate(
         });
         return [points];
       }
+      function recenterTripNavCamera() {
+        if (shouldFitBounds || isOffer) return;
+        const coords = window.__veLastGpsCoords;
+        if (!coords) return;
+        updateGps(coords, {
+          zoom: 18,
+          pitch: 50,
+          duration: 450,
+          followCamera: true,
+        });
+      }
+
       function presentOnce(coordLists, fitCoordLists) {
         if (presented) return;
         presented = true;
@@ -1710,6 +1722,7 @@ export function buildMapHtmlTemplate(
             [approachFrom ? [approachFrom, start] : [], tripCoords],
             isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
           );
+          recenterTripNavCamera();
           return;
         }
 
@@ -1722,6 +1735,7 @@ export function buildMapHtmlTemplate(
           [approachCoords, tripCoords],
           isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
         );
+        recenterTripNavCamera();
       }
 
       const offerTimeout = isOffer
@@ -1751,6 +1765,7 @@ export function buildMapHtmlTemplate(
             approachFrom ? [[approachFrom, start, end]] : tripOnly,
             isOffer ? buildOfferFitCoordLists([start, end]) : tripOnly,
           );
+          recenterTripNavCamera();
           try {
             if (window.ReactNativeWebView) {
               window.ReactNativeWebView.postMessage(
