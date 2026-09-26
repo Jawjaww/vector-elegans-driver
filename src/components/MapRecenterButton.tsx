@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Easing, Pressable, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { GLASS_PANEL_BEVEL_INSET, GlassPanel } from './GlassPanel';
@@ -45,16 +45,20 @@ export function MapRecenterButton({
   onPress,
 }: MapRecenterButtonProps) {
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
-  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(lift, {
       toValue: aboveGuidanceBar ? 1 : 0,
       duration: aboveGuidanceBar ? GUIDANCE_EMERGE_MS : GUIDANCE_RETRACT_MS,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [lift, aboveGuidanceBar]);
+
+  const bottomAnimated = lift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [bottom, bottom + LIFT_OVER_INSTRUCTION],
+  });
 
   // After the hook, never before: an early return above it would change the hook count between a
   // visible and a hidden control.
@@ -62,25 +66,16 @@ export function MapRecenterButton({
 
   return (
     <Animated.View
-      ref={frameRef as RefObject<View>}
       // The anchor spans the lane; only the control itself is touchable.
       pointerEvents="box-none"
       className="absolute right-4"
       style={{
-        bottom,
+        bottom: bottomAnimated,
         // Layer scale on the home scene (see BottomSheet.styles.sceneFill):
         // map 0 → trip HUDs 15 → offer stack 30 → this control 35 → sheet 40/41.
         // It must stay UNDER the sheet so a raised sheet covers it, and above the
         // HUDs so it stays tappable when they are visible.
         zIndex: 35,
-        transform: [
-          {
-            translateY: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, -LIFT_OVER_INSTRUCTION],
-            }),
-          },
-        ],
       }}
     >
       <Pressable
@@ -89,11 +84,7 @@ export function MapRecenterButton({
         accessibilityLabel="Recentrer sur ma position"
         hitSlop={8}
       >
-        <GlassPanel
-          radius={MAP_CONTROL_SIZE / 2}
-          frameRef={frameRef}
-          transformSync={lift}
-        >
+        <GlassPanel radius={MAP_CONTROL_SIZE / 2}>
           <View
             className="items-center justify-center"
             style={{

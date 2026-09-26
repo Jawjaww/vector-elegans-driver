@@ -300,8 +300,6 @@ describe('one material, and the theme owns it', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
     const map = stripComments(readSource(MAP_TEMPLATE));
     expect(panel).toContain('measureInWindow');
-    expect(panel).toContain('frameRef');
-    expect(panel).toContain('transformSync');
     expect(panel).toContain('publishFrostRect');
     expect(panel).not.toContain('expo-blur');
     expect(panel).not.toContain('dimezisBlurView');
@@ -346,11 +344,17 @@ describe('the lane above the sheet', () => {
     expect(liftedBottom).toBeGreaterThanOrEqual(barTop);
 
     // And both controls in the lane move on that one figure rather than each carrying its own.
+    // Lift is layout `bottom`, not `translateY`, so map frost and the hairline stay aligned.
     for (const file of [ARRIVAL_HUD, RECENTER_BUTTON]) {
       const source = stripComments(readSource(file));
       expect(source).toContain('LIFT_OVER_INSTRUCTION');
-      expect(source).toMatch(/outputRange:\s*\[0,\s*-LIFT_OVER_INSTRUCTION\]/);
+      expect(source).toMatch(
+        /outputRange:\s*\[[^\]]+,\s*[^\]]+\+\s*LIFT_OVER_INSTRUCTION\]/,
+      );
+      expect(source).not.toContain('translateY');
     }
+    const guidance = stripComments(readSource(GUIDANCE_BAR));
+    expect(guidance).not.toContain('translateY');
   });
 
   it('drives the lift from the same flag as the panel it clears', () => {

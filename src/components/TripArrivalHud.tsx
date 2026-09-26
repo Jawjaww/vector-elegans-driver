@@ -1,6 +1,6 @@
 import { View, Text, Animated, Easing } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   formatArrivalClock,
   formatRemainingDistance,
@@ -62,43 +62,35 @@ export function TripArrivalHud({
   );
   const clock = formatArrivalClock(eta);
   const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
+  const laneBottom = sheetH + LANE_BASE_OFFSET;
 
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
-  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(lift, {
       toValue: aboveGuidanceBar ? 1 : 0,
       duration: aboveGuidanceBar ? GUIDANCE_EMERGE_MS : GUIDANCE_RETRACT_MS,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [lift, aboveGuidanceBar]);
 
+  const bottom = lift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [laneBottom, laneBottom + LIFT_OVER_INSTRUCTION],
+  });
+
   return (
     <Animated.View
-      ref={frameRef as RefObject<View>}
       pointerEvents="none"
       style={{
         position: 'absolute',
         left: 12,
-        bottom: sheetH + LANE_BASE_OFFSET,
+        bottom,
         zIndex: 15,
-        transform: [
-          {
-            translateY: lift.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, -LIFT_OVER_INSTRUCTION],
-            }),
-          },
-        ],
       }}
     >
-      <GlassPanel
-        radius={OVERLAY_CARD_RADIUS}
-        frameRef={frameRef}
-        transformSync={lift}
-      >
+      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
         <View
           style={{
             flexDirection: 'row',

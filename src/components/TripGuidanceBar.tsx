@@ -1,5 +1,5 @@
 import { View, Text, Animated, Easing } from 'react-native';
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
@@ -65,45 +65,38 @@ export function TripGuidanceBar({
   const material = GLASS_MATERIAL;
   const accent = tripGuidanceAccent(stage);
   const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
+  const laneBottom = sheetH + LANE_BASE_OFFSET;
 
   const shown = useRef(new Animated.Value(visible ? 1 : 0)).current;
-  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(shown, {
       toValue: visible ? 1 : 0,
       duration: visible ? GUIDANCE_EMERGE_MS : GUIDANCE_RETRACT_MS,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      // Layout `bottom` so map frost and the hairline share one frame (native `translateY` does not).
+      useNativeDriver: false,
     }).start();
   }, [shown, visible]);
 
+  const bottom = shown.interpolate({
+    inputRange: [0, 1],
+    outputRange: [laneBottom - SINK_PX, laneBottom],
+  });
+
   return (
     <Animated.View
-      ref={frameRef as RefObject<View>}
       pointerEvents="none"
       style={{
         position: 'absolute',
         left: 12,
         right: 12,
-        bottom: sheetH + LANE_BASE_OFFSET,
+        bottom,
         zIndex: 14,
         opacity: shown,
-        transform: [
-          {
-            translateY: shown.interpolate({
-              inputRange: [0, 1],
-              outputRange: [SINK_PX, 0],
-            }),
-          },
-        ],
       }}
     >
-      <GlassPanel
-        radius={OVERLAY_CARD_RADIUS}
-        frameRef={frameRef}
-        transformSync={shown}
-      >
+      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
         <View
           style={{
             flexDirection: 'row',
