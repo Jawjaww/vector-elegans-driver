@@ -300,6 +300,8 @@ describe('one material, and the theme owns it', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
     const map = stripComments(readSource(MAP_TEMPLATE));
     expect(panel).toContain('measureInWindow');
+    expect(panel).toContain('frameRef');
+    expect(panel).toContain('transformSync');
     expect(panel).toContain('publishFrostRect');
     expect(panel).not.toContain('expo-blur');
     expect(panel).not.toContain('dimezisBlurView');

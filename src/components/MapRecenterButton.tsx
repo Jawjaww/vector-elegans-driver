@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { Animated, Easing, Pressable, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { GLASS_PANEL_BEVEL_INSET, GlassPanel } from './GlassPanel';
@@ -45,6 +45,7 @@ export function MapRecenterButton({
   onPress,
 }: MapRecenterButtonProps) {
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
+  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(lift, {
@@ -61,6 +62,7 @@ export function MapRecenterButton({
 
   return (
     <Animated.View
+      ref={frameRef as RefObject<View>}
       // The anchor spans the lane; only the control itself is touchable.
       pointerEvents="box-none"
       className="absolute right-4"
@@ -87,7 +89,11 @@ export function MapRecenterButton({
         accessibilityLabel="Recentrer sur ma position"
         hitSlop={8}
       >
-        <GlassPanel radius={MAP_CONTROL_SIZE / 2}>
+        <GlassPanel
+          radius={MAP_CONTROL_SIZE / 2}
+          frameRef={frameRef}
+          transformSync={lift}
+        >
           <View
             className="items-center justify-center"
             style={{

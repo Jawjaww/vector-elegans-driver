@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import {
+  Animated,
   StyleSheet,
   View,
   type StyleProp,
@@ -16,6 +24,14 @@ type GlassPanelProps = Readonly<{
    */
   radius: number;
   style?: StyleProp<ViewStyle>;
+  /**
+   * When the panel sits inside a transformed wrapper (`translateY` on an `Animated.View`),
+   * measure this ref so map frost tracks the frame the driver sees. Measuring the inner
+   * border view alone ignores the parent transform on Android.
+   */
+  frameRef?: RefObject<View | null>;
+  /** Re-publish frost while this value animates (native-driver transforms). */
+  transformSync?: Animated.Value;
 }>;
 
 /** Kept at zero: the frost is one sheet, not a beveled inset. */
@@ -32,22 +48,39 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
  *
  * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */
-export function GlassPanel({ children, radius, style }: GlassPanelProps) {
+export function GlassPanel({
+  children,
+  radius,
+  style,
+  frameRef,
+  transformSync,
+}: GlassPanelProps) {
   const id = useId();
   const ref = useRef<View>(null);
   const material = GLASS_MATERIAL;
 
   const report = useCallback(() => {
-    ref.current?.measureInWindow((x, y, width, height) => {
+    const target = frameRef?.current ?? ref.current;
+    target?.measureInWindow((x, y, width, height) => {
       if (width <= 0 || height <= 0) return;
       publishFrostRect({ id, x, y, width, height, radius });
     });
-  }, [id, radius]);
+  }, [frameRef, id, radius]);
 
   useEffect(() => {
     report();
     return () => clearFrostRect(id);
   }, [id, report]);
+
+  useEffect(() => {
+    if (!transformSync) return;
+    const sub = transformSync.addListener(() => {
+      report();
+    });
+    return () => {
+      transformSync.removeListener(sub);
+    };
+  }, [report, transformSync]);
 
   return (
     <View

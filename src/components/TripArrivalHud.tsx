@@ -1,6 +1,6 @@
 import { View, Text, Animated, Easing } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import {
   formatArrivalClock,
   formatRemainingDistance,
@@ -64,6 +64,7 @@ export function TripArrivalHud({
   const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
 
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
+  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(lift, {
@@ -76,6 +77,7 @@ export function TripArrivalHud({
 
   return (
     <Animated.View
+      ref={frameRef as RefObject<View>}
       pointerEvents="none"
       style={{
         position: 'absolute',
@@ -92,7 +94,11 @@ export function TripArrivalHud({
         ],
       }}
     >
-      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+      <GlassPanel
+        radius={OVERLAY_CARD_RADIUS}
+        frameRef={frameRef}
+        transformSync={lift}
+      >
         <View
           style={{
             flexDirection: 'row',
