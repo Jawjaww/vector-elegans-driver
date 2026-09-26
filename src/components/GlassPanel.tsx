@@ -6,7 +6,11 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { GLASS_MATERIAL } from '../lib/theme';
-import { clearFrostRect, publishFrostRect } from '../map/frostRects';
+import {
+  clearFrostRect,
+  getFrostScene,
+  publishFrostRect,
+} from '../map/frostRects';
 
 type GlassPanelProps = Readonly<{
   children?: ReactNode;
@@ -26,9 +30,9 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 /**
  * The panel every overlay above the map is drawn on.
  *
- * The view itself is clear. The frost (a blurred copy of the map, then a thin white wash)
- * is painted in the map document, aligned to this frame. A native blur samples the window
- * behind the WebView and then covers it with an opaque tint, so the map never shows through.
+ * The view itself is clear except for the hairline. The frost (a blurred copy of the map,
+ * then a thin white wash) is painted in the map document on this same rectangle, measured
+ * against the map scene — not the window — so the wash cannot sit below the border.
  *
  * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */
@@ -38,15 +42,33 @@ export function GlassPanel({ children, radius, style }: GlassPanelProps) {
   const material = GLASS_MATERIAL;
 
   const report = useCallback(() => {
-    ref.current?.measureInWindow((x, y, width, height) => {
-      if (width <= 0 || height <= 0) return;
-      publishFrostRect({ id, x, y, width, height, radius });
-    });
+    const node = ref.current;
+    const anchor = getFrostScene();
+    if (!node || !anchor) return;
+    node.measureLayout(
+      anchor,
+      (x, y, width, height) => {
+        if (width <= 0 || height <= 0) return;
+        publishFrostRect({ id, x, y, width, height, radius });
+      },
+      () => {},
+    );
   }, [id, radius]);
 
   useEffect(() => {
-    report();
-    return () => clearFrostRect(id);
+    let alive = true;
+    let raf = 0;
+    const loop = () => {
+      if (!alive) return;
+      report();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      clearFrostRect(id);
+    };
   }, [id, report]);
 
   return (

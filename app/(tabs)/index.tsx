@@ -68,6 +68,7 @@ import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
 import { VTCMap } from "../../src/map";
 import { BASEMAP_CANVAS } from "../../src/map/basemapTone";
+import { setFrostScene } from "../../src/map/frostRects";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
@@ -1739,6 +1740,7 @@ export default function DashboardScreen() {
     <AnimatedPage instant={notificationArrival}>
       <View
         ref={mapHostViewRef}
+        onLayout={() => setFrostScene(mapHostViewRef.current)}
         style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
       >
         {/* Single warm VTCMap — also used for offer overview + route */}

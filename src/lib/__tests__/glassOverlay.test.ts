@@ -299,7 +299,7 @@ describe('one material, and the theme owns it', () => {
   it('blurs the map under the card, not a native plate over the WebView', () => {
     const panel = stripComments(readSource(GLASS_PANEL));
     const map = stripComments(readSource(MAP_TEMPLATE));
-    expect(panel).toContain('measureInWindow');
+    expect(panel).toContain('measureLayout');
     expect(panel).toContain('publishFrostRect');
     expect(panel).not.toContain('expo-blur');
     expect(panel).not.toContain('dimezisBlurView');
