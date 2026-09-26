@@ -1026,7 +1026,13 @@ export function buildMapHtmlTemplate(
             : typeof alongTrackMeters === "number"
               ? alongTrackMeters
               : 0;
-        const nextManeuver = nextManeuverAlongTrack(steps, maneuverAt);
+        const nextManeuver = (function () {
+          try {
+            return nextManeuverAlongTrack(steps, maneuverAt);
+          } catch (err) {
+            return null;
+          }
+        })();
         window.ReactNativeWebView.postMessage(
           JSON.stringify({
             type: "routeInfo",
@@ -1071,7 +1077,21 @@ export function buildMapHtmlTemplate(
       return true;
     }
 
+    function isNavMode(opts) {
+      return !!(opts && opts.navigation === true);
+    }
+
+    /** Course-up bearing from the snapped polyline (works at standstill). */
+    function bearingAlongNavLine(coords) {
+      const line = window.__veNavLine;
+      if (!line || line.length < 2 || !coords) return null;
+      const snap = snapToNavLine(coords, line, 60);
+      return snap ? snap.bearing : null;
+    }
+
     function heldBearing(desired, opts) {
+      // Trip nav: always align the map to the route ahead, even when parked.
+      if (isNavMode(opts)) return desired;
       const speed = opts && typeof opts.speed === "number" ? opts.speed : null;
       if (
         speed !== null &&
@@ -1103,17 +1123,43 @@ export function buildMapHtmlTemplate(
     }
 
     function resolveNavBearing(coords, opts) {
-      const held = heldBearing(null, opts);
-      if (typeof held === "number") return held;
-      const line = window.__veNavLine;
-      if (line && line.length > 1) {
-        const snap = snapToNavLine(coords, line, 60);
-        if (snap) return snap.bearing;
+      const along = bearingAlongNavLine(coords);
+      if (along !== null) return along;
+      if (!isNavMode(opts)) {
+        const held = heldBearing(null, opts);
+        if (typeof held === "number") return held;
       }
       if (opts && typeof opts.heading === "number" && opts.heading >= 0) {
         return opts.heading;
       }
       return map.getBearing();
+    }
+
+    function alignNavCameraCourseUp(coords, opts) {
+      if (!isNavMode(opts) || !coords) return;
+      const brg = bearingAlongNavLine(coords);
+      if (brg === null) return;
+      window.__veDisplayBearing = brg;
+      const zoom = (opts && opts.zoom) || window.__veNavZoom || 18;
+      const pitch =
+        opts && typeof opts.pitch === "number"
+          ? opts.pitch
+          : typeof window.__veNavPitch === "number"
+            ? window.__veNavPitch
+            : 50;
+      beginProgrammaticCamera(450);
+      try {
+        map.easeTo({
+          center: coords,
+          zoom: zoom,
+          bearing: brg,
+          pitch: pitch,
+          padding: navLookaheadPadding(opts),
+          duration: 450,
+          essential: true,
+        });
+      } catch (e) {}
+      syncGpsPuck(coords, brg);
     }
 
     function cancelNavGlide() {
@@ -1197,7 +1243,8 @@ export function buildMapHtmlTemplate(
       if (!(opts && typeof opts.speed === "number" && opts.speed < 1)) {
         window.__veDisplayBearing = null;
       }
-      syncGpsPuck(coords);
+      const navBrg = isNavMode(opts) ? bearingAlongNavLine(coords) : null;
+      syncGpsPuck(coords, navBrg !== null ? navBrg : undefined);
 
       if (!follow) return;
 
@@ -1206,7 +1253,10 @@ export function buildMapHtmlTemplate(
       const pitch =
         opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
       let bearing;
-      if (opts && typeof opts.speed === "number" && opts.speed < 1 && held !== null) {
+      if (isNavMode(opts)) {
+        bearing = resolveNavBearing(coords, opts);
+        window.__veDisplayBearing = bearing;
+      } else if (opts && typeof opts.speed === "number" && opts.speed < 1 && held !== null) {
         bearing = held;
         window.__veDisplayBearing = held;
       } else if (offRoute) {
@@ -1687,7 +1737,7 @@ export function buildMapHtmlTemplate(
         clearOffRouteLatch();
         const coords = window.__veLastGpsCoords;
         if (!coords) return;
-        updateGps(coords, {
+        const navOpts = {
           zoom: window.__veNavZoom || 18,
           pitch: typeof window.__veNavPitch === "number" ? window.__veNavPitch : 50,
           speed: window.__veNavSpeed,
@@ -1695,7 +1745,9 @@ export function buildMapHtmlTemplate(
           navigation: true,
           duration: 450,
           followCamera: true,
-        });
+        };
+        alignNavCameraCourseUp(coords, navOpts);
+        updateGps(coords, navOpts);
       }
 
       function presentOnce(coordLists, fitCoordLists) {
@@ -1782,7 +1834,7 @@ export function buildMapHtmlTemplate(
             tripStyle,
           );
           try {
-            postRouteProgress(window.__veLastGpsCoords || start);
+            postRouteProgress(window.__veLastGpsCoords || start, 0);
           } catch {}
         }
 
