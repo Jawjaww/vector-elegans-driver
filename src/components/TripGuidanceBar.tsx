@@ -1,5 +1,5 @@
 import { View, Text, Animated, Easing } from 'react-native';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { NAV_SHEET_VISIBLE_H, TRIP_SHEET_VISIBLE_H } from './BottomSheet';
@@ -67,6 +67,7 @@ export function TripGuidanceBar({
   const sheetH = aboveTripSheet ? TRIP_SHEET_VISIBLE_H : NAV_SHEET_VISIBLE_H;
 
   const shown = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const frameRef = useRef<View>(null);
 
   useEffect(() => {
     Animated.timing(shown, {
@@ -79,6 +80,7 @@ export function TripGuidanceBar({
 
   return (
     <Animated.View
+      ref={frameRef as RefObject<View>}
       pointerEvents="none"
       style={{
         position: 'absolute',
@@ -97,7 +99,11 @@ export function TripGuidanceBar({
         ],
       }}
     >
-      <GlassPanel radius={OVERLAY_CARD_RADIUS}>
+      <GlassPanel
+        radius={OVERLAY_CARD_RADIUS}
+        frameRef={frameRef}
+        transformSync={shown}
+      >
         <View
           style={{
             flexDirection: 'row',
