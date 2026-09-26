@@ -19,7 +19,12 @@ import * as Location from 'expo-location';
 import type { MapProps, LatLng, DriverMarker, MapBounds } from './types';
 import { buildMapHtmlTemplate } from './mapHtmlTemplate';
 import { BASEMAP_CANVAS } from './basemapTone';
-import { getFrostRects, subscribeFrostRects, type FrostRect } from './frostRects';
+import {
+  getFrostRects,
+  getFrostScene,
+  subscribeFrostRects,
+  type FrostRect,
+} from './frostRects';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 import { gpsMovedEnough, haversineMeters } from '../lib/utils/gpsThrottle';
 
@@ -238,19 +243,28 @@ export function WebViewMap({
 
   const pushFrost = useCallback(
     (rects: FrostRect[]) => {
-      hostRef.current?.measureInWindow((originX, originY) => {
-        postToMap({
-          type: 'setFrost',
-          rects: rects.map((rect) => ({
-            id: rect.id,
-            x: rect.x - originX,
-            y: rect.y - originY,
-            w: rect.width,
-            h: rect.height,
-            radius: rect.radius,
-          })),
-        });
-      });
+      const scene = getFrostScene();
+      const host = hostRef.current;
+      if (!scene || !host) return;
+      // Both frames are in the scene. The difference is the WebView's own origin,
+      // which is the map document's origin. Window space is not that origin.
+      host.measureLayout(
+        scene,
+        (originX, originY) => {
+          postToMap({
+            type: 'setFrost',
+            rects: rects.map((rect) => ({
+              id: rect.id,
+              x: rect.x - originX,
+              y: rect.y - originY,
+              w: rect.width,
+              h: rect.height,
+              radius: rect.radius,
+            })),
+          });
+        },
+        () => {},
+      );
     },
     [postToMap],
   );
@@ -662,6 +676,7 @@ export function WebViewMap({
         originWhitelist={['*']}
         setSupportMultipleWindows={false}
         automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
         allowsBackForwardNavigationGestures={false}
         scalesPageToFit={false}
         keyboardDisplayRequiresUserAction

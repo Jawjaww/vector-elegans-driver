@@ -562,8 +562,7 @@ export function buildMapHtmlTemplate(
           card.style.position = "absolute";
           card.style.overflow = "hidden";
           card.style.pointerEvents = "none";
-          card.style.backdropFilter = "blur(" + FROST_BLUR_PX + "px)";
-          card.style.webkitBackdropFilter = "blur(" + FROST_BLUR_PX + "px)";
+          card.style.boxSizing = "border-box";
           const canvas = document.createElement("canvas");
           canvas.style.position = "absolute";
           canvas.style.left = "0";
