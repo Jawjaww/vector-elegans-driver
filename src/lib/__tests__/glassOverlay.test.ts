@@ -325,7 +325,9 @@ describe('one material, and the theme owns it', () => {
 describe('the lane above the sheet', () => {
   it('derives the lift from the bar it has to clear', () => {
     expect(LIFT_OVER_INSTRUCTION).toBe(
-      TRIP_GUIDANCE_BAR_HEIGHT + OVERLAY_STACK_GAP,
+      TRIP_GUIDANCE_BAR_HEIGHT +
+        OVERLAY_STACK_GAP +
+        (LANE_BASE_OFFSET - CONTROL_BASE_OFFSET),
     );
   });
 
@@ -333,6 +335,7 @@ describe('the lane above the sheet', () => {
     // The regression this exists for: the control sits in the same strip as the bar and takes
     // touches, so at rest it is painted straight across the sentence. These four numbers are the
     // whole geometry; if the lift ever drops out, the last assertion is what notices.
+    expect(LANE_BASE_OFFSET).toBeGreaterThanOrEqual(24);
     const barTop = LANE_BASE_OFFSET + TRIP_GUIDANCE_BAR_HEIGHT;
     const atRestTop = CONTROL_BASE_OFFSET + MAP_CONTROL_SIZE;
     const liftedBottom = CONTROL_BASE_OFFSET + LIFT_OVER_INSTRUCTION;
