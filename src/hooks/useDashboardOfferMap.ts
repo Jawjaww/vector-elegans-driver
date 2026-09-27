@@ -112,10 +112,15 @@ export function useDashboardOfferMap({
         mapControllerRef,
       });
 
+    // Accepting a ride turns canDisplayOffers off in the same commit that posts the
+    // guidance route (driver → pickup). This effect runs after that post and used to
+    // clearRoute, so the line to the client never appeared until a later key change —
+    // the "Je suis arrivé" slide, which only changes the fit padding.
+    if (activeRide) return;
     if (!canDisplayOffers || availableRides.length === 0) {
       reset();
     }
-  }, [availableRides.length, canDisplayOffers, mapControllerRef]);
+  }, [activeRide, availableRides.length, canDisplayOffers, mapControllerRef]);
 
   useEffect(() => {
     if (!offerRide?.id) {
