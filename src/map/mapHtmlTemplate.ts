@@ -58,7 +58,7 @@ export function buildMapHtmlTemplate(
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #map { width: 100%; height: 100%; overflow: hidden; background-color: ${BASEMAP_CANVAS}; }
     #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-    /* Frost cards. The blur is a copy of the map canvas; the veil sits on that copy. */
+    /* Frost cards. Blur is a copy of the map canvas; the veil and the rim sit on that copy. */
     #ve-frost {
       position: absolute;
       top: 0;
@@ -540,6 +540,10 @@ export function buildMapHtmlTemplate(
     // blurred copy of the canvas plus a thin white wash. The RN panel stays clear.
     const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
+    // Edge only. The middle stays clear so the band never lands on the type, and overlay
+    // blends with the card's own pixels (blurred map + thin veil) so the rim takes the
+    // tile colour. A static layer: paintFrost does not touch it, and there is no second blur.
+    const FROST_RIM = "linear-gradient(168deg, ${GLASS_MATERIAL.rimHighlight} 0%, rgba(255,255,255,0) 16%, rgba(255,255,255,0) 84%, ${GLASS_MATERIAL.rimShade} 100%)";
 
     function frostCard(root, id) {
       const nodes = root.children;
@@ -568,6 +572,7 @@ export function buildMapHtmlTemplate(
           card.style.overflow = "hidden";
           card.style.pointerEvents = "none";
           card.style.boxSizing = "border-box";
+          card.style.isolation = "isolate";
           const canvas = document.createElement("canvas");
           canvas.style.position = "absolute";
           canvas.style.left = "0";
@@ -581,6 +586,16 @@ export function buildMapHtmlTemplate(
           veil.style.bottom = "0";
           veil.style.background = FROST_VEIL;
           card.appendChild(veil);
+          const rim = document.createElement("div");
+          rim.style.position = "absolute";
+          rim.style.left = "0";
+          rim.style.top = "0";
+          rim.style.right = "0";
+          rim.style.bottom = "0";
+          rim.style.pointerEvents = "none";
+          rim.style.mixBlendMode = "overlay";
+          rim.style.background = FROST_RIM;
+          card.appendChild(rim);
           root.appendChild(card);
         }
         card.style.left = r.x + "px";

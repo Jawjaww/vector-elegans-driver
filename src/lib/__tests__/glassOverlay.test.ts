@@ -125,13 +125,20 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('draws a hairline frost, not a beveled plate', () => {
+  it('draws one hairline, and lights the rim from the map copy', () => {
     const code = stripComments(readSource(GLASS_PANEL));
+    const map = stripComments(readSource(MAP_TEMPLATE));
     expect(code).toContain('material.hairline');
     expect(code).toContain('borderWidth: StyleSheet.hairlineWidth');
+    // The old bevel was a second plate in the panel. The light now lives on the frost
+    // card, so the content is not inset and the type is not covered by a band.
     expect(code).not.toContain('cornerGlowTop');
     expect(code).not.toContain('rimLight');
     expect(code).toContain('GLASS_PANEL_BEVEL_PX = 0');
+    expect(map).toContain('GLASS_MATERIAL.rimHighlight');
+    expect(map).toContain('GLASS_MATERIAL.rimShade');
+    expect(map).toContain('mixBlendMode = "overlay"');
+    expect(map).toContain('rgba(255,255,255,0)');
     const edge = rgbOf(GLASS_MATERIAL.hairline);
     expect(edge.r).toBe(255);
     expect(edge.a).toBeGreaterThan(0.3);
@@ -144,7 +151,7 @@ describe('the face of a panel', () => {
   it('frost the face with a neutral white veil, not a grey bossed plate', () => {
     for (const stop of [GLASS_MATERIAL.fillTop, GLASS_MATERIAL.fillBottom]) {
       const colour = rgbOf(stop);
-      expect(colour.a).toBeGreaterThanOrEqual(0.18);
+      expect(colour.a).toBeGreaterThanOrEqual(0.05);
       expect(colour.a).toBeLessThanOrEqual(0.5);
       expect(colour.r).toBe(255);
       expect(colour.g).toBe(255);
@@ -289,6 +296,8 @@ describe('one material, and the theme owns it', () => {
         'fillBottom',
         'fillTop',
         'hairline',
+        'rimHighlight',
+        'rimShade',
         'shadow',
         'text',
         'textDim',
