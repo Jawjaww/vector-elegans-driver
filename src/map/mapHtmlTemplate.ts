@@ -4,7 +4,7 @@ import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
 import { GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
-import { nextManeuverAlongTrack } from "../lib/utils/navProgress";
+import { planNavCamera } from "../lib/utils/navCamera";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
@@ -667,8 +667,15 @@ export function buildMapHtmlTemplate(
             msg.fitBounds !== false,
             msg.presentation === "offer" ? "offer" : "default",
             msg.offerOverview === true,
-            msg.driverMarker || null
+            msg.driverMarker || null,
+            msg.routeGeneration
           );
+        } else if (msg.type === "routeGeometry" || msg.type === "routeError") {
+          // The line is resolved by the app (deadline + fallback endpoint); this document only
+          // draws it. routeGeneration is checked inside, so a late answer is dropped.
+          if (typeof window.__veRouteCommit === "function") {
+            window.__veRouteCommit(msg);
+          }
         } else if (msg.type === "setOverview") {
           setOverviewWestEurope(
             msg.durationMs == null ? 0 : Number(msg.durationMs),
@@ -699,9 +706,39 @@ export function buildMapHtmlTemplate(
     document.addEventListener("message", handleNativeMessage);
     window.__veHandleNativeMessage = handleNativeMessage;
 
-    // --- GPS marker + navigation camera (look-ahead along OSRM line) ---
-    window.__veNavLine = null;
-    window.__veNavSteps = null;
+    // --- GPS marker + navigation camera (look-ahead along the routed line) ---
+    //
+    // One owner for everything the guidance camera and the puck need. It used to be a dozen
+    // loose window.__ve* globals, which is how __veNavCourseUp survived a clearAllRoutes()
+    // and left the arrow stuck facing north while the map had gone back to north-up.
+    window.__veNav = {
+      /** Route polyline, [lng, lat][]; a two-point array is a chord, not a road. */
+      line: null,
+      /** Router steps for the next-maneuver hint. */
+      steps: null,
+      /** { distanceMeters, durationSeconds, lineMeters } for the drawn line. */
+      meta: null,
+      /** True once the line is the router's own geometry rather than a chord. */
+      hasRoad: false,
+      /** A request is out; the line on screen is the placeholder chord. */
+      pending: false,
+      /** Every endpoint failed for this request. */
+      failed: false,
+      /** Request id, matched against the answer to drop a late one. */
+      generation: null,
+      /** True when the camera was last oriented to the route azimuth. */
+      courseUp: false,
+      /** Last bearing actually applied to the map. */
+      bearing: null,
+      /** Last position the puck was drawn at. */
+      coords: null,
+      zoom: 18,
+      pitch: 50,
+      speed: null,
+      heading: null,
+      offRouteStreak: 0,
+      awaitingReroute: false,
+    };
     window.__veLastGpsCoords = null;
     window.__veGpsMarker = null;
 
@@ -732,7 +769,7 @@ export function buildMapHtmlTemplate(
     }
 
     ${snapToNavLine.toString()}
-    ${nextManeuverAlongTrack.toString()}
+    ${planNavCamera.toString()}
 
     /** Point ~lookAheadM along the nav polyline ahead of current position */
     function lookAheadPoint(coords, line, lookAheadM) {
@@ -938,7 +975,15 @@ export function buildMapHtmlTemplate(
       });
     }
 
-    function syncGpsPuck(coords, bearingOverride) {
+    /**
+     * Draw the driver puck, from the same bearing the camera was given.
+     *
+     * courseUp is passed by the caller that actually oriented the camera to the route, never
+     * read from a sticky flag: a viewport-aligned arrow with rotation 0 is only truthful while
+     * the map itself faces that bearing, and trusting a leftover flag is what froze the arrow
+     * pointing north on a north-up map.
+     */
+    function syncGpsPuck(coords, bearingOverride, courseUp) {
       if (!coords) return;
       window.__veLastGpsCoords = coords;
       var along = bearingAlongNavLine(coords);
@@ -956,9 +1001,8 @@ export function buildMapHtmlTemplate(
       removeGpsCanvasPuck();
       const marker = ensureGpsArrowMarker();
       marker.setLngLat(coords);
-      if (window.__veNavCourseUp) {
-        // The map itself is rotated so the route runs up the screen.
-        // A viewport arrow then points up, along that route.
+      if (courseUp === true) {
+        // The camera holds this very bearing, so screen-up is the route direction.
         marker.setRotationAlignment("viewport");
         marker.setRotation(0);
       } else {
@@ -984,16 +1028,15 @@ export function buildMapHtmlTemplate(
           return;
         }
         window.__veLastProgressAt = now;
-        const line = window.__veNavLine;
-        const steps = window.__veNavSteps;
-        let distanceMeters = 0;
-        let durationSeconds = 0;
-        if (window.__veRouteMeta) {
-          distanceMeters = window.__veRouteMeta.distanceMeters || 0;
-          durationSeconds = window.__veRouteMeta.durationSeconds || 0;
-        }
-        // Remaining distance follows the snapped point on the segment. A nearest-vertex
-        // ratio, and a 2% floor, both kept this number from falling when the car moved.
+        const nav = window.__veNav;
+        const line = nav.line;
+        const meta = nav.meta;
+        let distanceMeters = meta ? meta.distanceMeters || 0 : 0;
+        let durationSeconds = meta ? meta.durationSeconds || 0 : 0;
+        // Remaining distance is the sum of the geometry still ahead. It used to be the router's
+        // total scaled by a nearest-vertex ratio, which is what kept the number from falling as
+        // the car moved — and what made "distance remaining" a fraction of a number that was
+        // never the distance to the end of the drawn line.
         let alongTrackMeters = null;
         if (line && line.length > 1 && coords) {
           let totalLine = 0;
@@ -1018,45 +1061,34 @@ export function buildMapHtmlTemplate(
               remainingLine += haversineMeters(line[i], line[i + 1]);
             }
           }
-          const metaLine =
-            window.__veRouteMeta && window.__veRouteMeta.lineMeters
-              ? window.__veRouteMeta.lineMeters
-              : totalLine;
-          if (metaLine > 0 && distanceMeters > 0) {
-            const ratio = Math.min(1, Math.max(0, remainingLine / metaLine));
-            distanceMeters = Math.round(distanceMeters * ratio);
-            durationSeconds = Math.round(durationSeconds * ratio);
-          } else if (remainingLine > 0) {
-            distanceMeters = Math.round(remainingLine);
+          const remaining = Math.max(0, remainingLine);
+          if (nav.hasRoad && meta && meta.lineMeters > 0) {
+            distanceMeters = Math.round(remaining);
+            durationSeconds = Math.round(
+              (meta.durationSeconds || 0) * (remaining / meta.lineMeters)
+            );
+          } else if (remaining > 0) {
+            // Chord only: the drawn line is straight, so the sum is a lower bound on the road —
+            // better to say too little on a dashed placeholder than to invent a road distance.
+            distanceMeters = Math.round(remaining);
+            durationSeconds = 0;
           }
           // A stale ratio must not report arrival while the drawn end is still far.
           var endPt = line[line.length - 1];
           var toEnd = haversineMeters(coords, endPt);
           if (distanceMeters < 30 && toEnd > 30) {
-            distanceMeters = Math.round(Math.max(remainingLine, toEnd));
+            distanceMeters = Math.round(Math.max(remaining, toEnd));
           }
         }
 
-        const maneuverAt =
-          typeof traveledMeters === "number"
-            ? traveledMeters
-            : typeof alongTrackMeters === "number"
-              ? alongTrackMeters
-              : 0;
-        const nextManeuver = (function () {
-          try {
-            return nextManeuverAlongTrack(steps, maneuverAt);
-          } catch (err) {
-            return null;
-          }
-        })();
+        // The next maneuver is picked on the app side, from the steps it fetched itself: the
+        // rule exists once, in navProgress.ts, where a test can pin it.
         window.ReactNativeWebView.postMessage(
           JSON.stringify({
             type: "routeInfo",
             distanceMeters: distanceMeters,
             durationSeconds: durationSeconds,
             alongTrackMeters: alongTrackMeters,
-            nextManeuver: nextManeuver,
           })
         );
       } catch (e) {}
@@ -1066,26 +1098,27 @@ export function buildMapHtmlTemplate(
     var OFF_ROUTE_FIXES = 3;
 
     function clearOffRouteLatch() {
-      window.__veOffRouteStreak = 0;
-      window.__veAwaitingReroute = false;
+      window.__veNav.offRouteStreak = 0;
+      window.__veNav.awaitingReroute = false;
     }
 
     function navLineIsRoad() {
-      var line = window.__veNavLine;
+      var line = window.__veNav.line;
       return !!(line && line.length > 2);
     }
 
     /** True once the driver has stayed more than 45 m off a real road line for 3 fixes. */
     function latchOffRoute(coords, dist) {
       if (!navLineIsRoad()) return false;
-      if (window.__veAwaitingReroute) return true;
+      const nav = window.__veNav;
+      if (nav.awaitingReroute) return true;
       if (!(dist > OFF_ROUTE_METERS)) {
-        window.__veOffRouteStreak = 0;
+        nav.offRouteStreak = 0;
         return false;
       }
-      window.__veOffRouteStreak = (window.__veOffRouteStreak || 0) + 1;
-      if (window.__veOffRouteStreak < OFF_ROUTE_FIXES) return false;
-      window.__veAwaitingReroute = true;
+      nav.offRouteStreak = (nav.offRouteStreak || 0) + 1;
+      if (nav.offRouteStreak < OFF_ROUTE_FIXES) return false;
+      nav.awaitingReroute = true;
       try {
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(
@@ -1106,7 +1139,7 @@ export function buildMapHtmlTemplate(
 
     /** Azimuth of the trace ahead of the driver, including a two-point chord. */
     function bearingAlongNavLine(coords) {
-      const line = window.__veNavLine;
+      const line = window.__veNav.line;
       if (!line || line.length < 2 || !coords) return null;
       const end = line[line.length - 1];
       if (line.length === 2) {
@@ -1119,20 +1152,6 @@ export function buildMapHtmlTemplate(
       return bearingDegrees(coords, end);
     }
 
-    function heldBearing(desired, opts) {
-      // Trip nav: always align the map to the route ahead, even when parked.
-      if (isNavMode(opts)) return desired;
-      const speed = opts && typeof opts.speed === "number" ? opts.speed : null;
-      if (
-        speed !== null &&
-        speed < 1 &&
-        typeof window.__veDisplayBearing === "number"
-      ) {
-        return window.__veDisplayBearing;
-      }
-      return desired;
-    }
-
     function navLookaheadPadding(opts) {
       if (!opts || opts.navigation !== true) {
         return { top: 0, bottom: 0, left: 0, right: 0 };
@@ -1142,28 +1161,6 @@ export function buildMapHtmlTemplate(
         h = map.getContainer().clientHeight || 0;
       } catch (e) {}
       return { top: 0, bottom: Math.round(h * 0.35), left: 0, right: 0 };
-    }
-
-    function rememberNavCamera(opts) {
-      window.__veNavCourseUp = isNavMode(opts);
-      if (!window.__veNavCourseUp) return;
-      if (typeof opts.zoom === "number") window.__veNavZoom = opts.zoom;
-      if (typeof opts.pitch === "number") window.__veNavPitch = opts.pitch;
-      if (typeof opts.speed === "number") window.__veNavSpeed = opts.speed;
-      if (typeof opts.heading === "number") window.__veNavHeading = opts.heading;
-    }
-
-    function resolveNavBearing(coords, opts) {
-      const along = bearingAlongNavLine(coords);
-      if (along !== null) return along;
-      if (!isNavMode(opts)) {
-        const held = heldBearing(null, opts);
-        if (typeof held === "number") return held;
-      }
-      if (opts && typeof opts.heading === "number" && opts.heading >= 0) {
-        return opts.heading;
-      }
-      return map.getBearing();
     }
 
     function moveNavCamera(camera) {
@@ -1201,154 +1198,106 @@ export function buildMapHtmlTemplate(
       }
     }
 
-    /** North-up is wrong in guidance: face the trace on this tick, no glide from 0. */
-    function faceNavTrace(coords, opts, snapped, offRoute) {
-      const course = bearingAlongNavLine(coords);
+    /**
+     * The single guidance entry point: one GPS fix in, one camera and puck decision out.
+     *
+     * There used to be two paths — an instant faceNavTrace and a 900 ms startNavGlide — plus
+     * a heldBearing that decided between them, and the arrow's orientation depended on which
+     * one had run last. One tick, one bearing, applied to the map and to the puck in the same
+     * call, is what makes "the arrow points where the camera points" a property instead of a
+     * coincidence.
+     */
+    function guideTick(coords, opts) {
+      const nav = window.__veNav;
+      const line = nav.line;
+      const snapped =
+        line && line.length > 1 ? snapToNavLine(coords, line, 60) : null;
+      const offRoute = snapped
+        ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
+        : false;
       const onLine = snapped && !offRoute;
       const center = onLine ? snapped.point : coords;
-      if (course !== null) window.__veDisplayBearing = course;
-      cancelNavGlide();
+
+      const plan = planNavCamera({
+        traceBearing: bearingAlongNavLine(coords),
+        deviceHeading:
+          opts && typeof opts.heading === "number" ? opts.heading : nav.heading,
+        mapBearing: map.getBearing(),
+        lastBearing: nav.bearing,
+      });
+
+      if (opts && typeof opts.zoom === "number") nav.zoom = opts.zoom;
+      if (opts && typeof opts.pitch === "number") nav.pitch = opts.pitch;
+      if (opts && typeof opts.speed === "number") nav.speed = opts.speed;
+      if (opts && typeof opts.heading === "number") nav.heading = opts.heading;
+      nav.courseUp = plan.courseUp;
+      nav.bearing = plan.bearing;
+      nav.coords = center;
+
       jumpNavCamera({
         center: center,
-        zoom: (opts && opts.zoom) || window.__veNavZoom || 18,
-        bearing: course !== null ? course : map.getBearing(),
+        zoom: (opts && opts.zoom) || nav.zoom || 18,
+        bearing: plan.bearing,
         pitch:
           opts && typeof opts.pitch === "number"
             ? opts.pitch
-            : typeof window.__veNavPitch === "number"
-              ? window.__veNavPitch
+            : typeof nav.pitch === "number"
+              ? nav.pitch
               : 50,
         padding: navLookaheadPadding(opts),
       });
-      syncGpsPuck(center, course !== null ? course : undefined);
+      syncGpsPuck(center, plan.bearing, plan.courseUp);
       postRouteProgress(center, onLine ? snapped.traveledMeters : undefined);
     }
-    function alignNavCameraCourseUp(coords, opts) {
-      if (!isNavMode(opts) || !coords) return;
-      window.__veNavCourseUp = true;
-      const line = window.__veNavLine;
-      const snapped =
-        line && line.length > 1 ? snapToNavLine(coords, line, 60) : null;
-      faceNavTrace(coords, opts, snapped, false);
-    }
 
-    function cancelNavGlide() {
-      window.__veGlideToken = (window.__veGlideToken || 0) + 1;
-      if (window.__veGlideRaf) {
-        cancelAnimationFrame(window.__veGlideRaf);
-        window.__veGlideRaf = 0;
-      }
-    }
-
-    /** Glide the puck and the camera between snapped fixes. A 400 ms easeTo then a pause is a jump. */
-    function startNavGlide(snap, opts) {
-      const target = snap.point;
-      const bearing = heldBearing(snap.bearing, opts);
-      const from = window.__veDisplayCoords || target;
-      const fromB =
-        typeof window.__veDisplayBearing === "number"
-          ? window.__veDisplayBearing
-          : bearing;
-      const t0 = window.performance ? performance.now() : Date.now();
-      const duration = 900;
-      window.__veGlideToken = (window.__veGlideToken || 0) + 1;
-      const token = window.__veGlideToken;
-      beginProgrammaticCamera(duration);
-      if (window.__veGlideRaf) cancelAnimationFrame(window.__veGlideRaf);
-
-      function frame(now) {
-        if (token !== window.__veGlideToken) return;
-        const u = Math.min(1, (now - t0) / duration);
-        const pos = [
-          from[0] + (target[0] - from[0]) * u,
-          from[1] + (target[1] - from[1]) * u,
-        ];
-        const delta = ((bearing - fromB + 540) % 360) - 180;
-        const brg = (fromB + delta * u + 360) % 360;
-        window.__veDisplayCoords = pos;
-        window.__veDisplayBearing = brg;
-        syncGpsPuck(pos, brg);
-        const zoom = (opts && opts.zoom) || 16;
-        const pitch =
-          opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
-        try {
-          jumpNavCamera({
-            center: pos,
-            zoom: zoom,
-            bearing: brg,
-            pitch: pitch,
-          });
-        } catch (e) {}
-        if (u < 1) window.__veGlideRaf = requestAnimationFrame(frame);
-      }
-      window.__veGlideRaf = requestAnimationFrame(frame);
-    }
-
+    /**
+     * North-up is the default here, and deliberately so: outside guidance this is the offer map
+     * or a paused follow, where an unexpected camera rotation reads as a broken map. The bearing
+     * is the device's own heading when it has one, never a leftover guidance bearing.
+     */
     function updateGps(coords, opts) {
-      rememberNavCamera(opts);
+      const nav = window.__veNav;
       const follow = !(opts && opts.followCamera === false);
-      const line = window.__veNavLine;
-      let snapped = null;
-      if (line && line.length > 1) {
-        snapped = snapToNavLine(coords, line, 60);
+
+      if (follow && isNavMode(opts)) {
+        guideTick(coords, opts);
+        return;
       }
+
+      const snapped =
+        nav.line && nav.line.length > 1
+          ? snapToNavLine(coords, nav.line, 60)
+          : null;
       const offRoute =
         follow && snapped
           ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
           : false;
 
-      if (follow && isNavMode(opts)) {
-        faceNavTrace(coords, opts, snapped, offRoute);
-        return;
-      }
-
       if (follow && snapped && !offRoute) {
-        startNavGlide(snapped, opts);
+        // On the line but not guiding: keep the puck on the line and leave the camera where
+        // fitBounds put it.
+        nav.coords = snapped.point;
+        syncGpsPuck(snapped.point);
         postRouteProgress(snapped.point, snapped.traveledMeters);
         return;
       }
 
-      const held =
-        typeof window.__veDisplayBearing === "number"
-          ? window.__veDisplayBearing
-          : null;
-      cancelNavGlide();
-      window.__veDisplayCoords = null;
-      if (!(opts && typeof opts.speed === "number" && opts.speed < 1)) {
-        window.__veDisplayBearing = null;
-      }
-      const navBrg = isNavMode(opts) ? bearingAlongNavLine(coords) : null;
-      syncGpsPuck(coords, navBrg !== null ? navBrg : undefined);
-
+      nav.coords = null;
+      syncGpsPuck(coords);
       if (!follow) return;
 
       const zoom = (opts && opts.zoom) || 16;
       const duration = (opts && opts.duration) || 800;
       const pitch =
         opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
-      let bearing;
-      if (isNavMode(opts)) {
-        bearing = resolveNavBearing(coords, opts);
-        window.__veDisplayBearing = bearing;
-      } else if (opts && typeof opts.speed === "number" && opts.speed < 1 && held !== null) {
-        bearing = held;
-        window.__veDisplayBearing = held;
-      } else if (offRoute) {
-        bearing =
-          opts && typeof opts.heading === "number" && opts.heading >= 0
-            ? opts.heading
-            : held !== null
-              ? held
-              : map.getBearing();
-      } else {
-        bearing = resolveNavBearing(coords, opts);
-      }
-
-      beginProgrammaticCamera(duration);
+      const heading =
+        opts && typeof opts.heading === "number" && opts.heading >= 0
+          ? opts.heading
+          : null;
       moveNavCamera({
         center: coords,
         zoom: zoom,
-        bearing: bearing,
+        bearing: heading === null ? map.getBearing() : heading,
         pitch: pitch,
         padding: navLookaheadPadding(opts),
         duration: duration,
@@ -1359,8 +1308,6 @@ export function buildMapHtmlTemplate(
     }
 
     // --- Routes OSRM: trip (pickup→dropoff) + dashed approach (driver→pickup) ---
-    let routeAbortController = null;
-    let approachAbortController = null;
     let offerRoutePresented = false;
 
     function removeLayerSafe(id) {
@@ -1385,14 +1332,23 @@ export function buildMapHtmlTemplate(
     function clearAllRoutes() {
       window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
       offerRoutePresented = false;
-      window.__veNavLine = null;
-      window.__veHasRoadRoute = false;
-      cancelNavGlide();
-      window.__veDisplayCoords = null;
-      window.__veDisplayBearing = null;
+      // Everything the guidance camera owns, in one place. The scattered globals this replaced
+      // were the bug: a course-up flag left behind by the previous trip outlived the route and
+      // kept the puck screen-up on a north-up map.
+      const nav = window.__veNav;
+      nav.line = null;
+      nav.steps = null;
+      nav.meta = null;
+      nav.hasRoad = false;
+      nav.pending = false;
+      nav.failed = false;
+      nav.generation = null;
+      nav.courseUp = false;
+      nav.bearing = null;
+      nav.coords = null;
       window.__veApproachLine = null;
-      window.__veNavSteps = null;
-      window.__veRouteMeta = null;
+      // Unset so nothing can commit into a document that has no route any more.
+      window.__veRouteCommit = null;
       clearOffRouteLatch();
       [
         "route-line", "route-line-glow", "route-casing",
@@ -1548,6 +1504,36 @@ export function buildMapHtmlTemplate(
       };
     }
 
+    // Placeholder chord, while the app resolves the line. Dashed and dimmed on purpose: there
+    // is no itinerary yet, and a solid straight line reads as one.
+    function pendingRouteStyle() {
+      return {
+        glow: null,
+        casing: null,
+        line: {
+          "line-color": "${MAP_PALETTE.routeEdge}",
+          "line-width": 3,
+          "line-opacity": 0.4,
+          "line-dasharray": [0.6, 1.6],
+        },
+      };
+    }
+
+    // Placeholder chord after every endpoint failed. Still dashed — never a road — but in the
+    // approach orange, so "not computed" is distinguishable at a glance from "being computed".
+    function failedRouteStyle() {
+      return {
+        glow: null,
+        casing: null,
+        line: {
+          "line-color": "${MAP_PALETTE.approach}",
+          "line-width": 3.5,
+          "line-opacity": 0.75,
+          "line-dasharray": [0.6, 1.6],
+        },
+      };
+    }
+
     // Slight geographic dezoom before fitBounds on live offer framing.
     function expandBounds(bounds, ratio) {
       if (!ratio || ratio <= 1) return bounds;
@@ -1683,17 +1669,6 @@ export function buildMapHtmlTemplate(
       try { map.resize(); } catch (e) {}
     }
 
-    async function fetchOsrmGeometry(from, to, signal) {
-      const url =
-        "https://router.project-osrm.org/route/v1/driving/" +
-        from[0] + "," + from[1] + ";" + to[0] + "," + to[1] +
-        "?geometries=geojson&overview=full&steps=true";
-      const res = await fetch(url, { signal });
-      const data = await res.json();
-      if (!data.routes || !data.routes.length) return null;
-      return data.routes[0];
-    }
-
     function notifyRoutePresented() {
       try {
         if (window.ReactNativeWebView) {
@@ -1704,20 +1679,25 @@ export function buildMapHtmlTemplate(
       } catch (_) {}
     }
 
-    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker) {
+    // --- Trip route: the line is resolved by the app, never fetched here ---
+    //
+    // This document used to call the router itself: no deadline, one endpoint, and a failure
+    // that only reached the console. The request now lives in src/services/routing.ts, which
+    // adds a deadline, a fallback endpoint, and an error the app can report. What remains here
+    // is the drawing, plus a placeholder chord that is deliberately dashed and dimmed — a
+    // straight line must never be mistaken for an itinerary.
+
+    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker, routeGeneration) {
       const isOffer = presentation === "offer";
-      const tripStyle = routeLineStyle();
+      const nav = window.__veNav;
       window.__veOfferPickup = start;
       window.__veOfferDropoff = end;
       window.__veUseCanvasGpsPuck = Boolean(isOffer);
       syncGpsPuck(window.__veLastGpsCoords || driverMarker || null);
 
-      if (routeAbortController) routeAbortController.abort();
-      if (approachAbortController) approachAbortController.abort();
-      routeAbortController = new AbortController();
-      approachAbortController = new AbortController();
-      const tripSignal = routeAbortController.signal;
-      const approachSignal = approachAbortController.signal;
+      nav.generation = routeGeneration == null ? 0 : routeGeneration;
+      nav.failed = false;
+      nav.pending = true;
 
       if (isOffer) {
         window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
@@ -1731,15 +1711,15 @@ export function buildMapHtmlTemplate(
 
       // Chord is enough to aim the camera and the arrow. Off-route stays
       // disarmed until the line has more than two points (navLineIsRoad).
-      window.__veNavLine = [start, end];
+      nav.line = [start, end];
       clearOffRouteLatch();
       if (!isOffer) {
         // Drop the offer polyline (often off-screen once the camera locks on
         // the driver) and draw driver → destination immediately.
-        window.__veHasRoadRoute = false;
-        window.__veNavSteps = null;
+        nav.hasRoad = false;
+        nav.steps = null;
         var chordM = haversineMeters(start, end);
-        window.__veRouteMeta = {
+        nav.meta = {
           distanceMeters: Math.round(chordM),
           durationSeconds: 0,
           lineMeters: chordM,
@@ -1749,17 +1729,19 @@ export function buildMapHtmlTemplate(
           "route-casing",
           "route-line",
           lineFeature([start, end]),
-          tripStyle,
+          pendingRouteStyle(),
         );
         try {
           postRouteProgress(window.__veLastGpsCoords || start, 0);
         } catch (e) {}
       }
       if (!shouldFitBounds && !isOffer && window.__veLastGpsCoords) {
-        alignNavCameraCourseUp(window.__veLastGpsCoords, {
+        // Lock the camera on the driver the moment the trip starts, before any line exists:
+        // the acceptance must not leave the map in north-up overview.
+        guideTick(window.__veLastGpsCoords, {
           navigation: true,
-          zoom: window.__veNavZoom || 18,
-          pitch: typeof window.__veNavPitch === "number" ? window.__veNavPitch : 50,
+          zoom: nav.zoom || 18,
+          pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
           followCamera: true,
         });
       }
@@ -1782,18 +1764,14 @@ export function buildMapHtmlTemplate(
         );
       }
 
-      function paintApproachGeometry(approach) {
-        if (approach && approach.geometry && approach.geometry.coordinates) {
-          window.__veApproachLine = approach.geometry.coordinates;
+      function paintApproachGeometry(coordinates) {
+        if (coordinates && coordinates.length > 1) {
+          window.__veApproachLine = coordinates;
           setOrAddLine(
             "approach",
             "approach-casing",
             "approach-line",
-            {
-              type: "Feature",
-              properties: {},
-              geometry: approach.geometry,
-            },
+            lineFeature(coordinates),
             approachLineStyle(),
           );
           return;
@@ -1801,7 +1779,7 @@ export function buildMapHtmlTemplate(
         paintApproachStraight();
       }
 
-      // Dotted approach + pins immediately. Do not wait for the long trip OSRM.
+      // Dotted approach + pins immediately. The trip line arrives on its own message now.
       paintApproachStraight();
       upsertEndpoints(start, end, approachFrom, driverMarker);
 
@@ -1845,17 +1823,16 @@ export function buildMapHtmlTemplate(
         clearOffRouteLatch();
         const coords = window.__veLastGpsCoords;
         if (!coords) return;
-        const navOpts = {
-          zoom: window.__veNavZoom || 18,
-          pitch: typeof window.__veNavPitch === "number" ? window.__veNavPitch : 50,
-          speed: window.__veNavSpeed,
-          heading: window.__veNavHeading,
+        // The line just changed, so the tick is the authority again: it re-plans the bearing
+        // from the new geometry instead of reusing whatever the camera was facing.
+        guideTick(coords, {
+          zoom: nav.zoom || 18,
+          pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
+          speed: nav.speed,
+          heading: nav.heading,
           navigation: true,
-          duration: 450,
           followCamera: true,
-        };
-        alignNavCameraCourseUp(coords, navOpts);
-        updateGps(coords, navOpts);
+        });
       }
 
       function presentOnce(coordLists, fitCoordLists) {
@@ -1899,72 +1876,40 @@ export function buildMapHtmlTemplate(
         }
       }
 
-      function paintStraightFallback() {
-        // A road that already replaced the chord stays. Otherwise keep the
-        // driver → destination segment (never the previous offer line).
-        if (window.__veHasRoadRoute) return;
-        window.__veNavLine = [start, end];
-        upsertEndpoints(start, end, approachFrom, driverMarker);
+      /**
+       * Replace the pending chord with the road line the app resolved.
+       */
+      function applyTripGeometry(geometry) {
+        const tripCoords = geometry.coordinates;
+        nav.line = tripCoords.length > 2 ? tripCoords : [start, end];
+        let lineMeters = 0;
+        for (let i = 0; i < tripCoords.length - 1; i++) {
+          lineMeters += haversineMeters(tripCoords[i], tripCoords[i + 1]);
+        }
+        nav.meta = {
+          distanceMeters: Math.round(geometry.distanceMeters || lineMeters),
+          durationSeconds: Math.round(geometry.durationSeconds || 0),
+          lineMeters: lineMeters,
+        };
+        nav.steps =
+          geometry.steps && geometry.steps.length ? geometry.steps : null;
+        nav.hasRoad = tripCoords.length > 2;
+        nav.pending = false;
+        nav.failed = false;
         setOrAddLine(
           "route",
           "route-casing",
           "route-line",
-          lineFeature([start, end]),
-          tripStyle,
+          lineFeature(tripCoords),
+          routeLineStyle(),
         );
-        paintApproachStraight();
-      }
-
-      function applyTripGeometry(trip) {
-        let tripCoords = [start, end];
-        let drewTrip = false;
-        if (trip && trip.geometry && trip.geometry.coordinates) {
-          tripCoords = trip.geometry.coordinates;
-          drewTrip = true;
-          window.__veNavLine = tripCoords.length > 2 ? tripCoords : [start, end];
-          let lineMeters = 0;
-          for (let i = 0; i < tripCoords.length - 1; i++) {
-            lineMeters += haversineMeters(tripCoords[i], tripCoords[i + 1]);
-          }
-          window.__veRouteMeta = {
-            distanceMeters: Math.round(trip.distance || lineMeters),
-            durationSeconds: Math.round(trip.duration || 0),
-            lineMeters: lineMeters,
-          };
-          const legs = trip.legs || [];
-          window.__veNavSteps =
-            legs.length && legs[0].steps ? legs[0].steps : null;
-          if (tripCoords.length > 2) window.__veHasRoadRoute = true;
-          setOrAddLine(
-            "route",
-            "route-casing",
-            "route-line",
-            {
-              type: "Feature",
-              properties: {},
-              geometry: trip.geometry,
-            },
-            tripStyle,
-          );
-          try {
-            postRouteProgress(window.__veLastGpsCoords || start, 0);
-          } catch {}
-        }
+        try {
+          postRouteProgress(window.__veLastGpsCoords || start, 0);
+        } catch (e) {}
 
         if (window.__veLastGpsCoords || driverMarker) {
           syncGpsPuck(window.__veLastGpsCoords || driverMarker);
         }
-
-        if (!(drewTrip && tripCoords.length > 2)) {
-          paintStraightFallback();
-          presentOnce(
-            [approachFrom ? [approachFrom, start] : [], tripCoords],
-            isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
-          );
-          recenterTripNavCamera();
-          return;
-        }
-
         upsertEndpoints(start, end, approachFrom, driverMarker);
         const approachCoords =
           window.__veApproachLine && window.__veApproachLine.length
@@ -1977,9 +1922,74 @@ export function buildMapHtmlTemplate(
         recenterTripNavCamera();
       }
 
-      const offerTimeout = isOffer
+      /**
+       * No endpoint produced a line.
+       *
+       * The chord stays — the camera still needs something to point at — but it keeps its dash
+       * and takes a distinct hue, because a failed route that looks like a road is worse than
+       * no route at all: it is a road the driver would follow.
+       */
+      function markRouteFailed(reason) {
+        nav.failed = true;
+        nav.pending = false;
+        nav.hasRoad = false;
+        nav.steps = null;
+        const chordM = haversineMeters(start, end);
+        nav.meta = {
+          distanceMeters: Math.round(chordM),
+          durationSeconds: 0,
+          lineMeters: chordM,
+        };
+        if (!isOffer) {
+          setOrAddLine(
+            "route",
+            "route-casing",
+            "route-line",
+            lineFeature([start, end]),
+            failedRouteStyle(),
+          );
+        }
+        try {
+          postRouteProgress(window.__veLastGpsCoords || start, 0);
+        } catch (e) {}
+        presentOnce(
+          [approachFrom ? [approachFrom, start] : [], [start, end]],
+          isOffer
+            ? buildOfferFitCoordLists([start, end])
+            : tripFitLists([start, end]),
+        );
+        recenterTripNavCamera();
+        console.warn("[nav] route failed:", reason);
+      }
+
+      /**
+       * One leg answered for this request.
+       *
+       * The generation check is what makes a late answer harmless: updateRoute bumps it, so a
+       * response that outlived its request is dropped instead of redrawing a route the driver
+       * has already left — including a reroute, where the new line must not be overwritten by
+       * the old one landing after it.
+       */
+      function commitRouteMessage(msg) {
+        if (msg.routeGeneration !== nav.generation) return;
+        if (msg.legKind === "approach") {
+          paintApproachGeometry(msg.coordinates);
+          return;
+        }
+        if (offerTimeout) clearTimeout(offerTimeout);
+        if (msg.type === "routeError") {
+          markRouteFailed(msg.reason || "unknown");
+          return;
+        }
+        applyTripGeometry(msg);
+      }
+      window.__veRouteCommit = commitRouteMessage;
+
+      // The offer overview must not wait forever on a router: after this the pins and the chord
+      // are presented as they are, which is the whole point of the overview.
+      var offerTimeout = isOffer
         ? setTimeout(function () {
-            paintStraightFallback();
+            if (routePresentToken !== window.__veOfferPresentToken) return;
             const tripOnly = [[start, end]];
             presentOnce(
               approachFrom ? [[approachFrom, start, end]] : tripOnly,
@@ -1987,59 +1997,6 @@ export function buildMapHtmlTemplate(
             );
           }, 2500)
         : null;
-
-      function loadTrip(attempt) {
-        fetchOsrmGeometry(start, end, tripSignal)
-          .then((trip) => {
-            if (tripSignal.aborted) return;
-            if (!trip && attempt < 1 && !isOffer) {
-              setTimeout(function () {
-                if (!tripSignal.aborted) loadTrip(attempt + 1);
-              }, 900);
-              return;
-            }
-            if (offerTimeout) clearTimeout(offerTimeout);
-            applyTripGeometry(trip);
-          })
-          .catch((err) => {
-            if (err && err.name === "AbortError") return;
-            if (attempt < 1 && !isOffer && !tripSignal.aborted) {
-              setTimeout(function () {
-                if (!tripSignal.aborted) loadTrip(attempt + 1);
-              }, 900);
-              return;
-            }
-            if (offerTimeout) clearTimeout(offerTimeout);
-            console.error("Route error:", err);
-            paintStraightFallback();
-            const tripOnly = [[start, end]];
-            presentOnce(
-              approachFrom ? [[approachFrom, start, end]] : tripOnly,
-              isOffer ? buildOfferFitCoordLists([start, end]) : tripOnly,
-            );
-            recenterTripNavCamera();
-            try {
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(
-                  JSON.stringify({ type: "routeError", error: String(err) })
-                );
-              }
-            } catch (e) {}
-          });
-      }
-      loadTrip(0);
-
-      if (approachFrom) {
-        fetchOsrmGeometry(approachFrom, start, approachSignal)
-          .then((approach) => {
-            if (approachSignal.aborted) return;
-            paintApproachGeometry(approach);
-          })
-          .catch((err) => {
-            if (err && err.name === "AbortError") return;
-            paintApproachStraight();
-          });
-      }
     }
 
 

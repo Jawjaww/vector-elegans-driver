@@ -31,6 +31,10 @@ import {
 } from "../../src/lib/utils/pendingRideChannel";
 import { resolveDriverDuty, onlineStatusCopyKeys, shouldForceOnlineOnAssignedHydrate, canDriverGoOnline, shouldHydrateOnlineFromServer, type DriverDuty } from "../../src/lib/utils/driverDuty";
 import {
+  isActiveRideStatus,
+  reconcileAssignedRide,
+} from "../../src/lib/utils/assignedRideReconcile";
+import {
   createDossierStatusSync,
   decideOnlineToggle,
   shouldForceOfflineForStatus,
@@ -70,7 +74,7 @@ import {
 } from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
-import { VTCMap } from "../../src/map";
+import { VTCMap } from "../../src/map/VTCMap";
 import { BASEMAP_CANVAS } from "../../src/map/basemapTone";
 import { setFrostScene } from "../../src/map/frostRects";
 import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
@@ -603,26 +607,66 @@ async function timedBootStep<T>(
   }
 }
 
+/**
+ * Adopt the trip the server still has assigned to this driver.
+ *
+ * The boot refreshes, it never arbitrates: see `reconcileAssignedRide` for why a failed read and
+ * a race with the driver's own Accept must both leave the ride in place. A ride that is really
+ * over is released by the driver's own action, or by the terminal-status subscription below.
+ */
 async function hydrateAssignedRideFromServer(
   driverId: string,
   alreadyHydratedRef: { current: boolean },
   driverStatus: string | null,
 ) {
-  const assigned = await rideService.fetchAssignedRide(driverId);
+  const readStartedAt = Date.now();
+  const current = useDriverStore.getState().activeRide;
+  const fetched = await rideService.fetchAssignedRide(driverId);
+  const { next, action } = reconcileAssignedRide({
+    current,
+    fetch: fetched,
+    readStartedAt,
+  });
   const store = useDriverStore.getState();
-  if (!assigned) {
-    store.setActiveRide(null);
-    alreadyHydratedRef.current = false;
-    return;
+  const currentId = current?.id ?? null;
+
+  switch (action) {
+    case "read_failed":
+      logOfferStage(
+        "nav_assigned_ride_read_failed",
+        { reason: fetched.ok ? "unknown" : fetched.reason, kept_ride_id: currentId },
+        currentId,
+      );
+      return;
+    case "kept_accept_race":
+      logOfferStage("nav_assigned_ride_kept", { ride_id: currentId }, currentId);
+      return;
+    case "unchanged":
+      return;
+    case "released":
+      store.setActiveRide(null);
+      alreadyHydratedRef.current = false;
+      logOfferStage("nav_assigned_ride_released", { ride_id: currentId }, currentId);
+      return;
+    default: {
+      if (!next) return;
+      store.setActiveRide(next);
+      if (
+        canDriverGoOnline(driverStatus) &&
+        shouldForceOnlineOnAssignedHydrate(alreadyHydratedRef.current, true)
+      ) {
+        store.setIsOnline(true);
+      }
+      alreadyHydratedRef.current = true;
+      logOfferStage(
+        action === "refreshed"
+          ? "nav_assigned_ride_refreshed"
+          : "nav_assigned_ride_adopted",
+        { ride_id: next.id },
+        next.id,
+      );
+    }
   }
-  store.setActiveRide(assigned);
-  if (
-    canDriverGoOnline(driverStatus) &&
-    shouldForceOnlineOnAssignedHydrate(alreadyHydratedRef.current, true)
-  ) {
-    store.setIsOnline(true);
-  }
-  alreadyHydratedRef.current = true;
 }
 
 /**
@@ -1062,6 +1106,49 @@ export default function DashboardScreen() {
 
   const tripActions = useActiveTripActions();
   const { navProgress, pushNavProgress } = useDashboardNavProgress(activeRide?.id);
+
+  /**
+   * A ride stops being the driver's job only when the server says so.
+   *
+   * The boot refresh can only adopt (`reconcileAssignedRide`), so an ending that happens while
+   * the app is open — a client or admin cancellation, or the driver's own action on another
+   * device — has to arrive here. A terminal status releases the trip; anything else is a
+   * refresh, including `driver_arrived_at`, which moves a `scheduled` ride without ending it.
+   */
+  useEffect(() => {
+    const rideId = activeRide?.id;
+    if (!rideId) return;
+    const channel = supabase
+      .channel(`driver-active-ride:${rideId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rides",
+          filter: `id=eq.${rideId}`,
+        },
+        (payload) => {
+          const row = payload.new as RideRow;
+          if (!row?.id) return;
+          if (isActiveRideStatus(row.status)) {
+            setActiveRide(toAppRide(row));
+            return;
+          }
+          logOfferStage(
+            "nav_assigned_ride_released",
+            { ride_id: row.id, reason: `status:${row.status}` },
+            row.id,
+          );
+          setActiveRide(null);
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [activeRide?.id, setActiveRide]);
+
   const [mapReady, setMapReady] = useState(false);
   const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
   const [mapFollowPaused, setMapFollowPaused] = useState(false);

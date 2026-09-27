@@ -102,6 +102,10 @@ export async function acceptTrackedRide(
       ...ride,
       status: 'scheduled',
       driver_arrived_at: null,
+      // Stamped locally so the boot refresh can tell a read that raced this accept from a read
+      // that confirms the ride is gone (`reconcileAssignedRide`). `accept_ride` writes the same
+      // column server-side; the next refresh replaces this value with the authoritative one.
+      accepted_at: ride.accepted_at ?? new Date().toISOString(),
     });
     args.removeAvailableRide(args.rideId);
     useDriverStore.setState((s) => ({

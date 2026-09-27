@@ -26,6 +26,9 @@ import {
   type FrostRect,
 } from './frostRects';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
+import { fetchRoute, RoutingError, type RouteStep } from '../services/routing';
+import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import { nextManeuverAlongTrack } from '../lib/utils/navProgress';
 import {
   gpsFixAcceptable,
   gpsMovedEnough,
@@ -111,8 +114,16 @@ function handleMapConsoleMessage(msg: MapMessage) {
   console.log('[Map]', ...(args ?? []));
 }
 
+/**
+ * Turn one `routeInfo` push into a navigation progress update.
+ *
+ * The next maneuver is picked from the steps this side fetched (`nextManeuverAlongTrack`), not
+ * read off the message: the map document used to carry a second copy of that rule, and the two
+ * could disagree after any change to either.
+ */
 function handleMapRouteInfoMessage(
   msg: MapMessage,
+  steps: RouteStep[] | null,
   onRouteReady: MapProps['onRouteReady'],
 ) {
   const distanceMeters = Number(
@@ -121,40 +132,26 @@ function handleMapRouteInfoMessage(
   const durationSeconds = Number(
     msg.durationSeconds ?? (Number(msg.duration) || 0) * 60,
   );
-  const next = msg.nextManeuver as
-    | {
-        type?: string;
-        modifier?: string | null;
-        distanceMeters?: number;
-        name?: string;
-        exit?: number | null;
-      }
-    | null
-    | undefined;
 
   const alongRaw = Number(msg.alongTrackMeters);
   const alongTrackMeters = Number.isFinite(alongRaw) ? alongRaw : null;
 
-  onRouteReady?.(
-    distanceMeters,
-    durationSeconds,
-    next?.type
-      ? {
-          type: String(next.type),
-          modifier: next.modifier ?? null,
-          distanceMeters: Number(next.distanceMeters) || 0,
-          name: typeof next.name === 'string' ? next.name : '',
-          exit: typeof next.exit === 'number' ? next.exit : null,
-        }
-      : null,
-    alongTrackMeters,
-  );
+  // No along-track position (the fix is off the line, or there is no line yet) means no
+  // maneuver can be named — and naming the first one anyway would be a wrong instruction.
+  const maneuver =
+    steps && alongTrackMeters !== null
+      ? nextManeuverAlongTrack(steps, alongTrackMeters)
+      : null;
+
+  onRouteReady?.(distanceMeters, durationSeconds, maneuver, alongTrackMeters);
 }
 
 type WebViewMapMessageContext = {
   isMapReadyRef: { current: boolean };
   locationRef: { current: LatLng };
   routePresentedSentRef: { current: boolean };
+  /** Steps of the trip line currently drawn, so a maneuver can be named from them. */
+  tripStepsRef: { current: RouteStep[] | null };
   startMapTransition: (fn: () => void) => void;
   setIsMapReady: (ready: boolean) => void;
   onMapReady?: () => void;
@@ -198,7 +195,11 @@ function dispatchWebViewMapMessage(
       ctx.handleUserMapInteract();
       break;
     case 'routeInfo':
-      handleMapRouteInfoMessage(msg, ctx.onRouteReady);
+      handleMapRouteInfoMessage(
+        msg,
+        ctx.tripStepsRef.current,
+        ctx.onRouteReady,
+      );
       break;
     case 'routePresented':
       if (!ctx.routePresentedSentRef.current) {
@@ -273,6 +274,16 @@ export function WebViewMap({
   const [rerouteGeneration, setRerouteGeneration] = useState(0);
   const routePresentedSentRef = useRef(false);
   const lastRouteKey = useRef<string>('');
+  /**
+   * In-flight route request. Aborted when a new one supersedes it, and when the route is
+   * cleared; never in an effect cleanup, because this effect also returns early on an
+   * unchanged key and a cleanup would then cancel the request it is not re-issuing.
+   */
+  const routeAbortRef = useRef<AbortController | null>(null);
+  /** Monotonic request id, handed to the map so a late answer cannot redraw a newer route. */
+  const routeRequestSeqRef = useRef(0);
+  /** Steps of the trip line the map is currently drawing. */
+  const tripStepsRef = useRef<RouteStep[] | null>(null);
   const lastPrefetchCenterRef = useRef<{ lat: number; lng: number } | null>(null);
   const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onLocationUpdateRef = useRef(onLocationUpdate);
@@ -310,6 +321,74 @@ export function WebViewMap({
       `(function(){try{if(window.__veHandleNativeMessage){window.__veHandleNativeMessage({data:${JSON.stringify(json)}});} }catch(e){console.error(e);}true;})();`,
     );
   }, []);
+
+  /**
+   * Resolve the trip line, and the approach line when there is one, outside the WebView.
+   *
+   * The map document used to issue these requests itself, with no deadline and a single
+   * endpoint, and it swallowed the failure — which is how a stalled router left a straight
+   * line on screen with nothing to distinguish it from a road. Each leg answers with its own
+   * message and carries the request id, so an answer that outlived its request is ignored by
+   * the map instead of drawing over a newer route.
+   */
+  const requestRouteLegs = useCallback(
+    (
+      generation: number,
+      tripFrom: LatLng,
+      tripTo: LatLng,
+      approachFromCoord: LatLng | null,
+      approachTo: LatLng,
+      signal: AbortSignal,
+    ) => {
+      const legs: Array<{
+        legKind: 'trip' | 'approach';
+        from: LatLng;
+        to: LatLng;
+      }> = [{ legKind: 'trip', from: tripFrom, to: tripTo }];
+      if (approachFromCoord) {
+        legs.push({
+          legKind: 'approach',
+          from: approachFromCoord,
+          to: approachTo,
+        });
+      }
+
+      for (const leg of legs) {
+        logOfferStage('nav_route_requested', {
+          leg: leg.legKind,
+          generation,
+        });
+        void fetchRoute(leg.from, leg.to, { signal })
+          .then((route) => {
+            if (signal.aborted) return;
+            if (leg.legKind === 'trip') {
+              tripStepsRef.current = route.steps.length ? route.steps : null;
+            }
+            postToMap({
+              type: 'routeGeometry',
+              routeGeneration: generation,
+              legKind: leg.legKind,
+              coordinates: route.coordinates,
+              steps: route.steps,
+              distanceMeters: route.distanceMeters,
+              durationSeconds: route.durationSeconds,
+            });
+          })
+          .catch((error: unknown) => {
+            if (signal.aborted) return;
+            const reason =
+              error instanceof RoutingError ? error.reason : 'network';
+            postToMap({
+              type: 'routeError',
+              routeGeneration: generation,
+              legKind: leg.legKind,
+              reason,
+            });
+          });
+      }
+    },
+    [postToMap],
+  );
 
   const frostPushRafRef = useRef(0);
   const latestFrostRectsRef = useRef<FrostRect[]>([]);
@@ -436,8 +515,20 @@ export function WebViewMap({
   const requestReroute = useCallback(() => {
     if (!navigationFollowRef.current) return;
     const now = Date.now();
-    if (now - lastRerouteAtRef.current < REROUTE_COOLDOWN_MS) return;
+    if (now - lastRerouteAtRef.current < REROUTE_COOLDOWN_MS) {
+      logOfferStage('nav_off_route', {
+        action: 'cooldown',
+        since_ms: now - lastRerouteAtRef.current,
+      });
+      return;
+    }
     lastRerouteAtRef.current = now;
+    // The line the driver left is the one that was drawn, and the generation that follows is
+    // what a late answer for it must fail to overwrite.
+    logOfferStage('nav_off_route', {
+      action: 'reroute',
+      generation: routeRequestSeqRef.current + 1,
+    });
     rerouteGenerationRef.current += 1;
     setRerouteGeneration(rerouteGenerationRef.current);
   }, []);
@@ -655,6 +746,9 @@ export function WebViewMap({
     if (!showRoute || !start || !end) {
       lastRouteKey.current = '';
       routePresentedSentRef.current = false;
+      tripStepsRef.current = null;
+      routeAbortRef.current?.abort();
+      routeAbortRef.current = null;
       postToMap({ type: 'clearRoute' });
       return;
     }
@@ -695,8 +789,16 @@ export function WebViewMap({
         ? latestFixRef.current
         : start;
 
+    routeAbortRef.current?.abort();
+    const controller = new AbortController();
+    routeAbortRef.current = controller;
+    tripStepsRef.current = null;
+    routeRequestSeqRef.current += 1;
+    const generation = routeRequestSeqRef.current;
+
     postToMap({
       type: 'updateRoute',
+      routeGeneration: generation,
       start: [origin.lng, origin.lat],
       end: [end.lng, end.lat],
       approachFrom: approachFrom
@@ -716,6 +818,15 @@ export function WebViewMap({
       setPaused(false);
       postGpsCamera(locationRef.current, true, lastHeadingRef.current);
     }
+
+    requestRouteLegs(
+      generation,
+      origin,
+      end,
+      approachFrom ?? null,
+      start,
+      controller.signal,
+    );
   }, [
     isMapReady,
     start?.lat,
@@ -737,6 +848,7 @@ export function WebViewMap({
     postToMap,
     postGpsCamera,
     setPaused,
+    requestRouteLegs,
   ]);
 
   useEffect(() => {
@@ -753,6 +865,7 @@ export function WebViewMap({
           isMapReadyRef,
           locationRef,
           routePresentedSentRef,
+          tripStepsRef,
           startMapTransition,
           setIsMapReady,
           onMapReady,
