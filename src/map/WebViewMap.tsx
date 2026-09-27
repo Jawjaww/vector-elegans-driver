@@ -308,7 +308,6 @@ export function WebViewMap({
   const [rerouteGeneration, setRerouteGeneration] = useState(0);
   const routePresentedSentRef = useRef(false);
   const lastRouteKey = useRef<string>('');
-  const prevNavigationFollowRef = useRef(false);
   /**
    * In-flight route request. Aborted when a new one supersedes it, and when the route is
    * cleared; never in an effect cleanup, because this effect also returns early on an
@@ -814,13 +813,6 @@ export function WebViewMap({
 
   useEffect(() => {
     if (!isMapReady) return;
-
-    if (navigationFollow && !prevNavigationFollowRef.current) {
-      // Accept reuses the same trip endpoints as the offer chord; the dedup key can match and
-      // skip updateRoute while the WebView still owns the offer camera lock.
-      lastRouteKey.current = '';
-    }
-    prevNavigationFollowRef.current = navigationFollow;
 
     if (!showRoute || !start || !end) {
       lastRouteKey.current = '';
