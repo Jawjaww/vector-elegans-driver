@@ -941,19 +941,25 @@ export function buildMapHtmlTemplate(
     function syncGpsPuck(coords, bearingOverride) {
       if (!coords) return;
       window.__veLastGpsCoords = coords;
+      var along = bearingAlongNavLine(coords);
+      var bearing =
+        typeof bearingOverride === "number"
+          ? bearingOverride
+          : along !== null
+            ? along
+            : gpsBearingAlongTrack(coords);
       if (window.__veUseCanvasGpsPuck) {
         hideHtmlGpsMarker();
-        upsertGpsCanvasPuck(coords, bearingOverride);
+        upsertGpsCanvasPuck(coords, bearing);
         return;
       }
       removeGpsCanvasPuck();
       const marker = ensureGpsArrowMarker();
       marker.setLngLat(coords);
-      marker.setRotation(
-        typeof bearingOverride === "number"
-          ? bearingOverride
-          : gpsBearingAlongTrack(coords),
-      );
+      // Map alignment + the same bearing as the camera: the arrow stays on the
+      // trace, and both point up once the camera is course-up.
+      marker.setRotationAlignment("map");
+      marker.setRotation(bearing);
       if (!window.__veGpsMarkerAdded) {
         marker.addTo(map);
         window.__veGpsMarkerAdded = true;
@@ -1141,6 +1147,40 @@ export function buildMapHtmlTemplate(
       return map.getBearing();
     }
 
+    function moveNavCamera(camera) {
+      beginProgrammaticCamera(camera.duration || 400);
+      try {
+        map.easeTo(camera);
+      } catch (e) {
+        try {
+          var plain = {
+            center: camera.center,
+            zoom: camera.zoom,
+            bearing: camera.bearing,
+            pitch: camera.pitch,
+            duration: camera.duration || 0,
+            essential: true,
+          };
+          map.easeTo(plain);
+        } catch (e2) {}
+      }
+    }
+
+    function jumpNavCamera(camera) {
+      beginProgrammaticCamera(80);
+      try {
+        map.jumpTo(camera);
+      } catch (e) {
+        try {
+          map.jumpTo({
+            center: camera.center,
+            zoom: camera.zoom,
+            bearing: camera.bearing,
+            pitch: camera.pitch,
+          });
+        } catch (e2) {}
+      }
+    }
     function alignNavCameraCourseUp(coords, opts) {
       if (!isNavMode(opts) || !coords) return;
       const brg = bearingAlongNavLine(coords);
@@ -1153,18 +1193,15 @@ export function buildMapHtmlTemplate(
           : typeof window.__veNavPitch === "number"
             ? window.__veNavPitch
             : 50;
-      beginProgrammaticCamera(450);
-      try {
-        map.easeTo({
-          center: coords,
-          zoom: zoom,
-          bearing: brg,
-          pitch: pitch,
-          padding: navLookaheadPadding(opts),
-          duration: 450,
-          essential: true,
-        });
-      } catch (e) {}
+      moveNavCamera({
+        center: coords,
+        zoom: zoom,
+        bearing: brg,
+        pitch: pitch,
+        padding: navLookaheadPadding(opts),
+        duration: 450,
+        essential: true,
+      });
       syncGpsPuck(coords, brg);
     }
 
@@ -1208,12 +1245,11 @@ export function buildMapHtmlTemplate(
         const pitch =
           opts && typeof opts.pitch === "number" ? opts.pitch : map.getPitch();
         try {
-          map.jumpTo({
+          jumpNavCamera({
             center: pos,
             zoom: zoom,
             bearing: brg,
             pitch: pitch,
-            padding: navLookaheadPadding(opts),
           });
         } catch (e) {}
         if (u < 1) window.__veGlideRaf = requestAnimationFrame(frame);
@@ -1277,7 +1313,7 @@ export function buildMapHtmlTemplate(
       }
 
       beginProgrammaticCamera(duration);
-      map.easeTo({
+      moveNavCamera({
         center: coords,
         zoom: zoom,
         bearing: bearing,
@@ -1661,10 +1697,18 @@ export function buildMapHtmlTemplate(
         setOverviewWestEurope(0, fitPadding);
       }
 
-      // A two-point chord is not a road. Leave snap/off-route disarmed until
-      // OSRM geometry lands, so a reroute cannot abort the request in flight.
-      window.__veNavLine = null;
+      // Chord is enough to aim the camera and the arrow. Off-route stays
+      // disarmed until the line has more than two points (navLineIsRoad).
+      window.__veNavLine = [start, end];
       clearOffRouteLatch();
+      if (!shouldFitBounds && !isOffer && window.__veLastGpsCoords) {
+        alignNavCameraCourseUp(window.__veLastGpsCoords, {
+          navigation: true,
+          zoom: window.__veNavZoom || 18,
+          pitch: typeof window.__veNavPitch === "number" ? window.__veNavPitch : 50,
+          followCamera: true,
+        });
+      }
 
       function paintApproachStraight() {
         if (!approachFrom) {
