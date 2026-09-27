@@ -40,7 +40,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
     : 'navigation';
   const instruction = man
     ? maneuverBannerLine(man.type, man.modifier, man.distanceMeters, man.exit)
-    : 'Calcul de l’itinéraire…';
+    : 'Suivre le trajet';
   const street = man?.name?.trim() ? man.name.trim() : null;
 
   return (

@@ -43,7 +43,7 @@ describe('gpsFixAcceptable', () => {
     ).toBe(true);
   });
 
-  it('drops a later fix coarser than 40 m', () => {
+  it('drops a later fix coarser than 80 m', () => {
     expect(
       gpsFixAcceptable({
         accuracy: GPS_MAX_ACCURACY_METERS + 1,
@@ -76,6 +76,19 @@ describe('gpsFixAcceptable', () => {
         hasFix: true,
       }),
     ).toBe(false);
+  });
+
+  it('accepts a far fix once the previous one is no longer recent', () => {
+    const far = { lat: 48.87, lng: 2.3522 };
+    expect(
+      gpsFixAcceptable({
+        accuracy: 8,
+        prev: here,
+        next: far,
+        elapsedMs: 8000,
+        hasFix: true,
+      }),
+    ).toBe(true);
   });
 });
 

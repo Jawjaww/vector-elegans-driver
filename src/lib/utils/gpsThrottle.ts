@@ -19,10 +19,17 @@ export function haversineMeters(
 }
 
 /** Drop a later fix coarser than this once a position is already held. */
-export const GPS_MAX_ACCURACY_METERS = 40;
+export const GPS_MAX_ACCURACY_METERS = 80;
 
 /** Reject an implied speed above this (~200 km/h) as a GPS jump. */
 export const GPS_MAX_SPEED_MPS = 55;
+
+/**
+ * Speed is only judged against a fix accepted inside this window.
+ * A stale anchor (the filter already dropped everything after a bad first fix)
+ * must not freeze the puck forever.
+ */
+export const GPS_JUMP_WINDOW_MS = 5000;
 
 export function gpsFixAcceptable(input: {
   accuracy: number | null | undefined;
@@ -42,7 +49,12 @@ export function gpsFixAcceptable(input: {
   ) {
     return false;
   }
-  if (input.hasFix && input.prev && input.elapsedMs > 0) {
+  if (
+    input.hasFix &&
+    input.prev &&
+    input.elapsedMs > 0 &&
+    input.elapsedMs <= GPS_JUMP_WINDOW_MS
+  ) {
     const speed = haversineMeters(input.prev, input.next) / (input.elapsedMs / 1000);
     if (speed > GPS_MAX_SPEED_MPS) return false;
   }
