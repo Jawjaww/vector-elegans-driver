@@ -88,6 +88,8 @@ export interface MapProps {
   onUserMapInteract?: () => void;
   /** Tile prefetch + clearRoute for the home map. */
   mapControllerRef?: RefObject<MapControllerRef | null>;
+  /** Active ride id, attached to the guidance diagnostic rows (`nav_tick`). */
+  activeRideId?: string;
 }
 
 export type MapBounds = [[number, number], [number, number]];

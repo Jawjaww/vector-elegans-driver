@@ -144,6 +144,35 @@ export const OFFER_PIPELINE_STAGES = [
    * signal — the two look identical from the map, and only one of them explains a stale line.
    */
   'nav_off_route',
+  /**
+   * One guidance camera tick, as the map document decided it.
+   *
+   * The camera lives in the WebView, so it was the one part of guidance with no observer: a
+   * `course_up: false`, a stuck zoom, or a trace that was never cut could only be seen with a
+   * debugger attached. Detail carries the decision (`course_up`, `bearing`, `zoom`, `puck_y_ratio`,
+   * `on_line`, `trimmed`) and never the driver's coordinates.
+   */
+  'nav_tick',
+  /** A guidance tick that threw, with `error` and `source`. */
+  'nav_tick_error',
+  /**
+   * The WebView message bridge threw while handling a native message: `error`, `message_type`
+   * (null when the payload never parsed) and `source`. Distinct from `nav_tick_error` because a
+   * malformed payload and a broken camera tick look identical from the map and want different
+   * fixes.
+   */
+  'nav_message_error',
+  /**
+   * `update_ride_nav_progress` accepted the last progress write. Throttled to one row per RPC
+   * window (12 s); present so a NULL `rides.nav_updated_at` names its own cause.
+   */
+  'nav_progress_ok',
+  /**
+   * The RPC refused or failed. `error` carries either the transport message or the `jsonb`
+   * `error` the function returned — a RPC that answers with a body is a success as far as the
+   * client is concerned, which is how a rejected write stayed invisible.
+   */
+  'nav_progress_error',
 ] as const;
 
 export type OfferPipelineStage = (typeof OFFER_PIPELINE_STAGES)[number];

@@ -98,6 +98,24 @@ function queueCoarsePrefetch(
 }
 
 const DEFAULT_IDLE_RECENTER_MS = 8000;
+/**
+ * Guidance camera heartbeat, ms.
+ *
+ * The camera was only commanded from a GPS fix, and the navigation watch asks for updates every
+ * 8 m (`watchPositionAsync` below). A driver stopped at the pickup point therefore received
+ * nothing at all: any north-up command that had won once — a fit on route arrival, a follow
+ * resume — stayed on screen, and the map never came back course-up. Measured symptom, reported
+ * from a test ride: "it does not turn at all, it stays north-up".
+ */
+const NAV_CAMERA_KEEPALIVE_MS = 1000;
+/**
+ * Age of the last fix beyond which the driver counts as stopped, ms.
+ *
+ * A stale speed is worse than no speed here: the zoom is chosen from it, so a driver who braked
+ * to a halt would keep the city zoom of 18 instead of the standstill 19. Not moving the watch's
+ * 8 m is exactly what "stopped" means.
+ */
+const NAV_CAMERA_STALE_FIX_MS = 3000;
 /** Ignore a second off-route signal until the new geometry has had time to land. */
 const REROUTE_COOLDOWN_MS = 8000;
 
@@ -166,6 +184,8 @@ type WebViewMapMessageContext = {
   onOffRoute?: () => void;
   onRouteReady?: NonNullable<MapProps['onRouteReady']>;
   onRoutePresented?: () => void;
+  /** Active ride id, attached to the guidance diagnostic rows. */
+  activeRideId?: string;
 };
 
 function dispatchWebViewMapMessage(
@@ -210,6 +230,19 @@ function dispatchWebViewMapMessage(
     case 'offRoute':
       ctx.onOffRoute?.();
       break;
+    case 'navDiag': {
+      // The tick and the message bridge report from inside the map document, where they are the
+      // only observers. Three stages out of one message: a swallowed message and a broken tick
+      // look the same on the map and want different fixes.
+      const detail = (msg.detail as Record<string, unknown>) ?? {};
+      const stage = !detail.error
+        ? 'nav_tick'
+        : detail.source === 'handleNativeMessage'
+          ? 'nav_message_error'
+          : 'nav_tick_error';
+      logOfferStage(stage, detail, ctx.activeRideId ?? null);
+      break;
+    }
     default:
       break;
   }
@@ -241,6 +274,7 @@ export function WebViewMap({
   onFollowPausedChange,
   resumeFollowRef,
   mapControllerRef,
+  activeRideId,
   prefetchConfig = {
     enabled: true,
     aggressiveMode: false,
@@ -646,6 +680,43 @@ export function WebViewMap({
     postGpsCamera(locationRef.current, true, lastHeadingRef.current);
   }, [navigationFollow, isMapReady, postGpsCamera, setPaused]);
 
+  /**
+   * Keep the guidance camera commanded between fixes.
+   *
+   * The map document only moves its camera on a fix it receives, and the navigation watch only
+   * reports after 8 m. A driver stopped at the pickup point — which is precisely where guidance
+   * begins — would then never be commanded again, and whatever commanded the camera last won for
+   * the rest of the wait. This re-asserts the framing once a second, from the last known fix.
+   *
+   * It goes through `shouldFollowCamera()`, so panning the map still pauses the follow and the
+   * idle timer still resumes it; the heartbeat never fights a deliberate gesture. A fix older
+   * than `NAV_CAMERA_STALE_FIX_MS` means the 8 m threshold has not been crossed, so the last
+   * speed is dropped to zero — otherwise a driver who just stopped would keep the zoom of the
+   * speed they were doing.
+   */
+  useEffect(() => {
+    if (!navigationFollow) return;
+    const id = setInterval(() => {
+      if (!isMapReadyRef.current) return;
+      if (!shouldFollowCamera()) return;
+      if (
+        hasGpsFixRef.current &&
+        Date.now() - lastFixAtRef.current > NAV_CAMERA_STALE_FIX_MS
+      ) {
+        lastSpeedRef.current = 0;
+      }
+      // The freshest accepted fix, not `locationRef`: that one only moves every ~10 m, and
+      // re-centring the 1 Hz heartbeat on a staler point than the last fix makes the camera
+      // step backwards between two fixes.
+      postGpsCamera(
+        latestFixRef.current ?? locationRef.current,
+        true,
+        lastHeadingRef.current,
+      );
+    }, NAV_CAMERA_KEEPALIVE_MS);
+    return () => clearInterval(id);
+  }, [navigationFollow, postGpsCamera, shouldFollowCamera]);
+
   useEffect(() => {
     let watch: Location.LocationSubscription | null = null;
     let cancelled = false;
@@ -812,6 +883,8 @@ export function WebViewMap({
       fitBounds: shouldFitBounds,
       presentation,
       offerOverview: useOfferOverview,
+      // The camera is told what the route is for, instead of inferring it from `fitBounds`.
+      navigation: navigationFollow,
     });
 
     if (navigationFollow) {
@@ -875,12 +948,14 @@ export function WebViewMap({
           onRouteReady,
           onRoutePresented,
           onOffRoute: requestReroute,
+          activeRideId,
         });
       } catch (e) {
         console.error('WebView message error:', e);
       }
     },
     [
+      activeRideId,
       handleUserMapInteract,
       onMapReady,
       onRouteReady,

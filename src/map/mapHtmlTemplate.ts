@@ -4,7 +4,11 @@ import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
 import { GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
-import { planNavCamera } from "../lib/utils/navCamera";
+import {
+  deviceBearing,
+  normaliseBearing,
+  planNavCamera,
+} from "../lib/utils/navCamera";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
@@ -650,10 +654,12 @@ export function buildMapHtmlTemplate(
 
     // --- RN → Web bridge (iOS: window, Android: document) ---
     function handleNativeMessage(event) {
+      let messageType = null;
       try {
         const raw = event && event.data !== undefined ? event.data : event;
         const msg = typeof raw === "string" ? JSON.parse(raw) : raw;
         if (!msg || !msg.type) return;
+        messageType = msg.type;
 
         if (msg.type === "gpsUpdate") {
           updateGps(msg.coords, msg);
@@ -668,7 +674,8 @@ export function buildMapHtmlTemplate(
             msg.presentation === "offer" ? "offer" : "default",
             msg.offerOverview === true,
             msg.driverMarker || null,
-            msg.routeGeneration
+            msg.routeGeneration,
+            msg.navigation === true
           );
         } else if (msg.type === "routeGeometry" || msg.type === "routeError") {
           // The line is resolved by the app (deadline + fallback endpoint); this document only
@@ -700,6 +707,15 @@ export function buildMapHtmlTemplate(
         }
       } catch (e) {
         console.error("Message parse error:", e);
+        // Anything thrown by a message handler lands here too — a throw inside updateGps or
+        // updateRoute is otherwise indistinguishable from a malformed payload, and both were
+        // silent on the app side. Reporting it turns "the camera does not move" into a row, and
+        // message_type is null exactly when the payload never parsed.
+        postNavDiag({
+          error: navErrorMessage(e),
+          source: "handleNativeMessage",
+          message_type: messageType,
+        });
       }
     }
     window.addEventListener("message", handleNativeMessage);
@@ -726,13 +742,26 @@ export function buildMapHtmlTemplate(
       failed: false,
       /** Request id, matched against the answer to drop a late one. */
       generation: null,
+      /**
+       * The app said this route is a guidance route (navigationFollow), not an overview.
+       *
+       * It used to be inferred from "not an offer and no fitBounds asked", which made the
+       * camera's duty depend on a flag computed on the other side of the bridge. The camera now
+       * knows what it is for, and a fit can never be asked for while it is guiding.
+       */
+      navigating: false,
       /** True when the camera was last oriented to the route azimuth. */
       courseUp: false,
       /** Last bearing actually applied to the map. */
       bearing: null,
       /** Last position the puck was drawn at. */
       coords: null,
-      zoom: 18,
+      /**
+       * Where the drawn line was last cut, and for which request. Re-cutting on every tick would
+       * rebuild the route source several times a second for a few metres of progress.
+       */
+      trimAnchor: null,
+      zoom: 19,
       pitch: 50,
       speed: null,
       heading: null,
@@ -741,6 +770,49 @@ export function buildMapHtmlTemplate(
     };
     window.__veLastGpsCoords = null;
     window.__veGpsMarker = null;
+
+    /**
+     * Message text from anything thrown, without assuming it is an Error.
+     */
+    function navErrorMessage(error) {
+      if (!error) return "unknown";
+      if (typeof error === "string") return error;
+      return String(error.message || error.name || error);
+    }
+
+    /**
+     * One structured line per guidance tick, into the app's own diagnostic sink.
+     *
+     * Guidance lives entirely inside this document, so a camera that never turned left no trace
+     * anywhere: a throw in the tick was swallowed by the message bridge below, and all the app
+     * saw was a map that stayed north. This reports the decision (course_up, bearing, zoom)
+     * rather than only the inputs, which is what makes "it did not turn" nameable without a
+     * WebView debugger.
+     *
+     * Throttled twice, and on separate clocks: the tick fires at 1 Hz and the sink has a 7-day
+     * retention, while errors deserve to be read. A failing tick would otherwise write 60 rows a
+     * minute, and an error alternating with a healthy tick would be swallowed by the healthy
+     * one's window and never reported at all.
+     */
+    var NAV_DIAG_MIN_INTERVAL_MS = 5000;
+    window.__veLastNavDiagAt = 0;
+    window.__veLastNavErrorAt = 0;
+    function postNavDiag(detail) {
+      try {
+        if (!window.ReactNativeWebView) return;
+        var now = Date.now();
+        if (detail.error) {
+          if (now - window.__veLastNavErrorAt < NAV_DIAG_MIN_INTERVAL_MS) return;
+          window.__veLastNavErrorAt = now;
+        } else {
+          if (now - window.__veLastNavDiagAt < NAV_DIAG_MIN_INTERVAL_MS) return;
+          window.__veLastNavDiagAt = now;
+        }
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: "navDiag", detail: detail })
+        );
+      } catch (e) {}
+    }
 
     function haversineMeters(a, b) {
       const toRad = Math.PI / 180;
@@ -769,6 +841,11 @@ export function buildMapHtmlTemplate(
     }
 
     ${snapToNavLine.toString()}
+    // Three functions, three sources: each one only carries its own body, so the helpers the
+    // planner calls must be injected alongside it or the document throws a ReferenceError at the
+    // first tick. navInjectionContract.test.ts runs this exact fragment in a fresh scope.
+    ${normaliseBearing.toString()}
+    ${deviceBearing.toString()}
     ${planNavCamera.toString()}
 
     /** Point ~lookAheadM along the nav polyline ahead of current position */
@@ -1152,6 +1229,15 @@ export function buildMapHtmlTemplate(
       return bearingDegrees(coords, end);
     }
 
+    /**
+     * Look-ahead framing, as a padding rather than a zoom.
+     *
+     * jumpTo places the given centre at the middle of the padding-inset viewport, so a bottom
+     * padding lifts the target *up* the screen — the driver ends up around a third of the way
+     * down, the first turn already behind the horizon. Padding the top instead pushes the centre
+     * down: with 40% above and 10% below, the puck sits at 65% of the height and two thirds of
+     * the screen show the road ahead, which is the framing the reference capture asks for.
+     */
     function navLookaheadPadding(opts) {
       if (!opts || opts.navigation !== true) {
         return { top: 0, bottom: 0, left: 0, right: 0 };
@@ -1160,7 +1246,12 @@ export function buildMapHtmlTemplate(
       try {
         h = map.getContainer().clientHeight || 0;
       } catch (e) {}
-      return { top: 0, bottom: Math.round(h * 0.35), left: 0, right: 0 };
+      return {
+        top: Math.round(h * 0.4),
+        bottom: Math.round(h * 0.1),
+        left: 0,
+        right: 0,
+      };
     }
 
     function moveNavCamera(camera) {
@@ -1206,8 +1297,25 @@ export function buildMapHtmlTemplate(
      * one had run last. One tick, one bearing, applied to the map and to the puck in the same
      * call, is what makes "the arrow points where the camera points" a property instead of a
      * coincidence.
+     *
+     * Guarded, and it reports. This used to run bare inside the message parser's own try/catch:
+     * anything thrown here — a planner that failed to inject above all — left the camera exactly
+     * where the last successful command had put it, wrote nothing anywhere, and was indis-
+     * tinguishable from a camera that refuses to turn. The measured "it never rotates" symptom
+     * had no other explanation available from the data.
      */
     function guideTick(coords, opts) {
+      try {
+        guideTickPlanned(coords, opts);
+      } catch (error) {
+        postNavDiag({ error: navErrorMessage(error), source: "guideTick" });
+        try {
+          guideTickFallback(coords, opts);
+        } catch (e2) {}
+      }
+    }
+
+    function guideTickPlanned(coords, opts) {
       const nav = window.__veNav;
       const line = nav.line;
       const snapped =
@@ -1218,8 +1326,9 @@ export function buildMapHtmlTemplate(
       const onLine = snapped && !offRoute;
       const center = onLine ? snapped.point : coords;
 
+      const traceBearing = bearingAlongNavLine(coords);
       const plan = planNavCamera({
-        traceBearing: bearingAlongNavLine(coords),
+        traceBearing: traceBearing,
         deviceHeading:
           opts && typeof opts.heading === "number" ? opts.heading : nav.heading,
         mapBearing: map.getBearing(),
@@ -1234,10 +1343,101 @@ export function buildMapHtmlTemplate(
       nav.bearing = plan.bearing;
       nav.coords = center;
 
+      const zoom = (opts && opts.zoom) || nav.zoom || 19;
+      const pitch =
+        opts && typeof opts.pitch === "number"
+          ? opts.pitch
+          : typeof nav.pitch === "number"
+            ? nav.pitch
+            : 50;
+
       jumpNavCamera({
         center: center,
-        zoom: (opts && opts.zoom) || nav.zoom || 18,
+        zoom: zoom,
         bearing: plan.bearing,
+        pitch: pitch,
+        padding: navLookaheadPadding(opts),
+      });
+      syncGpsPuck(center, plan.bearing, plan.courseUp);
+      // The drawn line starts under the arrow: on an active trip the puck is the departure.
+      const trimmed = syncNavRouteStart(coords);
+      postRouteProgress(center, onLine ? snapped.traveledMeters : undefined);
+      postNavDiag({
+        navigating: nav.navigating,
+        follow: !(opts && opts.followCamera === false),
+        on_line: !!onLine,
+        trace_bearing: traceBearing,
+        bearing: plan.bearing,
+        course_up: plan.courseUp,
+        zoom: zoom,
+        pitch: pitch,
+        puck_y_ratio: navPuckYRatio(),
+        distance_to_line_m: snapped
+          ? Math.round(haversineMeters(coords, snapped.point))
+          : null,
+        trimmed: trimmed,
+      });
+    }
+
+    /**
+     * Where the tick just placed the puck vertically, as a fraction of the viewport.
+     *
+     * Derived from the padding we asked for, not read back from the map: jumpTo puts the
+     * centre at the middle of the padding-inset viewport, so this is the number the framing
+     * decision implies — and the one a screenshot can be compared against.
+     */
+    function navPuckYRatio() {
+      try {
+        var h = map.getContainer().clientHeight || 0;
+        if (!h) return null;
+        var padding = navLookaheadPadding({ navigation: true });
+        var ratio = (padding.top + (h - padding.bottom)) / 2 / h;
+        return Math.round(ratio * 100) / 100;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * Azimuth to the next drawn vertex ahead of the driver.
+     *
+     * Deliberately touches nothing injected: this is the branch that has to work when one of the
+     * injected functions is precisely what threw.
+     */
+    function navVertexBearing(coords) {
+      const line = window.__veNav.line;
+      if (!line || line.length < 2 || !coords) return null;
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < line.length; i++) {
+        const d = haversineMeters(coords, line[i]);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      const to = line[Math.min(bestIdx + 1, line.length - 1)];
+      if (haversineMeters(line[bestIdx], to) < 1) return null;
+      return bearingDegrees(line[bestIdx], to);
+    }
+
+    /**
+     * The tick minus the injected planner: orient the camera along the drawn vertices.
+     *
+     * A wrong zoom is a far smaller failure than a view that stays north-up while the trace runs
+     * across the screen — that is exactly what "the camera does not turn" looked like.
+     */
+    function guideTickFallback(coords, opts) {
+      const nav = window.__veNav;
+      const bearing = navVertexBearing(coords);
+      if (bearing === null) return;
+      nav.courseUp = true;
+      nav.bearing = bearing;
+      nav.coords = coords;
+      jumpNavCamera({
+        center: coords,
+        zoom: (opts && opts.zoom) || nav.zoom || 19,
+        bearing: bearing,
         pitch:
           opts && typeof opts.pitch === "number"
             ? opts.pitch
@@ -1246,8 +1446,7 @@ export function buildMapHtmlTemplate(
               : 50,
         padding: navLookaheadPadding(opts),
       });
-      syncGpsPuck(center, plan.bearing, plan.courseUp);
-      postRouteProgress(center, onLine ? snapped.traveledMeters : undefined);
+      syncGpsPuck(coords, bearing, true);
     }
 
     /**
@@ -1343,9 +1542,11 @@ export function buildMapHtmlTemplate(
       nav.pending = false;
       nav.failed = false;
       nav.generation = null;
+      nav.navigating = false;
       nav.courseUp = false;
       nav.bearing = null;
       nav.coords = null;
+      nav.trimAnchor = null;
       window.__veApproachLine = null;
       // Unset so nothing can commit into a document that has no route any more.
       window.__veRouteCommit = null;
@@ -1383,6 +1584,55 @@ export function buildMapHtmlTemplate(
         properties: {},
         geometry: { type: "LineString", coordinates: coords },
       };
+    }
+
+    /** A re-cut is worth one setData; GPS jitter of a few metres is not. */
+    var ROUTE_TRIM_MIN_METERS = 25;
+
+    /**
+     * The drawn route starts at the driver, not at the router's first vertex.
+     *
+     * On an active trip the puck *is* the departure — the pin used to be drawn under the arrow,
+     * at the driver's own position — so a polyline anchored on the route's own start leaves a
+     * stub behind the vehicle. Cutting geometrically avoids asking the router for a shortened
+     * line at every turn, and nav.line stays whole: the bearing, the remaining distance and the
+     * rendezvous all read the full geometry.
+     */
+    function trimNavLineFrom(coords) {
+      const line = window.__veNav.line;
+      if (!line || line.length < 2 || !coords) return null;
+      const snap = snapToNavLine(coords, line, 0);
+      if (!snap) return null;
+      const rest = [snap.point];
+      let walked = 0;
+      for (let i = 0; i < line.length - 1; i++) {
+        walked += haversineMeters(line[i], line[i + 1]);
+        if (walked > snap.traveledMeters + 1) rest.push(line[i + 1]);
+      }
+      return rest.length > 1 ? rest : null;
+    }
+
+    /** Re-point the drawn route at the driver. Returns true when the data was replaced. */
+    function syncNavRouteStart(coords) {
+      const nav = window.__veNav;
+      if (!nav.navigating || !nav.hasRoad) return false;
+      const anchor = nav.trimAnchor;
+      if (
+        anchor &&
+        anchor.generation === nav.generation &&
+        haversineMeters(anchor.coords, coords) < ROUTE_TRIM_MIN_METERS
+      ) {
+        return false;
+      }
+      const trimmed = trimNavLineFrom(coords);
+      if (!trimmed) return false;
+      nav.trimAnchor = { coords: trimmed[0], generation: nav.generation };
+      try {
+        const source = map.getSource("route");
+        // The casing and the glow share this source, so one setData moves all three layers.
+        if (source) source.setData(lineFeature(trimmed));
+      } catch (e) {}
+      return true;
     }
 
     function svgDataUri(svg) {
@@ -1623,12 +1873,16 @@ export function buildMapHtmlTemplate(
         return el;
       }
 
-      window.__vePickupMarker = new maplibregl.Marker({
-        element: makePinEl(),
-        anchor: "bottom",
-      })
-        .setLngLat(start)
-        .addTo(map);
+      // On an active trip the driver puck is the departure: the pin sat at the driver's own
+      // position, under the arrow, and read as a second, contradicting start point.
+      if (!window.__veNav.navigating) {
+        window.__vePickupMarker = new maplibregl.Marker({
+          element: makePinEl(),
+          anchor: "bottom",
+        })
+          .setLngLat(start)
+          .addTo(map);
+      }
 
       window.__veDropoffMarker = new maplibregl.Marker({
         element: makeFlagEl(),
@@ -1687,7 +1941,7 @@ export function buildMapHtmlTemplate(
     // is the drawing, plus a placeholder chord that is deliberately dashed and dimmed — a
     // straight line must never be mistaken for an itinerary.
 
-    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker, routeGeneration) {
+    function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker, routeGeneration, isNavigating) {
       const isOffer = presentation === "offer";
       const nav = window.__veNav;
       window.__veOfferPickup = start;
@@ -1696,6 +1950,9 @@ export function buildMapHtmlTemplate(
       syncGpsPuck(window.__veLastGpsCoords || driverMarker || null);
 
       nav.generation = routeGeneration == null ? 0 : routeGeneration;
+      // The app names the route's purpose; the camera no longer infers it from fitBounds.
+      nav.navigating = !isOffer && isNavigating === true;
+      nav.trimAnchor = null;
       nav.failed = false;
       nav.pending = true;
 
@@ -1735,12 +1992,13 @@ export function buildMapHtmlTemplate(
           postRouteProgress(window.__veLastGpsCoords || start, 0);
         } catch (e) {}
       }
-      if (!shouldFitBounds && !isOffer && window.__veLastGpsCoords) {
+      if (nav.navigating && window.__veLastGpsCoords) {
         // Lock the camera on the driver the moment the trip starts, before any line exists:
-        // the acceptance must not leave the map in north-up overview.
+        // the acceptance must not leave the map in north-up overview. A fit is never what
+        // guidance wants, so this no longer depends on the app having said fitBounds false.
         guideTick(window.__veLastGpsCoords, {
           navigation: true,
-          zoom: nav.zoom || 18,
+          zoom: nav.zoom || 19,
           pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
           followCamera: true,
         });
@@ -1818,15 +2076,21 @@ export function buildMapHtmlTemplate(
         });
         return [points];
       }
+      /**
+       * The line just changed, so the tick is the authority again.
+       *
+       * It no longer consults shouldFitBounds: in guidance a fit is never the right answer, and
+       * a route arriving while the map was fitted left the camera north-up with the trace running
+       * sideways — the state the driver reported. Guiding is asked of nav.navigating, which the
+       * app sets, not inferred from a flag computed on the other side of the bridge.
+       */
       function recenterTripNavCamera() {
-        if (shouldFitBounds || isOffer) return;
+        if (!nav.navigating) return;
         clearOffRouteLatch();
         const coords = window.__veLastGpsCoords;
         if (!coords) return;
-        // The line just changed, so the tick is the authority again: it re-plans the bearing
-        // from the new geometry instead of reusing whatever the camera was facing.
         guideTick(coords, {
-          zoom: nav.zoom || 18,
+          zoom: nav.zoom || 19,
           pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
           speed: nav.speed,
           heading: nav.heading,
@@ -1838,6 +2102,10 @@ export function buildMapHtmlTemplate(
       function presentOnce(coordLists, fitCoordLists) {
         if (presented) return;
         presented = true;
+        // A fit while guiding is a bug, not a preference: it resets the camera to north-up and
+        // dezooms to the whole trip. Guarded here as well as at the caller, because this is the
+        // single place that can take the camera away from the tick.
+        if (nav.navigating) return;
         const listsForFit =
           isOffer && fitCoordLists && fitCoordLists.length
             ? fitCoordLists
@@ -1903,6 +2171,10 @@ export function buildMapHtmlTemplate(
           lineFeature(tripCoords),
           routeLineStyle(),
         );
+        // A new road line: cut it at the driver before the first frame, rather than leaving the
+        // full geometry on screen until the next tick decides to re-point it.
+        nav.trimAnchor = null;
+        syncNavRouteStart(window.__veLastGpsCoords || start);
         try {
           postRouteProgress(window.__veLastGpsCoords || start, 0);
         } catch (e) {}

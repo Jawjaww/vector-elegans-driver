@@ -61,7 +61,13 @@ export function gpsFixAcceptable(input: {
   return true;
 }
 
-/** Street-level follow camera from ground speed (m/s). */
+/**
+ * Street-level follow camera from ground speed (m/s).
+ *
+ * Deliberately tight, and fixed per band rather than interpolated: the driver reads the turn
+ * ahead, not the neighbourhood. Standstill and city share the same framing so a red light does
+ * not re-frame the map, and only a real motorway speed is allowed to pull back.
+ */
 export function navCameraForSpeed(speedMps: number | null | undefined): {
   zoom: number;
   pitch: number;
@@ -70,9 +76,9 @@ export function navCameraForSpeed(speedMps: number | null | undefined): {
     typeof speedMps === 'number' && Number.isFinite(speedMps) && speedMps > 0
       ? speedMps * 3.6
       : 0;
-  if (kmh > 70) return { zoom: 16, pitch: 40 };
-  if (kmh >= 30) return { zoom: 17, pitch: 45 };
-  return { zoom: 18, pitch: 50 };
+  if (kmh > 70) return { zoom: 17, pitch: 40 };
+  if (kmh >= 30) return { zoom: 18, pitch: 45 };
+  return { zoom: 19, pitch: 50 };
 }
 
 /** True when we should write location into React state / Zustand. */

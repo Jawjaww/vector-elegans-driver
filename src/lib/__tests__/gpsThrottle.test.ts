@@ -93,10 +93,18 @@ describe('gpsFixAcceptable', () => {
 });
 
 describe('navCameraForSpeed', () => {
-  it('zooms out as speed rises', () => {
-    expect(navCameraForSpeed(5)).toEqual({ zoom: 18, pitch: 50 });
-    expect(navCameraForSpeed(30 / 3.6)).toEqual({ zoom: 17, pitch: 45 });
-    expect(navCameraForSpeed(80 / 3.6)).toEqual({ zoom: 16, pitch: 40 });
-    expect(navCameraForSpeed(null)).toEqual({ zoom: 18, pitch: 50 });
+  it('zooms out as speed rises, from a standstill framing that stays tight', () => {
+    expect(navCameraForSpeed(5)).toEqual({ zoom: 19, pitch: 50 });
+    expect(navCameraForSpeed(30 / 3.6)).toEqual({ zoom: 18, pitch: 45 });
+    expect(navCameraForSpeed(80 / 3.6)).toEqual({ zoom: 17, pitch: 40 });
+    expect(navCameraForSpeed(null)).toEqual({ zoom: 19, pitch: 50 });
+  });
+
+  it('keeps standstill and city on distinct zooms but never below street level', () => {
+    // A driver waiting at the pickup point must still see the turn ahead, not an overview.
+    expect(navCameraForSpeed(0).zoom).toBe(19);
+    expect(navCameraForSpeed(20 / 3.6).zoom).toBe(19);
+    expect(navCameraForSpeed(50 / 3.6).zoom).toBe(18);
+    expect(navCameraForSpeed(120 / 3.6).zoom).toBe(17);
   });
 });
