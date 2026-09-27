@@ -539,11 +539,11 @@ export function buildMapHtmlTemplate(
     // Cards above the map. Native blur cannot sample this WebView, so each card is a
     // blurred copy of the canvas plus a thin white wash. The RN panel stays clear.
     const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
+    const FROST_RIM_PX = ${GLASS_MATERIAL.rimWidthPx};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
-    // Edge only. The middle stays clear so the band never lands on the type, and overlay
-    // blends with the card's own pixels (blurred map + thin veil) so the rim takes the
-    // tile colour. A static layer: paintFrost does not touch it, and there is no second blur.
-    const FROST_RIM = "linear-gradient(168deg, ${GLASS_MATERIAL.rimHighlight} 0%, rgba(255,255,255,0) 16%, rgba(255,255,255,0) 84%, ${GLASS_MATERIAL.rimShade} 100%)";
+    // The face is the veil alone. This gradient is masked down to the band outside the face,
+    // so it never tints the background. Static: paintFrost does not touch it.
+    const FROST_RIM = "linear-gradient(180deg, ${GLASS_MATERIAL.rimHighlight}, ${GLASS_MATERIAL.rimShade})";
 
     function frostCard(root, id) {
       const nodes = root.children;
@@ -569,15 +569,19 @@ export function buildMapHtmlTemplate(
           card = document.createElement("div");
           card.setAttribute("data-frost", id);
           card.style.position = "absolute";
-          card.style.overflow = "hidden";
+          card.style.overflow = "visible";
           card.style.pointerEvents = "none";
-          card.style.boxSizing = "border-box";
-          card.style.isolation = "isolate";
+          card.style.background = "none";
+          const face = document.createElement("div");
+          face.setAttribute("data-frost-face", "");
+          face.style.position = "absolute";
+          face.style.overflow = "hidden";
+          face.style.pointerEvents = "none";
           const canvas = document.createElement("canvas");
           canvas.style.position = "absolute";
           canvas.style.left = "0";
           canvas.style.top = "0";
-          card.appendChild(canvas);
+          face.appendChild(canvas);
           const veil = document.createElement("div");
           veil.style.position = "absolute";
           veil.style.left = "0";
@@ -585,24 +589,45 @@ export function buildMapHtmlTemplate(
           veil.style.right = "0";
           veil.style.bottom = "0";
           veil.style.background = FROST_VEIL;
-          card.appendChild(veil);
+          face.appendChild(veil);
+          card.appendChild(face);
           const rim = document.createElement("div");
+          rim.setAttribute("data-frost-rim", "");
           rim.style.position = "absolute";
           rim.style.left = "0";
           rim.style.top = "0";
           rim.style.right = "0";
           rim.style.bottom = "0";
+          rim.style.boxSizing = "border-box";
           rim.style.pointerEvents = "none";
-          rim.style.mixBlendMode = "overlay";
+          rim.style.padding = FROST_RIM_PX + "px";
           rim.style.background = FROST_RIM;
+          rim.style.mixBlendMode = "overlay";
+          const punch = "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)";
+          rim.style.webkitMask = punch;
+          rim.style.webkitMaskComposite = "xor";
+          rim.style.mask = punch;
+          rim.style.maskComposite = "exclude";
           card.appendChild(rim);
           root.appendChild(card);
         }
-        card.style.left = r.x + "px";
-        card.style.top = r.y + "px";
-        card.style.width = r.w + "px";
-        card.style.height = r.h + "px";
-        card.style.borderRadius = (r.radius || 0) + "px";
+        const rimPx = FROST_RIM_PX;
+        card.style.left = (r.x - rimPx) + "px";
+        card.style.top = (r.y - rimPx) + "px";
+        card.style.width = (r.w + rimPx * 2) + "px";
+        card.style.height = (r.h + rimPx * 2) + "px";
+        const faceNode = card.querySelector("[data-frost-face]");
+        if (faceNode) {
+          faceNode.style.left = rimPx + "px";
+          faceNode.style.top = rimPx + "px";
+          faceNode.style.width = r.w + "px";
+          faceNode.style.height = r.h + "px";
+          faceNode.style.borderRadius = (r.radius || 0) + "px";
+        }
+        const rimNode = card.querySelector("[data-frost-rim]");
+        if (rimNode) {
+          rimNode.style.borderRadius = ((r.radius || 0) + rimPx) + "px";
+        }
       }
       const cards = root.querySelectorAll("[data-frost]");
       for (let i = cards.length - 1; i >= 0; i--) {
@@ -626,7 +651,8 @@ export function buildMapHtmlTemplate(
         const r = rects[i];
         const card = frostCard(root, String(r.id));
         if (!card) continue;
-        const canvas = card.firstChild;
+        const faceNode = card.querySelector("[data-frost-face]");
+        const canvas = faceNode ? faceNode.firstChild : null;
         if (!canvas || !canvas.getContext) continue;
         const ctx = canvas.getContext("2d");
         if (!ctx) continue;
