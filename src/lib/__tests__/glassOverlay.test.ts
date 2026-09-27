@@ -139,16 +139,18 @@ describe('the edge of a panel', () => {
     expect(map).toContain('r.x - rimPx');
     expect(map).toContain('GLASS_MATERIAL.rimWidthPx');
     expect(map).toContain('conic-gradient');
-    expect(map).toContain('315deg');
-    expect(map).toContain('135deg');
+    expect(map).toContain('306deg');
+    expect(map).toContain('126deg');
     expect(map).not.toContain('linear-gradient(180deg, ${GLASS_MATERIAL.rimHighlight}');
     expect(map).toContain('GLASS_MATERIAL.rimHighlight');
     expect(map).toContain('GLASS_MATERIAL.rimShade');
+    expect(map).toContain('GLASS_MATERIAL.rimMid');
+    expect(map.match(/GLASS_MATERIAL\.rimMid/g)?.length).toBeGreaterThanOrEqual(4);
     expect(map).toContain('maskComposite = "exclude"');
     expect(map.match(/mixBlendMode/g)).toHaveLength(1);
     expect(GLASS_MATERIAL.rimWidthPx).toBeGreaterThanOrEqual(1);
     expect(GLASS_MATERIAL.rimWidthPx).toBeLessThanOrEqual(2);
-    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.22);
+    expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.25);
   });
 });
 
@@ -301,6 +303,7 @@ describe('one material, and the theme owns it', () => {
         'fillBottom',
         'fillTop',
         'rimHighlight',
+        'rimMid',
         'rimShade',
         'rimWidthPx',
         'shadow',

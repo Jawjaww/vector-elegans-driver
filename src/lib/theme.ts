@@ -161,8 +161,9 @@ export const VE_BLUE = {
  * (`rimHighlight` / `rimShade`) is a band of `rimWidthPx` drawn *outside* the card, masked so
  * the centre is punched out, and blended with the map under that band only. The light runs
  * corner to opposite corner (top-left and bottom-right catch, the other pair falls off) —
- * a top-to-bottom gradient would light both upper edges at once. Both stops stay close in
- * value: a hard white against a dark grey reads as a stripe, not as glass. It is static:
+ * a top-to-bottom gradient would light both upper edges at once. `rimMid` holds the edge
+ * centres on a plateau so the band does not read as two halves; highlight and shade only
+ * peak at the corners, with ramps between. It is static:
  * the blur of the face is the only per-frame cost.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
@@ -184,6 +185,11 @@ export type GlassMaterial = {
    * difference is a falloff, not a white edge against a dark one.
    */
   rimShade: string;
+  /**
+   * Mid tone on the flat of each edge, between the corner peaks. Stops on the conic
+   * gradient hold here long enough that the rim reads as several steps, not a hard bisect.
+   */
+  rimMid: string;
   /**
    * Thickness of the exterior bevel, in CSS pixels. The highlight and the shade
    * live on this band only; the face underneath stays flat.
@@ -215,11 +221,12 @@ export type GlassMaterial = {
 export const GLASS_MATERIAL: GlassMaterial = {
   fillTop: 'rgba(255, 255, 255, 0.22)',
   fillBottom: 'rgba(255, 255, 255, 0.06)',
-  backdropBlurPx: 8,
-  rimHighlight: 'rgba(255, 255, 255, 0.48)',
+  backdropBlurPx: 4,
+  rimHighlight: 'rgba(255, 255, 255, 0.38)',
   rimShade: 'rgba(0, 0, 0, 0.20)',
+  rimMid: 'rgba(255, 255, 255, 0.14)',
   rimWidthPx: 1,
-  shadow: { offsetY: 6, radius: 28, opacity: 0.14, color: '#000000' },
+  shadow: { offsetY: 6, radius: 28, opacity: 0.24, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
   accent: VE_BLUE.base,
