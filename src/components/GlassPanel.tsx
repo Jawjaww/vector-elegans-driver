@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
-import {
-  StyleSheet,
-  View,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { GLASS_MATERIAL } from '../lib/theme';
 import {
   clearFrostRect,
@@ -24,7 +19,7 @@ type GlassPanelProps = Readonly<{
   frostEnabled?: boolean;
 }>;
 
-/** Kept at zero: the bevel is a light on the map copy, not an inset that shrinks the content. */
+/** Kept at zero: the bevel is outside the card, so the content is not inset. */
 export const GLASS_PANEL_BEVEL_PX = 0;
 
 export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
@@ -32,10 +27,11 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 /**
  * The panel every overlay above the map is drawn on.
  *
- * The view itself is clear except for the hairline — the one hard contour. The frost (a
- * light blur of the map, a thin white wash, then a rim blended over that copy) is painted
- * in the map document on this same rectangle, measured against the map scene — not the
- * window — so the wash cannot sit below the border.
+ * The view itself is clear, with no border: a hairline is too thin to carry a highlight,
+ * and a stroke drawn on this view sits on the face. The frost (a light blur, then a flat
+ * white wash) is painted in the map document on this rectangle. The bevel is a separate
+ * band outside it. Measured against the map scene — not the window — so the wash cannot
+ * slip off the card.
  *
  * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */
@@ -81,8 +77,7 @@ export function GlassPanel({
           borderRadius: radius,
           overflow: 'hidden',
           backgroundColor: 'transparent',
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: material.hairline,
+          borderWidth: 0,
           shadowColor: material.shadow.color,
           shadowOffset: { width: 0, height: material.shadow.offsetY },
           shadowOpacity: material.shadow.opacity,

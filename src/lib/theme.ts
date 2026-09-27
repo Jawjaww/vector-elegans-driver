@@ -154,14 +154,13 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **Frost is a light blur, then a thin white veil, then a rim that borrows the map.** The blur
- * is painted inside the map document (`backdropBlurPx`), by copying the MapLibre canvas under
- * each card. A native `BlurView` cannot sample the hardware WebView, and its light tint at
- * full intensity paints an opaque white plate over the map. The wash (`fillTop` / `fillBottom`)
- * stays thin on purpose: the map has to read through the card. The rim (`rimHighlight` /
- * `rimShade`) is a static gradient on that same copy, blended with `overlay`, so the edge
- * brightens and darkens the pixels already there instead of painting a second stroke. It is
- * not redrawn with the map — the blur is the only per-frame cost, and it stays small.
+ * **The face stays flat. The bevel sits outside it.** The blur is painted inside the map
+ * document (`backdropBlurPx`), by copying the MapLibre canvas under each card, then a thin
+ * white wash (`fillTop` / `fillBottom`) — and nothing else. A highlight painted across that
+ * copy reads as a tinted background, which is the opposite of a flat pane. The catch-light
+ * (`rimHighlight` / `rimShade`) is a band of `rimWidthPx` drawn *outside* the card, masked so
+ * the centre is punched out, and blended with the map under that band only. It is static:
+ * the blur of the face is the only per-frame cost.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
@@ -172,18 +171,21 @@ export type GlassMaterial = {
   fillTop: string;
   /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
   fillBottom: string;
-  /** One-point light edge around the frost. The only hard contour; the rim below fades. */
-  hairline: string;
   /**
-   * Catch-light at the top of the rim. Blended over the map copy, so it lifts the tile
-   * colour instead of laying a white line on it.
+   * Catch-light on the exterior band, at the top. Blended with the map under that band,
+   * never with the face.
    */
   rimHighlight: string;
   /**
-   * Shade at the bottom of the rim. Same blend: it darkens the tile colour under the edge,
-   * which is what reads as a bevel.
+   * Shade on the exterior band, at the bottom. Same blend, same band: it is what reads
+   * as the lower edge of a bevel.
    */
   rimShade: string;
+  /**
+   * Thickness of the exterior bevel, in CSS pixels. The highlight and the shade
+   * live on this band only; the face underneath stays flat.
+   */
+  rimWidthPx: number;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -210,10 +212,10 @@ export type GlassMaterial = {
 export const GLASS_MATERIAL: GlassMaterial = {
   fillTop: 'rgba(255, 255, 255, 0.22)',
   fillBottom: 'rgba(255, 255, 255, 0.06)',
-  backdropBlurPx: 12,
-  hairline: 'rgba(255, 255, 255, 0.6)',
-  rimHighlight: 'rgba(255, 255, 255, 0.85)',
-  rimShade: 'rgba(0, 0, 0, 0.45)',
+  backdropBlurPx: 1,
+  rimHighlight: 'rgba(255, 255, 255, 0.9)',
+  rimShade: 'rgba(0, 0, 0, 0.55)',
+  rimWidthPx: 2,
   shadow: { offsetY: 6, radius: 28, opacity: 0.14, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',

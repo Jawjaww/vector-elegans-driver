@@ -125,24 +125,25 @@ const sortedKeys = (value: object): string[] =>
   Object.keys(value).sort((a, b) => a.localeCompare(b));
 
 describe('the edge of a panel', () => {
-  it('draws one hairline, and lights the rim from the map copy', () => {
+  it('keeps the face flat and lights only an exterior rim', () => {
     const code = stripComments(readSource(GLASS_PANEL));
     const map = stripComments(readSource(MAP_TEMPLATE));
-    expect(code).toContain('material.hairline');
-    expect(code).toContain('borderWidth: StyleSheet.hairlineWidth');
-    // The old bevel was a second plate in the panel. The light now lives on the frost
-    // card, so the content is not inset and the type is not covered by a band.
+    // A stroke on the panel sits on the face, and a hairline is too thin to carry a highlight.
+    expect(code).toContain('borderWidth: 0');
+    expect(code).not.toContain('hairlineWidth');
     expect(code).not.toContain('cornerGlowTop');
     expect(code).not.toContain('rimLight');
     expect(code).toContain('GLASS_PANEL_BEVEL_PX = 0');
+    expect(map).toContain('data-frost-face');
+    expect(map).toContain('data-frost-rim');
+    expect(map).toContain('r.x - rimPx');
+    expect(map).toContain('GLASS_MATERIAL.rimWidthPx');
     expect(map).toContain('GLASS_MATERIAL.rimHighlight');
     expect(map).toContain('GLASS_MATERIAL.rimShade');
-    expect(map).toContain('mixBlendMode = "overlay"');
-    expect(map).toContain('rgba(255,255,255,0)');
-    const edge = rgbOf(GLASS_MATERIAL.hairline);
-    expect(edge.r).toBe(255);
-    expect(edge.a).toBeGreaterThan(0.3);
-    expect(edge.a).toBeLessThan(0.8);
+    expect(map).toContain('maskComposite = "exclude"');
+    expect(map.match(/mixBlendMode/g)).toHaveLength(1);
+    expect(GLASS_MATERIAL.rimWidthPx).toBeGreaterThanOrEqual(2);
+    expect(GLASS_MATERIAL.rimWidthPx).toBeLessThanOrEqual(3);
     expect(GLASS_MATERIAL.shadow.opacity).toBeLessThanOrEqual(0.22);
   });
 });
@@ -295,9 +296,9 @@ describe('one material, and the theme owns it', () => {
         'chipTintAlpha',
         'fillBottom',
         'fillTop',
-        'hairline',
         'rimHighlight',
         'rimShade',
+        'rimWidthPx',
         'shadow',
         'text',
         'textDim',
@@ -316,8 +317,8 @@ describe('one material, and the theme owns it', () => {
     expect(map).toContain('paintFrost');
     expect(map).toContain('drawImage');
     expect(map).toContain('GLASS_MATERIAL.backdropBlurPx');
-    expect(GLASS_MATERIAL.backdropBlurPx).toBeGreaterThanOrEqual(10);
-    expect(GLASS_MATERIAL.backdropBlurPx).toBeLessThanOrEqual(20);
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeGreaterThanOrEqual(1);
+    expect(GLASS_MATERIAL.backdropBlurPx).toBeLessThanOrEqual(12);
     for (const file of GLASS_CONSUMERS) {
       const code = stripComments(readSource(file));
       expect(code).not.toContain('expo-blur');
