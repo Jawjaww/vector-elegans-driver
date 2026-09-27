@@ -43,6 +43,9 @@ describe('guidance map template', () => {
     expect(html.indexOf('nav.navigating = true', navUnlock)).toBeLessThan(lock);
     expect(html).toContain('window.__veOfferFraming = isOffer');
     expect(html).toContain('window.__veOfferFraming = false');
+    expect(html).toContain('function adoptGuidanceDrawing(coords)');
+    expect(html).toContain('removeLayerSafe("approach-line")');
+    expect(html).toContain('if (isOffer && nav.navigating) return;');
   });
 
   it('frames the look-ahead with a top padding, not a bottom one', () => {
