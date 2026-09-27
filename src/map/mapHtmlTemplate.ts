@@ -1053,8 +1053,14 @@ export function buildMapHtmlTemplate(
       window.__veAwaitingReroute = false;
     }
 
-    /** True once the driver has stayed more than 45 m off the line for 3 fixes. */
+    function navLineIsRoad() {
+      var line = window.__veNavLine;
+      return !!(line && line.length > 2);
+    }
+
+    /** True once the driver has stayed more than 45 m off a real road line for 3 fixes. */
     function latchOffRoute(coords, dist) {
+      if (!navLineIsRoad()) return false;
       if (window.__veAwaitingReroute) return true;
       if (!(dist > OFF_ROUTE_METERS)) {
         window.__veOffRouteStreak = 0;
@@ -1312,6 +1318,7 @@ export function buildMapHtmlTemplate(
       window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
       offerRoutePresented = false;
       window.__veNavLine = null;
+      window.__veHasRoadRoute = false;
       cancelNavGlide();
       window.__veDisplayCoords = null;
       window.__veDisplayBearing = null;
@@ -1654,7 +1661,10 @@ export function buildMapHtmlTemplate(
         setOverviewWestEurope(0, fitPadding);
       }
 
-      window.__veNavLine = [start, end];
+      // A two-point chord is not a road. Leave snap/off-route disarmed until
+      // OSRM geometry lands, so a reroute cannot abort the request in flight.
+      window.__veNavLine = null;
+      clearOffRouteLatch();
 
       function paintApproachStraight() {
         if (!approachFrom) {
@@ -1792,6 +1802,8 @@ export function buildMapHtmlTemplate(
       }
 
       function paintStraightFallback() {
+        // A failed fetch must not wipe a road already on the map.
+        if (window.__veHasRoadRoute) return;
         upsertEndpoints(start, end, approachFrom, driverMarker);
         setOrAddLine(
           "route",
@@ -1809,7 +1821,7 @@ export function buildMapHtmlTemplate(
         if (trip && trip.geometry && trip.geometry.coordinates) {
           tripCoords = trip.geometry.coordinates;
           drewTrip = true;
-          window.__veNavLine = tripCoords;
+          window.__veNavLine = tripCoords.length > 2 ? tripCoords : null;
           let lineMeters = 0;
           for (let i = 0; i < tripCoords.length - 1; i++) {
             lineMeters += haversineMeters(tripCoords[i], tripCoords[i + 1]);
@@ -1822,6 +1834,7 @@ export function buildMapHtmlTemplate(
           const legs = trip.legs || [];
           window.__veNavSteps =
             legs.length && legs[0].steps ? legs[0].steps : null;
+          if (tripCoords.length > 2) window.__veHasRoadRoute = true;
           setOrAddLine(
             "route",
             "route-casing",

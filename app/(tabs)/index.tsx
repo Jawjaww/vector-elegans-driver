@@ -66,7 +66,6 @@ import { AnimatedPage } from "../../src/components/AnimatedPage";
 import {
   BottomSheet,
   type SheetSnapLevel,
-  NAV_SHEET_VISIBLE_H,
   sheetVisibleHeight,
 } from "../../src/components/BottomSheet";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
@@ -555,6 +554,16 @@ function shouldShowTripNavigationHud(
   const waitingAtPickup =
     ride.status === "scheduled" && Boolean(ride.driver_arrived_at);
   return !waitingAtPickup;
+}
+
+/** Top maneuver card only once OSRM has a real next instruction. */
+function tripManeuverProgress(
+  stage: string | null,
+  progress: NavProgress | null,
+): NavProgress | null {
+  if (stage !== "to_pickup" && stage !== "to_dropoff") return null;
+  if (!progress?.nextManeuver) return null;
+  return progress;
 }
 
 function resolveMapRecenterBottomOffset(
@@ -1658,6 +1667,7 @@ export default function DashboardScreen() {
       ),
     [activeRide?.status, activeRide?.driver_arrived_at],
   );
+  const maneuverProgress = tripManeuverProgress(tripStage, navProgress);
 
   // The guidance bar is an announcement now, not a fixture: it emerges when the stage changes,
   // withdraws once the driver pulls away, and returns after the driver has sat still long enough.
@@ -1810,16 +1820,8 @@ export default function DashboardScreen() {
           />
         ) : null}
 
-        {tripStage === 'to_pickup' || tripStage === 'to_dropoff' ? (
-          <TripManeuverHud
-            progress={
-              navProgress ?? {
-                distanceMeters: 0,
-                durationSeconds: 0,
-                nextManeuver: null,
-              }
-            }
-          />
+        {maneuverProgress ? (
+          <TripManeuverHud progress={maneuverProgress} />
         ) : null}
         {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
           <TripArrivalHud
