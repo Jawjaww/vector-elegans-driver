@@ -542,8 +542,10 @@ export function buildMapHtmlTemplate(
     const FROST_RIM_PX = ${GLASS_MATERIAL.rimWidthPx};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
     // The face is the veil alone. This gradient is masked down to the band outside the face,
-    // so it never tints the background. Static: paintFrost does not touch it.
-    const FROST_RIM = "linear-gradient(180deg, ${GLASS_MATERIAL.rimHighlight}, ${GLASS_MATERIAL.rimShade})";
+    // so it never tints the background. 0deg is the top; the two highlights sit on opposite
+    // corners (315 top-left, 135 bottom-right) and the shade on the other pair. A 180deg
+    // gradient would light both upper edges. Static: paintFrost does not touch it.
+    const FROST_RIM = "conic-gradient(from 0deg, ${GLASS_MATERIAL.rimShade} 45deg, ${GLASS_MATERIAL.rimHighlight} 135deg, ${GLASS_MATERIAL.rimShade} 225deg, ${GLASS_MATERIAL.rimHighlight} 315deg, ${GLASS_MATERIAL.rimShade} 405deg)";
 
     function frostCard(root, id) {
       const nodes = root.children;
