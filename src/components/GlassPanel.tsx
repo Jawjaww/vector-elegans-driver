@@ -24,7 +24,7 @@ type GlassPanelProps = Readonly<{
   frostEnabled?: boolean;
 }>;
 
-/** Kept at zero: the frost is one sheet, not a beveled inset. */
+/** Kept at zero: the bevel is a light on the map copy, not an inset that shrinks the content. */
 export const GLASS_PANEL_BEVEL_PX = 0;
 
 export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
@@ -32,9 +32,10 @@ export const GLASS_PANEL_BEVEL_INSET = GLASS_PANEL_BEVEL_PX * 2;
 /**
  * The panel every overlay above the map is drawn on.
  *
- * The view itself is clear except for the hairline. The frost (a blurred copy of the map,
- * then a thin white wash) is painted in the map document on this same rectangle, measured
- * against the map scene — not the window — so the wash cannot sit below the border.
+ * The view itself is clear except for the hairline — the one hard contour. The frost (a
+ * light blur of the map, a thin white wash, then a rim blended over that copy) is painted
+ * in the map document on this same rectangle, measured against the map scene — not the
+ * window — so the wash cannot sit below the border.
  *
  * Android `elevation` stays off: a shadow on a clear view composites as a second plate.
  */

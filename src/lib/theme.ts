@@ -154,11 +154,14 @@ export const VE_BLUE = {
  * frosted. The face is now neither dark nor tinted — a pale neutral veil, which is what makes it
  * read as glass over a map instead of paint laid on it.
  *
- * **Frost is blur first, then a translucent white veil.** The blur is painted inside the map
- * document (`backdropBlurPx`), by copying the MapLibre canvas under each card. A native
- * `BlurView` cannot sample the hardware WebView, and its light tint at full intensity paints
- * an opaque white plate over the map. The wash (`fillTop` / `fillBottom`) sits on that copy
- * only, so the map still reads through it.
+ * **Frost is a light blur, then a thin white veil, then a rim that borrows the map.** The blur
+ * is painted inside the map document (`backdropBlurPx`), by copying the MapLibre canvas under
+ * each card. A native `BlurView` cannot sample the hardware WebView, and its light tint at
+ * full intensity paints an opaque white plate over the map. The wash (`fillTop` / `fillBottom`)
+ * stays thin on purpose: the map has to read through the card. The rim (`rimHighlight` /
+ * `rimShade`) is a static gradient on that same copy, blended with `overlay`, so the edge
+ * brightens and darkens the pixels already there instead of painting a second stroke. It is
+ * not redrawn with the map — the blur is the only per-frame cost, and it stays small.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
@@ -169,8 +172,18 @@ export type GlassMaterial = {
   fillTop: string;
   /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
   fillBottom: string;
-  /** One-point light edge around the frost. */
+  /** One-point light edge around the frost. The only hard contour; the rim below fades. */
   hairline: string;
+  /**
+   * Catch-light at the top of the rim. Blended over the map copy, so it lifts the tile
+   * colour instead of laying a white line on it.
+   */
+  rimHighlight: string;
+  /**
+   * Shade at the bottom of the rim. Same blend: it darkens the tile colour under the edge,
+   * which is what reads as a bevel.
+   */
+  rimShade: string;
   /** Ambient shade. Wide and soft, and restrained: a pale pane casts less than a dark one. */
   shadow: { offsetY: number; radius: number; opacity: number; color: string };
   /** Primary type on the panel. Near-black, because the face is pale. */
@@ -195,11 +208,13 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(255, 255, 255, 0.45)',
-  fillBottom: 'rgba(255, 255, 255, 0.20)',
-  backdropBlurPx: 20,
-  hairline: 'rgba(255, 255, 255, 0.75)',
-  shadow: { offsetY: 12, radius: 32, opacity: 0.22, color: '#000000' },
+  fillTop: 'rgba(255, 255, 255, 0.22)',
+  fillBottom: 'rgba(255, 255, 255, 0.06)',
+  backdropBlurPx: 12,
+  hairline: 'rgba(255, 255, 255, 0.6)',
+  rimHighlight: 'rgba(255, 255, 255, 0.85)',
+  rimShade: 'rgba(0, 0, 0, 0.45)',
+  shadow: { offsetY: 6, radius: 28, opacity: 0.14, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
   accent: VE_BLUE.base,
