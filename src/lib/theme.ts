@@ -159,7 +159,10 @@ export const VE_BLUE = {
  * white wash (`fillTop` / `fillBottom`) — and nothing else. A highlight painted across that
  * copy reads as a tinted background, which is the opposite of a flat pane. The catch-light
  * (`rimHighlight` / `rimShade`) is a band of `rimWidthPx` drawn *outside* the card, masked so
- * the centre is punched out, and blended with the map under that band only. It is static:
+ * the centre is punched out, and blended with the map under that band only. The light runs
+ * corner to opposite corner (top-left and bottom-right catch, the other pair falls off) —
+ * a top-to-bottom gradient would light both upper edges at once. Both stops stay close in
+ * value: a hard white against a dark grey reads as a stripe, not as glass. It is static:
  * the blur of the face is the only per-frame cost.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
@@ -172,13 +175,13 @@ export type GlassMaterial = {
   /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
   fillBottom: string;
   /**
-   * Catch-light on the exterior band, at the top. Blended with the map under that band,
-   * never with the face.
+   * Catch-light on one pair of opposite corners of the exterior band (top-left and
+   * bottom-right). Blended with the map under that band, never with the face.
    */
   rimHighlight: string;
   /**
-   * Shade on the exterior band, at the bottom. Same blend, same band: it is what reads
-   * as the lower edge of a bevel.
+   * The quieter stop, on the other pair of corners. Close to the highlight: the
+   * difference is a falloff, not a white edge against a dark one.
    */
   rimShade: string;
   /**
@@ -212,10 +215,10 @@ export type GlassMaterial = {
 export const GLASS_MATERIAL: GlassMaterial = {
   fillTop: 'rgba(255, 255, 255, 0.22)',
   fillBottom: 'rgba(255, 255, 255, 0.06)',
-  backdropBlurPx: 1,
-  rimHighlight: 'rgba(255, 255, 255, 0.9)',
-  rimShade: 'rgba(0, 0, 0, 0.55)',
-  rimWidthPx: 2,
+  backdropBlurPx: 8,
+  rimHighlight: 'rgba(255, 255, 255, 0.48)',
+  rimShade: 'rgba(0, 0, 0, 0.20)',
+  rimWidthPx: 1,
   shadow: { offsetY: 6, radius: 28, opacity: 0.14, color: '#000000' },
   text: '#111827',
   textDim: '#4b5563',
