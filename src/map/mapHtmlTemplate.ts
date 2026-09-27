@@ -2,7 +2,7 @@ import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
-import { GLASS_MATERIAL } from "../lib/theme";
+import { frostRimConic, GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
 import {
   deviceBearing,
@@ -541,20 +541,9 @@ export function buildMapHtmlTemplate(
     const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
     const FROST_RIM_PX = ${GLASS_MATERIAL.rimWidthPx};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
-    // The face is the veil alone. Masked to the band outside the face only. Conic: highlight
-    // at 315 and 135, shade at 45 and 225, rimMid plateaus on each edge centre (0/90/180/270)
-    // so the ring steps down and up instead of splitting in two. Static: paintFrost skips it.
-    const FROST_RIM =
-      "conic-gradient(from 0deg, " +
-      "${GLASS_MATERIAL.rimMid} 0deg, ${GLASS_MATERIAL.rimMid} 18deg, " +
-      "${GLASS_MATERIAL.rimShade} 36deg, ${GLASS_MATERIAL.rimShade} 54deg, " +
-      "${GLASS_MATERIAL.rimMid} 72deg, ${GLASS_MATERIAL.rimMid} 108deg, " +
-      "${GLASS_MATERIAL.rimHighlight} 126deg, ${GLASS_MATERIAL.rimHighlight} 144deg, " +
-      "${GLASS_MATERIAL.rimMid} 162deg, ${GLASS_MATERIAL.rimMid} 198deg, " +
-      "${GLASS_MATERIAL.rimShade} 216deg, ${GLASS_MATERIAL.rimShade} 234deg, " +
-      "${GLASS_MATERIAL.rimMid} 252deg, ${GLASS_MATERIAL.rimMid} 288deg, " +
-      "${GLASS_MATERIAL.rimHighlight} 306deg, ${GLASS_MATERIAL.rimHighlight} 324deg, " +
-      "${GLASS_MATERIAL.rimMid} 342deg, ${GLASS_MATERIAL.rimMid} 360deg)";
+    // Face is the veil alone. The rim is a cosine sampled once at build time: peaks only at
+    // opposite corners, a pass through the mid tone, no plateau. paintFrost does not touch it.
+    const FROST_RIM = ${JSON.stringify(frostRimConic())};
 
     function frostCard(root, id) {
       const nodes = root.children;
@@ -2113,6 +2102,7 @@ export function buildMapHtmlTemplate(
       }
 
       let presented = false;
+      var offerApproachFitted = false;
       function tripFitLists(tripCoords) {
         if (tripCoords && tripCoords.length) return [tripCoords];
         return [[start, end]];
@@ -2123,6 +2113,12 @@ export function buildMapHtmlTemplate(
         var points = [];
         var driver = approachFrom || driverMarker || null;
         if (driver) points.push(driver);
+        var approach = window.__veApproachLine;
+        if (approach && approach.length) {
+          approach.forEach(function (c) {
+            points.push(c);
+          });
+        }
         trip.forEach(function (c) {
           points.push(c);
         });
@@ -2298,6 +2294,19 @@ export function buildMapHtmlTemplate(
         if (msg.routeGeneration !== nav.generation) return;
         if (msg.legKind === "approach") {
           paintApproachGeometry(msg.coordinates);
+          // The trip fit often lands first, on the chord of the approach. One extra fit, and
+          // only once the trip has already framed itself, so this cannot consume that first fit
+          // when the approach answer wins the race.
+          if (isOffer && presented && !offerApproachFitted) {
+            offerApproachFitted = true;
+            presented = false;
+            presentOnce(
+              null,
+              buildOfferFitCoordLists(
+                nav.line && nav.line.length > 1 ? nav.line : [start, end],
+              ),
+            );
+          }
           return;
         }
         if (offerTimeout) clearTimeout(offerTimeout);
