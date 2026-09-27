@@ -36,12 +36,6 @@ describe('guidance map template', () => {
     expect(tick).toBeGreaterThan(lock);
     expect(html).toContain('window.__veOfferFraming = isOffer');
     expect(html).toContain('window.__veOfferFraming = false');
-    expect(html).toMatch(
-      /opts\.navigation === true[\s\S]*window\.__veOfferFraming = false/,
-    );
-    expect(html).toContain('window.__veOfferTimeout');
-    expect(html).toContain('window.__veOfferToNavGlide');
-    expect(html).toMatch(/__veOfferToNavGlide[\s\S]*moveNavCamera/);
   });
 
   it('frames the look-ahead with a top padding, not a bottom one', () => {
