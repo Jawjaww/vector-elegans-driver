@@ -1701,6 +1701,19 @@ export function buildMapHtmlTemplate(
       // disarmed until the line has more than two points (navLineIsRoad).
       window.__veNavLine = [start, end];
       clearOffRouteLatch();
+      if (!isOffer) {
+        // Drop the offer polyline (often off-screen once the camera locks on
+        // the driver) and draw driver → destination immediately.
+        window.__veHasRoadRoute = false;
+        window.__veNavSteps = null;
+        setOrAddLine(
+          "route",
+          "route-casing",
+          "route-line",
+          lineFeature([start, end]),
+          tripStyle,
+        );
+      }
       if (!shouldFitBounds && !isOffer && window.__veLastGpsCoords) {
         alignNavCameraCourseUp(window.__veLastGpsCoords, {
           navigation: true,
@@ -1846,8 +1859,10 @@ export function buildMapHtmlTemplate(
       }
 
       function paintStraightFallback() {
-        // A failed fetch must not wipe a road already on the map.
+        // A road that already replaced the chord stays. Otherwise keep the
+        // driver → destination segment (never the previous offer line).
         if (window.__veHasRoadRoute) return;
+        window.__veNavLine = [start, end];
         upsertEndpoints(start, end, approachFrom, driverMarker);
         setOrAddLine(
           "route",
@@ -1865,7 +1880,7 @@ export function buildMapHtmlTemplate(
         if (trip && trip.geometry && trip.geometry.coordinates) {
           tripCoords = trip.geometry.coordinates;
           drewTrip = true;
-          window.__veNavLine = tripCoords.length > 2 ? tripCoords : null;
+          window.__veNavLine = tripCoords.length > 2 ? tripCoords : [start, end];
           let lineMeters = 0;
           for (let i = 0; i < tripCoords.length - 1; i++) {
             lineMeters += haversineMeters(tripCoords[i], tripCoords[i + 1]);
