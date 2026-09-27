@@ -141,11 +141,47 @@ describe('rideService.fetchAssignedRide', () => {
     const { supabase } = require('../supabase');
     supabase.from.mockReturnValue({ select });
 
-    const row = await rideService.fetchAssignedRide('d1');
+    const result = await rideService.fetchAssignedRide('d1');
     expect(supabase.from).toHaveBeenCalledWith('rides');
     expect(eq).toHaveBeenCalledWith('driver_id', 'd1');
     expect(inFn).toHaveBeenCalledWith('status', ['scheduled', 'in-progress']);
-    expect(row).toMatchObject({ id: 'r1', status: 'scheduled' });
+    expect(result).toMatchObject({ ok: true, ride: { id: 'r1' } });
+  });
+
+  it('separates "no ride assigned" from "the read failed"', async () => {
+    // The two used to be the same `null`, and the boot turned both into `setActiveRide(null)`.
+    // Non-vacuity: collapsing them back makes the second assertion fail.
+    const maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+    const limit = jest.fn(() => ({ maybeSingle }));
+    const order = jest.fn(() => ({ limit }));
+    const inFn = jest.fn(() => ({ order }));
+    const eq = jest.fn(() => ({ in: inFn }));
+    const select = jest.fn(() => ({ eq }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    expect(await rideService.fetchAssignedRide('d1')).toEqual({
+      ok: true,
+      ride: null,
+    });
+
+    maybeSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'Network request failed' },
+    });
+    expect(await rideService.fetchAssignedRide('d1')).toEqual({
+      ok: false,
+      reason: 'network',
+    });
+
+    maybeSingle.mockResolvedValue({
+      data: null,
+      error: { message: 'permission denied' },
+    });
+    expect(await rideService.fetchAssignedRide('d1')).toEqual({
+      ok: false,
+      reason: 'server',
+    });
   });
 });
 

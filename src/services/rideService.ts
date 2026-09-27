@@ -7,6 +7,10 @@ import {
   toOfferOpenFetch,
   type OfferOpenFetch,
 } from '../lib/utils/offerOpenOutcome';
+import {
+  ACTIVE_RIDE_STATUSES,
+  type AssignedRideFetch,
+} from '../lib/utils/assignedRideReconcile';
 
 export interface PendingRide {
   id: string;
@@ -352,17 +356,29 @@ class RideService {
     };
   }
 
-  async fetchAssignedRide(driverId: string): Promise<Ride | null> {
+  /**
+   * Read the trip the server still has assigned to this driver.
+   *
+   * Returns a discriminated result rather than `Ride | null`: "no ride" and "the read failed"
+   * used to be the same value, and the dashboard boot turned both into `setActiveRide(null)`,
+   * which is how a transient error ended a live trip on the device.
+   */
+  async fetchAssignedRide(driverId: string): Promise<AssignedRideFetch> {
     const { data, error } = await supabase
       .from('rides')
       .select('*')
       .eq('driver_id', driverId)
-      .in('status', ['scheduled', 'in-progress'])
+      .in('status', [...ACTIVE_RIDE_STATUSES])
       .order('accepted_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error || !data) return null;
-    return toAppRide(data);
+    if (error) {
+      return {
+        ok: false,
+        reason: isTransientNetworkError(error) ? 'network' : 'server',
+      };
+    }
+    return { ok: true, ride: data ? toAppRide(data) : null };
   }
 
   private mapToPendingRide(ride: Ride): PendingRide {

@@ -1,5 +1,9 @@
 /**
- * Instrumented stages of the offer display pipeline.
+ * Instrumented stages of the offer display pipeline, and of the guidance that follows it.
+ *
+ * Navigation shares this sink deliberately: an accepted ride and the guidance it starts are one
+ * sequence in the driver's experience, and splitting them across two tables would cost a second
+ * retention policy and a second reader to answer a single question.
  *
  * The failure this exists for is a latency, not an error: an FCM offer notification opens the
  * app, but the offer card only appears tens of seconds later. Every plausible cause — the
@@ -92,10 +96,54 @@ export const OFFER_PIPELINE_STAGES = [
   'accept_tapped',
   /** The accept RPC returned, with its wall-clock duration. */
   'accept_rpc_end',
-  /** The ride became the active ride. */
+  /**
+   * The ride became the active ride. Recorded in the same timeline as the offer stages on
+   * purpose: the guidance work starts here, and a `nav_*` marker with no `accept_ok` before it
+   * names a different bug than one with it.
+   */
   'accept_ok',
   /** The accept path failed; `error` carries the message. */
   'accept_error',
+  /**
+   * The dashboard boot adopted the driver's assigned ride, or confirmed the one already open.
+   * Navigation stages share this sink with the offer pipeline on purpose: the two are the same
+   * investigation (what the driver actually saw, in order), and a separate channel would need
+   * its own retention and its own reader for no gain.
+   */
+  'nav_assigned_ride_adopted',
+  /** The assigned-ride read confirmed the ride already open, with fresher columns. */
+  'nav_assigned_ride_refreshed',
+  /**
+   * A null assigned-ride read was discarded because it was issued before the local Accept.
+   * Present here so the race is visible instead of silently ending a trip.
+   */
+  'nav_assigned_ride_kept',
+  /** A successful read that started after the accept found no ride, or the status went terminal. */
+  'nav_assigned_ride_released',
+  /** The assigned-ride read failed; the device state was deliberately left untouched. */
+  'nav_assigned_ride_read_failed',
+  /**
+   * The app asked a router for the trip line. Logged once per requested leg, before the first
+   * attempt, so a leg with no `nav_route_ok` and no `nav_route_error` after it names a hung
+   * request rather than a failure.
+   */
+  'nav_route_requested',
+  /**
+   * One endpoint answered with a usable line. Timed by the router service, which is the only
+   * place that knows which endpoint was tried and for how long.
+   */
+  'nav_route_ok',
+  /**
+   * One endpoint refused or stalled. Rows accumulate per attempted endpoint, so the final
+   * failure is the last row of the pair and the reason survives the fallback.
+   */
+  'nav_route_error',
+  /**
+   * The driver stayed more than 45 m off the line for three consecutive fixes. `action` is
+   * `reroute` when a new line was asked for, `cooldown` when the anti-flap window swallowed the
+   * signal — the two look identical from the map, and only one of them explains a stale line.
+   */
+  'nav_off_route',
 ] as const;
 
 export type OfferPipelineStage = (typeof OFFER_PIPELINE_STAGES)[number];
