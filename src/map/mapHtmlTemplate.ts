@@ -541,11 +541,20 @@ export function buildMapHtmlTemplate(
     const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
     const FROST_RIM_PX = ${GLASS_MATERIAL.rimWidthPx};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
-    // The face is the veil alone. This gradient is masked down to the band outside the face,
-    // so it never tints the background. 0deg is the top; the two highlights sit on opposite
-    // corners (315 top-left, 135 bottom-right) and the shade on the other pair. A 180deg
-    // gradient would light both upper edges. Static: paintFrost does not touch it.
-    const FROST_RIM = "conic-gradient(from 0deg, ${GLASS_MATERIAL.rimShade} 45deg, ${GLASS_MATERIAL.rimHighlight} 135deg, ${GLASS_MATERIAL.rimShade} 225deg, ${GLASS_MATERIAL.rimHighlight} 315deg, ${GLASS_MATERIAL.rimShade} 405deg)";
+    // The face is the veil alone. Masked to the band outside the face only. Conic: highlight
+    // at 315 and 135, shade at 45 and 225, rimMid plateaus on each edge centre (0/90/180/270)
+    // so the ring steps down and up instead of splitting in two. Static: paintFrost skips it.
+    const FROST_RIM =
+      "conic-gradient(from 0deg, " +
+      "${GLASS_MATERIAL.rimMid} 0deg, ${GLASS_MATERIAL.rimMid} 18deg, " +
+      "${GLASS_MATERIAL.rimShade} 36deg, ${GLASS_MATERIAL.rimShade} 54deg, " +
+      "${GLASS_MATERIAL.rimMid} 72deg, ${GLASS_MATERIAL.rimMid} 108deg, " +
+      "${GLASS_MATERIAL.rimHighlight} 126deg, ${GLASS_MATERIAL.rimHighlight} 144deg, " +
+      "${GLASS_MATERIAL.rimMid} 162deg, ${GLASS_MATERIAL.rimMid} 198deg, " +
+      "${GLASS_MATERIAL.rimShade} 216deg, ${GLASS_MATERIAL.rimShade} 234deg, " +
+      "${GLASS_MATERIAL.rimMid} 252deg, ${GLASS_MATERIAL.rimMid} 288deg, " +
+      "${GLASS_MATERIAL.rimHighlight} 306deg, ${GLASS_MATERIAL.rimHighlight} 324deg, " +
+      "${GLASS_MATERIAL.rimMid} 342deg, ${GLASS_MATERIAL.rimMid} 360deg)";
 
     function frostCard(root, id) {
       const nodes = root.children;
