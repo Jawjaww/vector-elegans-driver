@@ -1398,13 +1398,28 @@ export function buildMapHtmlTemplate(
             ? nav.pitch
             : 50;
 
-      jumpNavCamera({
+      var glideMs = 0;
+      if (window.__veOfferToNavGlide) {
+        window.__veOfferToNavGlide = false;
+        glideMs =
+          opts && typeof opts.duration === "number" && opts.duration > 0
+            ? opts.duration
+            : 900;
+      }
+      var camera = {
         center: center,
         zoom: zoom,
         bearing: plan.bearing,
         pitch: pitch,
         padding: navLookaheadPadding(opts),
-      });
+      };
+      if (glideMs > 0) {
+        moveNavCamera(
+          Object.assign(camera, { duration: glideMs, essential: true }),
+        );
+      } else {
+        jumpNavCamera(camera);
+      }
       syncGpsPuck(center, plan.bearing, plan.courseUp);
       // The drawn line starts under the arrow: on an active trip the puck is the departure.
       const trimmed = syncNavRouteStart(coords);
@@ -1503,9 +1518,18 @@ export function buildMapHtmlTemplate(
      */
     function updateGps(coords, opts) {
       const nav = window.__veNav;
+      // Trip navigation may be commanded before updateRoute reposts (unchanged route key, bridge
+      // ordering). A leftover offer lock would ignore navigation:true forever — reopening the app
+      // was the only recovery. RN's navigation flag is authoritative for the camera.
+      if (opts && opts.navigation === true) {
+        if (window.__veOfferFraming) {
+          window.__veOfferToNavGlide = true;
+        }
+        window.__veOfferFraming = false;
+        nav.navigating = true;
+      }
       // An offer overview owns the camera until the ride is accepted. A follow fix — the home
       // watch is still running — would put the driver back at street zoom, under the card.
-      // Guidance never sets this flag: accepting the ride clears it before the first tick.
       if (window.__veOfferFraming) {
         syncGpsPuck(coords);
         return;
@@ -1598,6 +1622,7 @@ export function buildMapHtmlTemplate(
       nav.generation = null;
       nav.navigating = false;
       window.__veOfferFraming = false;
+      window.__veOfferToNavGlide = false;
       nav.courseUp = false;
       nav.bearing = null;
       nav.coords = null;
@@ -1997,6 +2022,10 @@ export function buildMapHtmlTemplate(
     // straight line must never be mistaken for an itinerary.
 
     function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker, routeGeneration, isNavigating) {
+      if (window.__veOfferTimeout) {
+        clearTimeout(window.__veOfferTimeout);
+        window.__veOfferTimeout = null;
+      }
       const isOffer = presentation === "offer";
       const nav = window.__veNav;
       window.__veOfferPickup = start;
@@ -2007,16 +2036,21 @@ export function buildMapHtmlTemplate(
       nav.generation = routeGeneration == null ? 0 : routeGeneration;
       // The app names the route's purpose; the camera no longer infers it from fitBounds.
       nav.navigating = !isOffer && isNavigating === true;
+      if (!isOffer && window.__veOfferFraming) {
+        window.__veOfferToNavGlide = true;
+      }
       window.__veOfferFraming = isOffer;
       nav.trimAnchor = null;
       nav.failed = false;
       nav.pending = true;
 
+      // Bump on every route post so late offer timers and OSRM answers from the previous mode
+      // cannot refit the camera after accept.
+      window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
       if (isOffer) {
-        window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
         offerRoutePresented = false;
       }
-      const routePresentToken = window.__veOfferPresentToken || 0;
+      const routePresentToken = window.__veOfferPresentToken;
 
       if (isOffer && offerOverview) {
         setOverviewWestEurope(0, fitPadding);
@@ -2362,6 +2396,7 @@ export function buildMapHtmlTemplate(
       // are presented as they are, which is the whole point of the overview.
       var offerTimeout = isOffer
         ? setTimeout(function () {
+            window.__veOfferTimeout = null;
             if (routePresentToken !== window.__veOfferPresentToken) return;
             const tripOnly = [[start, end]];
             presentOnce(
@@ -2370,6 +2405,9 @@ export function buildMapHtmlTemplate(
             );
           }, 2500)
         : null;
+      if (isOffer && offerTimeout) {
+        window.__veOfferTimeout = offerTimeout;
+      }
     }
 
 
