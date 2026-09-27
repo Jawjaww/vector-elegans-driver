@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   maneuverBannerLine,
   maneuverToFeatherIcon,
+  tripStageBannerLine,
   type NavProgress,
 } from '../lib/utils/navProgress';
 import { GlassPanel } from './GlassPanel';
@@ -13,6 +14,8 @@ import { OVERLAY_CARD_RADIUS } from '../lib/utils/overlayLane';
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
+  /** `to_pickup` | `to_dropoff`; names the target when there is no turn to announce. */
+  stage: string | null;
 }>;
 
 function isRoundabout(type: string | undefined): boolean {
@@ -26,8 +29,12 @@ function isRoundabout(type: string | undefined): boolean {
  * Line one is the action and the distance ("Tourner à droite dans 60 m").
  * The street sits underneath, so it is not crushed onto the same line.
  * A roundabout with a known exit shows which arm is taken instead of a generic arrow.
+ *
+ * With no step — still being computed, or never computed because every endpoint failed — the
+ * card stays and names the stage instead of disappearing: no instruction is worse than a rough
+ * one, and the stage needs no router to be known.
  */
-export function TripManeuverHud({ progress }: TripManeuverHudProps) {
+export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
   const insets = useSafeAreaInsets();
   const material = GLASS_MATERIAL;
   const man = progress.nextManeuver;
@@ -40,7 +47,7 @@ export function TripManeuverHud({ progress }: TripManeuverHudProps) {
     : 'navigation';
   const instruction = man
     ? maneuverBannerLine(man.type, man.modifier, man.distanceMeters, man.exit)
-    : 'Suivre le trajet';
+    : tripStageBannerLine(stage, progress.distanceMeters);
   const street = man?.name?.trim() ? man.name.trim() : null;
 
   return (

@@ -93,6 +93,24 @@ export function formatRemainingDistance(meters: number): string {
   return `${Math.round(meters)} m`;
 }
 
+/**
+ * Round a distance to the step the banner is allowed to announce.
+ *
+ * The pushed progress is throttled and noisy, so a raw metre value rewrote the sentence every
+ * time the car moved — "dans 348 m", "dans 345 m". Stepping the number is what makes the
+ * instruction change when it matters (100 m, 50 m, 20 m) instead of when it can.
+ */
+export function steppedManeuverDistance(
+  meters: number | null | undefined,
+): number | null {
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return null;
+  if (meters <= 0) return 0;
+  if (meters > 1000) return Math.round(meters / 100) * 100;
+  if (meters > 100) return Math.round(meters / 50) * 50;
+  if (meters > 20) return Math.round(meters / 10) * 10;
+  return Math.round(meters / 5) * 5;
+}
+
 function iconFromTurnModifier(mod: string): FeatherIconName {
   if (mod.includes('uturn') || mod.includes('u-turn')) return 'rotate-ccw';
   if (mod.includes('left')) return 'corner-up-left';
@@ -198,13 +216,30 @@ export function maneuverBannerLine(
 ): string {
   const action = maneuverActionPhrase(type, modifier, exit);
   const arrived = action === 'Vous êtes arrivé';
-  if (
-    !arrived &&
-    typeof distanceMeters === 'number' &&
-    Number.isFinite(distanceMeters) &&
-    distanceMeters > 0
-  ) {
-    return `${action} dans ${formatRemainingDistance(distanceMeters)}`;
+  const distance = steppedManeuverDistance(distanceMeters);
+  if (!arrived && distance !== null && distance > 0) {
+    return `${action} dans ${formatRemainingDistance(distance)}`;
   }
   return action;
+}
+
+/**
+ * The banner when the router has delivered no step yet.
+ *
+ * Withholding the whole card until a maneuver exists is what made it absent for the entire
+ * trip whenever the routing request failed: the driver got no instruction at all, not a rough
+ * one. The stage phrase is always available — it comes from the ride, not from a router — so it
+ * is what the card falls back to, distance stepped like any other.
+ */
+export function tripStageBannerLine(
+  stage: string | null,
+  distanceMeters: number | null | undefined,
+): string {
+  const target =
+    stage === 'to_dropoff'
+      ? 'Rejoindre la destination'
+      : 'Rejoindre le point de prise en charge';
+  const distance = steppedManeuverDistance(distanceMeters);
+  if (distance === null || distance <= 0) return target;
+  return `${target} — ${formatRemainingDistance(distance)}`;
 }

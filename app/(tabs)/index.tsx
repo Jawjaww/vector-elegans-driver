@@ -560,13 +560,17 @@ function shouldShowTripNavigationHud(
   return !waitingAtPickup;
 }
 
-/** Top maneuver card only once OSRM has a real next instruction. */
+/**
+ * Top maneuver card, whenever the trip is under way.
+ *
+ * It is no longer gated on a resolved next instruction: the card carries the stage phrase when no
+ * step has arrived, so a routing failure can no longer take the whole banner away with it.
+ */
 function tripManeuverProgress(
   stage: string | null,
   progress: NavProgress | null,
 ): NavProgress | null {
   if (stage !== "to_pickup" && stage !== "to_dropoff") return null;
-  if (!progress?.nextManeuver) return null;
   return progress;
 }
 
@@ -1908,7 +1912,7 @@ export default function DashboardScreen() {
         ) : null}
 
         {maneuverProgress ? (
-          <TripManeuverHud progress={maneuverProgress} />
+          <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
         ) : null}
         {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
           <TripArrivalHud
