@@ -1872,6 +1872,7 @@ export default function DashboardScreen() {
             }
             followUser={!activeRide && !mapRouteRide}
             navigationFollow={!!activeRide}
+            activeRideId={activeRide?.id}
             idleRecenterMs={8000}
             onFollowPausedChange={setMapFollowPaused}
             resumeFollowRef={resumeMapFollowRef}
