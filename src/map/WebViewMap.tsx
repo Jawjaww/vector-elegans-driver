@@ -308,6 +308,7 @@ export function WebViewMap({
   const [rerouteGeneration, setRerouteGeneration] = useState(0);
   const routePresentedSentRef = useRef(false);
   const lastRouteKey = useRef<string>('');
+  const prevNavigationFollowRef = useRef(false);
   /**
    * In-flight route request. Aborted when a new one supersedes it, and when the route is
    * cleared; never in an effect cleanup, because this effect also returns early on an
@@ -813,6 +814,13 @@ export function WebViewMap({
 
   useEffect(() => {
     if (!isMapReady) return;
+
+    if (navigationFollow && !prevNavigationFollowRef.current) {
+      // The offer and the accepted trip can share a dedup key long enough that updateRoute
+      // never replaces the dotted approach. Force one guidance post on this edge only.
+      lastRouteKey.current = '';
+    }
+    prevNavigationFollowRef.current = navigationFollow;
 
     if (!showRoute || !start || !end) {
       lastRouteKey.current = '';

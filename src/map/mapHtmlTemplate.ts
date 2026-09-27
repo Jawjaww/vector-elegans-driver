@@ -1501,14 +1501,48 @@ export function buildMapHtmlTemplate(
      * or a paused follow, where an unexpected camera rotation reads as a broken map. The bearing
      * is the device's own heading when it has one, never a leftover guidance bearing.
      */
+    /**
+     * The offer drawing is still on screen: orange dotted approach, overview camera.
+     * Guidance updateRoute has not been applied (dropped or still the offer closure).
+     * Swap to a solid route toward the pickup and drop late offer geometry.
+     * The camera itself stays on guideTick (jump), same as every later fix.
+     */
+    function adoptGuidanceDrawing(coords) {
+      const nav = window.__veNav;
+      window.__veOfferFraming = false;
+      nav.navigating = true;
+      window.__veOfferPresentToken = (window.__veOfferPresentToken || 0) + 1;
+      window.__veApproachLine = null;
+      removeLayerSafe("approach-line-glow");
+      removeLayerSafe("approach-line");
+      removeLayerSafe("approach-casing");
+      removeSourceSafe("approach");
+      var pickup = window.__veOfferPickup;
+      if (coords && pickup) {
+        nav.line = [coords, pickup];
+        nav.hasRoad = false;
+        nav.pending = true;
+        nav.steps = null;
+        setOrAddLine(
+          "route",
+          "route-casing",
+          "route-line",
+          lineFeature([coords, pickup]),
+          routeLineStyle(),
+        );
+      }
+      // Offer OSRM answers still hold the previous commit and would redraw the dots.
+      window.__veRouteCommit = function () {};
+    }
+
     function updateGps(coords, opts) {
       const nav = window.__veNav;
       // Accept posts navigation GPS before updateRoute can clear the offer lock. Without this,
       // every later tick hits the return below and the overview camera stays until the app
       // restarts. In-flight offer presentOnce already bails when nav.navigating is set.
       if (opts && opts.navigation === true) {
-        window.__veOfferFraming = false;
-        nav.navigating = true;
+        if (window.__veOfferFraming) adoptGuidanceDrawing(coords);
+        else nav.navigating = true;
       }
       // An offer overview owns the camera until the ride is accepted. A follow fix — the home
       // watch is still running — would put the driver back at street zoom, under the card.
@@ -2005,6 +2039,9 @@ export function buildMapHtmlTemplate(
     function updateRoute(start, end, approachFrom, fitPadding, fitPaddingBottom, shouldFitBounds, presentation, offerOverview, driverMarker, routeGeneration, isNavigating) {
       const isOffer = presentation === "offer";
       const nav = window.__veNav;
+      // Navigation already took the map. A late offer post must not restore the dotted approach
+      // or the overview fit — that is the drawing that survived until the app was killed.
+      if (isOffer && nav.navigating) return;
       window.__veOfferPickup = start;
       window.__veOfferDropoff = end;
       window.__veUseCanvasGpsPuck = Boolean(isOffer);
