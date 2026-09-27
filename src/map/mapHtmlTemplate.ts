@@ -1503,9 +1503,15 @@ export function buildMapHtmlTemplate(
      */
     function updateGps(coords, opts) {
       const nav = window.__veNav;
+      // Accept posts navigation GPS before updateRoute can clear the offer lock. Without this,
+      // every later tick hits the return below and the overview camera stays until the app
+      // restarts. In-flight offer presentOnce already bails when nav.navigating is set.
+      if (opts && opts.navigation === true) {
+        window.__veOfferFraming = false;
+        nav.navigating = true;
+      }
       // An offer overview owns the camera until the ride is accepted. A follow fix — the home
       // watch is still running — would put the driver back at street zoom, under the card.
-      // Guidance never sets this flag: accepting the ride clears it before the first tick.
       if (window.__veOfferFraming) {
         syncGpsPuck(coords);
         return;
