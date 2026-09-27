@@ -6,6 +6,8 @@ import {
   maneuverToFeatherIcon,
   nextManeuverAlongTrack,
   optimisticEtaMinutes,
+  steppedManeuverDistance,
+  tripStageBannerLine,
   type OsrmStepLike,
 } from '../utils/navProgress';
 
@@ -23,6 +25,32 @@ describe('navProgress', () => {
   it('formatRemainingDistance switches units', () => {
     expect(formatRemainingDistance(850)).toBe('850 m');
     expect(formatRemainingDistance(1500)).toBe('1.5 km');
+  });
+
+  it('steppedManeuverDistance only moves at the announcement steps', () => {
+    // A 3 m change at 500 m must not rewrite the sentence; crossing 100 m must.
+    expect(steppedManeuverDistance(348)).toBe(350);
+    expect(steppedManeuverDistance(345)).toBe(350);
+    expect(steppedManeuverDistance(2320)).toBe(2300);
+    expect(steppedManeuverDistance(104)).toBe(100);
+    expect(steppedManeuverDistance(96)).toBe(100);
+    expect(steppedManeuverDistance(24)).toBe(20);
+    expect(steppedManeuverDistance(17)).toBe(15);
+    expect(steppedManeuverDistance(null)).toBeNull();
+  });
+
+  it('tripStageBannerLine still names the target with no maneuver', () => {
+    // Non-vacuity for the HUD gate: with no step from the router this is the only line the
+    // driver gets, and it must not be empty.
+    expect(tripStageBannerLine('to_pickup', 1200)).toBe(
+      'Rejoindre le point de prise en charge — 1.2 km',
+    );
+    expect(tripStageBannerLine('to_dropoff', 348)).toBe(
+      'Rejoindre la destination — 350 m',
+    );
+    expect(tripStageBannerLine('to_pickup', null)).toBe(
+      'Rejoindre le point de prise en charge',
+    );
   });
 
   it('formatArrivalClock adds eta minutes to local clock', () => {
