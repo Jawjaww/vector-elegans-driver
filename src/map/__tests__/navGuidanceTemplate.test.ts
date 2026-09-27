@@ -32,8 +32,15 @@ describe('guidance map template', () => {
   it('does not let a follow fix steal the offer camera, and clears that lock when guiding', () => {
     const lock = html.indexOf('if (window.__veOfferFraming)');
     const tick = html.indexOf('guideTick(coords, opts)', lock);
+    const navUnlock = html.indexOf('opts.navigation === true');
+    const clearLock = html.indexOf('window.__veOfferFraming = false', navUnlock);
     expect(lock).toBeGreaterThan(-1);
     expect(tick).toBeGreaterThan(lock);
+    // A navigation GPS must drop the offer lock before the return that would swallow the tick.
+    expect(navUnlock).toBeGreaterThan(-1);
+    expect(clearLock).toBeGreaterThan(navUnlock);
+    expect(clearLock).toBeLessThan(lock);
+    expect(html.indexOf('nav.navigating = true', navUnlock)).toBeLessThan(lock);
     expect(html).toContain('window.__veOfferFraming = isOffer');
     expect(html).toContain('window.__veOfferFraming = false');
   });
