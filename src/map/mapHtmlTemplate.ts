@@ -422,9 +422,15 @@ export function buildMapHtmlTemplate(
         next.right = Math.max(8, Math.round(next.right * sx));
       }
       if (vert > maxVert && vert > 0) {
-        var sy = maxVert / vert;
-        next.top = Math.max(8, Math.round(next.top * sy));
-        next.bottom = Math.max(8, Math.round(next.bottom * sy));
+        // The bottom inset is the offer card. Shrink the top first so the route stays in
+        // the band above the card; scaling both sides pulled that band down under it.
+        var room = Math.max(8, maxVert - 8);
+        if (next.bottom >= room) {
+          next.bottom = room;
+          next.top = 8;
+        } else {
+          next.top = Math.max(8, maxVert - next.bottom);
+        }
       }
       return next;
     }
@@ -1497,6 +1503,13 @@ export function buildMapHtmlTemplate(
      */
     function updateGps(coords, opts) {
       const nav = window.__veNav;
+      // An offer overview owns the camera until the ride is accepted. A follow fix — the home
+      // watch is still running — would put the driver back at street zoom, under the card.
+      // Guidance never sets this flag: accepting the ride clears it before the first tick.
+      if (window.__veOfferFraming) {
+        syncGpsPuck(coords);
+        return;
+      }
       const follow = !(opts && opts.followCamera === false);
 
       if (follow && isNavMode(opts)) {
@@ -1584,6 +1597,7 @@ export function buildMapHtmlTemplate(
       nav.failed = false;
       nav.generation = null;
       nav.navigating = false;
+      window.__veOfferFraming = false;
       nav.courseUp = false;
       nav.bearing = null;
       nav.coords = null;
@@ -1993,6 +2007,7 @@ export function buildMapHtmlTemplate(
       nav.generation = routeGeneration == null ? 0 : routeGeneration;
       // The app names the route's purpose; the camera no longer infers it from fitBounds.
       nav.navigating = !isOffer && isNavigating === true;
+      window.__veOfferFraming = isOffer;
       nav.trimAnchor = null;
       nav.failed = false;
       nav.pending = true;
@@ -2081,6 +2096,9 @@ export function buildMapHtmlTemplate(
       // Dotted approach + pins immediately. The trip line arrives on its own message now.
       paintApproachStraight();
       upsertEndpoints(start, end, approachFrom, driverMarker);
+      // Snap off the follow camera now. The road geometry refines this fit when it arrives;
+      // waiting for it left the driver at street zoom, with the trace under the card.
+      if (isOffer) frameOfferCamera([start, end]);
 
       function scheduleOfferRoutePresented() {
         var notified = false;
@@ -2123,6 +2141,28 @@ export function buildMapHtmlTemplate(
           points.push(c);
         });
         return [points];
+      }
+      /**
+       * Offer only. The whole approach, the trip and both ends, in the padding above the card.
+       *
+       * Returns immediately while guiding: that camera is the tick's, and a fit here would
+       * replace course-up with a north-up overview of the trip.
+       */
+      function frameOfferCamera(tripCoords) {
+        if (!isOffer || nav.navigating) return;
+        var lists = buildOfferFitCoordLists(
+          tripCoords && tripCoords.length > 1 ? tripCoords : [start, end],
+        );
+        var spanKm = computeFitSpanKm(lists);
+        var offerCamera = resolveOfferFitCamera(spanKm);
+        fitRouteBounds(
+          lists,
+          fitPadding,
+          fitPaddingBottom,
+          0,
+          offerCamera.maxZoom,
+          offerCamera.boundsExpand,
+        );
       }
       /**
        * The line just changed, so the tick is the authority again.

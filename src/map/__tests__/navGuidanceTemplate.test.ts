@@ -21,10 +21,21 @@ describe('guidance map template', () => {
   it('frames an offer on the whole trip, including the approach once it arrives', () => {
     expect(html).toContain('offerApproachFitted');
     expect(html).toContain('window.__veApproachLine');
+    expect(html).toContain('if (isOffer) frameOfferCamera([start, end])');
+    expect(html).toContain('if (!isOffer || nav.navigating) return;');
     const guard = html.indexOf('if (nav.navigating) return;');
     const fit = html.indexOf('fitRouteBounds(', guard);
     expect(guard).toBeGreaterThan(-1);
     expect(fit).toBeGreaterThan(guard);
+  });
+
+  it('does not let a follow fix steal the offer camera, and clears that lock when guiding', () => {
+    const lock = html.indexOf('if (window.__veOfferFraming)');
+    const tick = html.indexOf('guideTick(coords, opts)', lock);
+    expect(lock).toBeGreaterThan(-1);
+    expect(tick).toBeGreaterThan(lock);
+    expect(html).toContain('window.__veOfferFraming = isOffer');
+    expect(html).toContain('window.__veOfferFraming = false');
   });
 
   it('frames the look-ahead with a top padding, not a bottom one', () => {
