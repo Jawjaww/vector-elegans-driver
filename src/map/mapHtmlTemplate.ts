@@ -956,10 +956,15 @@ export function buildMapHtmlTemplate(
       removeGpsCanvasPuck();
       const marker = ensureGpsArrowMarker();
       marker.setLngLat(coords);
-      // Map alignment + the same bearing as the camera: the arrow stays on the
-      // trace, and both point up once the camera is course-up.
-      marker.setRotationAlignment("map");
-      marker.setRotation(bearing);
+      if (window.__veNavCourseUp) {
+        // The map itself is rotated so the route runs up the screen.
+        // A viewport arrow then points up, along that route.
+        marker.setRotationAlignment("viewport");
+        marker.setRotation(0);
+      } else {
+        marker.setRotationAlignment("map");
+        marker.setRotation(bearing);
+      }
       if (!window.__veGpsMarkerAdded) {
         marker.addTo(map);
         window.__veGpsMarkerAdded = true;
@@ -1023,6 +1028,12 @@ export function buildMapHtmlTemplate(
             durationSeconds = Math.round(durationSeconds * ratio);
           } else if (remainingLine > 0) {
             distanceMeters = Math.round(remainingLine);
+          }
+          // A stale ratio must not report arrival while the drawn end is still far.
+          var endPt = line[line.length - 1];
+          var toEnd = haversineMeters(coords, endPt);
+          if (distanceMeters < 30 && toEnd > 30) {
+            distanceMeters = Math.round(Math.max(remainingLine, toEnd));
           }
         }
 
@@ -1093,12 +1104,19 @@ export function buildMapHtmlTemplate(
       return !!(opts && opts.navigation === true);
     }
 
-    /** Course-up bearing from the snapped polyline (works at standstill). */
+    /** Azimuth of the trace ahead of the driver, including a two-point chord. */
     function bearingAlongNavLine(coords) {
       const line = window.__veNavLine;
       if (!line || line.length < 2 || !coords) return null;
+      const end = line[line.length - 1];
+      if (line.length === 2) {
+        if (haversineMeters(coords, end) < 1) return null;
+        return bearingDegrees(coords, end);
+      }
       const snap = snapToNavLine(coords, line, 60);
-      return snap ? snap.bearing : null;
+      if (snap) return snap.bearing;
+      if (haversineMeters(coords, end) < 1) return null;
+      return bearingDegrees(coords, end);
     }
 
     function heldBearing(desired, opts) {
@@ -1127,7 +1145,8 @@ export function buildMapHtmlTemplate(
     }
 
     function rememberNavCamera(opts) {
-      if (!opts || opts.navigation !== true) return;
+      window.__veNavCourseUp = isNavMode(opts);
+      if (!window.__veNavCourseUp) return;
       if (typeof opts.zoom === "number") window.__veNavZoom = opts.zoom;
       if (typeof opts.pitch === "number") window.__veNavPitch = opts.pitch;
       if (typeof opts.speed === "number") window.__veNavSpeed = opts.speed;
@@ -1181,28 +1200,36 @@ export function buildMapHtmlTemplate(
         } catch (e2) {}
       }
     }
+
+    /** North-up is wrong in guidance: face the trace on this tick, no glide from 0. */
+    function faceNavTrace(coords, opts, snapped, offRoute) {
+      const course = bearingAlongNavLine(coords);
+      const onLine = snapped && !offRoute;
+      const center = onLine ? snapped.point : coords;
+      if (course !== null) window.__veDisplayBearing = course;
+      cancelNavGlide();
+      jumpNavCamera({
+        center: center,
+        zoom: (opts && opts.zoom) || window.__veNavZoom || 18,
+        bearing: course !== null ? course : map.getBearing(),
+        pitch:
+          opts && typeof opts.pitch === "number"
+            ? opts.pitch
+            : typeof window.__veNavPitch === "number"
+              ? window.__veNavPitch
+              : 50,
+        padding: navLookaheadPadding(opts),
+      });
+      syncGpsPuck(center, course !== null ? course : undefined);
+      postRouteProgress(center, onLine ? snapped.traveledMeters : undefined);
+    }
     function alignNavCameraCourseUp(coords, opts) {
       if (!isNavMode(opts) || !coords) return;
-      const brg = bearingAlongNavLine(coords);
-      if (brg === null) return;
-      window.__veDisplayBearing = brg;
-      const zoom = (opts && opts.zoom) || window.__veNavZoom || 18;
-      const pitch =
-        opts && typeof opts.pitch === "number"
-          ? opts.pitch
-          : typeof window.__veNavPitch === "number"
-            ? window.__veNavPitch
-            : 50;
-      moveNavCamera({
-        center: coords,
-        zoom: zoom,
-        bearing: brg,
-        pitch: pitch,
-        padding: navLookaheadPadding(opts),
-        duration: 450,
-        essential: true,
-      });
-      syncGpsPuck(coords, brg);
+      window.__veNavCourseUp = true;
+      const line = window.__veNavLine;
+      const snapped =
+        line && line.length > 1 ? snapToNavLine(coords, line, 60) : null;
+      faceNavTrace(coords, opts, snapped, false);
     }
 
     function cancelNavGlide() {
@@ -1269,6 +1296,11 @@ export function buildMapHtmlTemplate(
         follow && snapped
           ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
           : false;
+
+      if (follow && isNavMode(opts)) {
+        faceNavTrace(coords, opts, snapped, offRoute);
+        return;
+      }
 
       if (follow && snapped && !offRoute) {
         startNavGlide(snapped, opts);
@@ -1706,6 +1738,12 @@ export function buildMapHtmlTemplate(
         // the driver) and draw driver → destination immediately.
         window.__veHasRoadRoute = false;
         window.__veNavSteps = null;
+        var chordM = haversineMeters(start, end);
+        window.__veRouteMeta = {
+          distanceMeters: Math.round(chordM),
+          durationSeconds: 0,
+          lineMeters: chordM,
+        };
         setOrAddLine(
           "route",
           "route-casing",
@@ -1713,6 +1751,9 @@ export function buildMapHtmlTemplate(
           lineFeature([start, end]),
           tripStyle,
         );
+        try {
+          postRouteProgress(window.__veLastGpsCoords || start, 0);
+        } catch (e) {}
       }
       if (!shouldFitBounds && !isOffer && window.__veLastGpsCoords) {
         alignNavCameraCourseUp(window.__veLastGpsCoords, {
@@ -1947,31 +1988,46 @@ export function buildMapHtmlTemplate(
           }, 2500)
         : null;
 
-      fetchOsrmGeometry(start, end, tripSignal)
-        .then((trip) => {
-          if (tripSignal.aborted) return;
-          if (offerTimeout) clearTimeout(offerTimeout);
-          applyTripGeometry(trip);
-        })
-        .catch((err) => {
-          if (offerTimeout) clearTimeout(offerTimeout);
-          if (err && err.name === "AbortError") return;
-          console.error("Route error:", err);
-          paintStraightFallback();
-          const tripOnly = [[start, end]];
-          presentOnce(
-            approachFrom ? [[approachFrom, start, end]] : tripOnly,
-            isOffer ? buildOfferFitCoordLists([start, end]) : tripOnly,
-          );
-          recenterTripNavCamera();
-          try {
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(
-                JSON.stringify({ type: "routeError", error: String(err) })
-              );
+      function loadTrip(attempt) {
+        fetchOsrmGeometry(start, end, tripSignal)
+          .then((trip) => {
+            if (tripSignal.aborted) return;
+            if (!trip && attempt < 1 && !isOffer) {
+              setTimeout(function () {
+                if (!tripSignal.aborted) loadTrip(attempt + 1);
+              }, 900);
+              return;
             }
-          } catch {}
-        });
+            if (offerTimeout) clearTimeout(offerTimeout);
+            applyTripGeometry(trip);
+          })
+          .catch((err) => {
+            if (err && err.name === "AbortError") return;
+            if (attempt < 1 && !isOffer && !tripSignal.aborted) {
+              setTimeout(function () {
+                if (!tripSignal.aborted) loadTrip(attempt + 1);
+              }, 900);
+              return;
+            }
+            if (offerTimeout) clearTimeout(offerTimeout);
+            console.error("Route error:", err);
+            paintStraightFallback();
+            const tripOnly = [[start, end]];
+            presentOnce(
+              approachFrom ? [[approachFrom, start, end]] : tripOnly,
+              isOffer ? buildOfferFitCoordLists([start, end]) : tripOnly,
+            );
+            recenterTripNavCamera();
+            try {
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(
+                  JSON.stringify({ type: "routeError", error: String(err) })
+                );
+              }
+            } catch (e) {}
+          });
+      }
+      loadTrip(0);
 
       if (approachFrom) {
         fetchOsrmGeometry(approachFrom, start, approachSignal)
