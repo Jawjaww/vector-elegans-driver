@@ -11,7 +11,7 @@ export type OfferFitCamera = {
 /** Long-trip fallback — matches legacy offerCardLayout constants. */
 export const OFFER_FIT_CAMERA_LONG_TRIP: OfferFitCamera = {
   maxZoom: 10,
-  boundsExpand: 1.38,
+  boundsExpand: 1.44,
 };
 
 /**
@@ -47,12 +47,13 @@ export function flattenFitCoordLists(coordLists: LngLat[][]): LngLat[] {
 
 /**
  * Distance-aware camera for offer-mode fitBounds.
- * Short spans allow higher maxZoom and minimal bounds expansion.
+ * Short spans allow higher maxZoom. Every tier expands the bounds a little so the
+ * pickup pin and the arrival flag, which extend past their coordinate, stay on screen.
  */
 export function resolveOfferFitCamera(spanKm: number): OfferFitCamera {
-  if (spanKm < 2) return { maxZoom: 15, boundsExpand: 1.0 };
-  if (spanKm < 5) return { maxZoom: 14, boundsExpand: 1.02 };
-  if (spanKm < 15) return { maxZoom: 12, boundsExpand: 1.12 };
+  if (spanKm < 2) return { maxZoom: 15, boundsExpand: 1.06 };
+  if (spanKm < 5) return { maxZoom: 14, boundsExpand: 1.08 };
+  if (spanKm < 15) return { maxZoom: 12, boundsExpand: 1.18 };
   return OFFER_FIT_CAMERA_LONG_TRIP;
 }
 
@@ -99,10 +100,10 @@ export function offerMapZoomScriptBlock(): string {
     }
 
     function resolveOfferFitCamera(spanKm) {
-      if (spanKm < 2) return { maxZoom: 15, boundsExpand: 1.0 };
-      if (spanKm < 5) return { maxZoom: 14, boundsExpand: 1.02 };
-      if (spanKm < 15) return { maxZoom: 12, boundsExpand: 1.12 };
-      return { maxZoom: 10, boundsExpand: 1.38 };
+      if (spanKm < 2) return { maxZoom: 15, boundsExpand: 1.06 };
+      if (spanKm < 5) return { maxZoom: 14, boundsExpand: 1.08 };
+      if (spanKm < 15) return { maxZoom: 12, boundsExpand: 1.18 };
+      return { maxZoom: 10, boundsExpand: 1.44 };
     }
   `;
 }

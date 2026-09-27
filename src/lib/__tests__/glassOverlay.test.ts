@@ -7,7 +7,7 @@ const { readFileSync } = require('fs') as {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { join } = require('path') as { join: (...parts: string[]) => string };
 
-import { GLASS_MATERIAL, VE_BLUE, theme } from '../theme';
+import { frostRimConic, GLASS_MATERIAL, VE_BLUE, theme } from '../theme';
 import { MAP_PALETTE } from '../mapPalette';
 import { tripGuidanceAccent } from '../utils/tripGuidance';
 import {
@@ -138,14 +138,18 @@ describe('the edge of a panel', () => {
     expect(map).toContain('data-frost-rim');
     expect(map).toContain('r.x - rimPx');
     expect(map).toContain('GLASS_MATERIAL.rimWidthPx');
-    expect(map).toContain('conic-gradient');
-    expect(map).toContain('306deg');
-    expect(map).toContain('126deg');
-    expect(map).not.toContain('linear-gradient(180deg, ${GLASS_MATERIAL.rimHighlight}');
-    expect(map).toContain('GLASS_MATERIAL.rimHighlight');
-    expect(map).toContain('GLASS_MATERIAL.rimShade');
-    expect(map).toContain('GLASS_MATERIAL.rimMid');
-    expect(map.match(/GLASS_MATERIAL\.rimMid/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(map).toContain('frostRimConic()');
+    expect(map).toContain('FROST_VEIL');
+    expect(map).toContain('GLASS_MATERIAL.fillTop');
+    expect(map).not.toContain('18deg');
+    const rim = frostRimConic();
+    expect(rim).toContain('conic-gradient');
+    expect(rim).toContain('color-mix');
+    expect(rim).toContain(`${GLASS_MATERIAL.rimHighlight} 100%`);
+    expect(rim).toContain('315deg');
+    expect(rim).toContain('135deg');
+    expect(rim).not.toContain(GLASS_MATERIAL.fillTop);
+    expect(rim).not.toContain(GLASS_MATERIAL.fillBottom);
     expect(map).toContain('maskComposite = "exclude"');
     expect(map.match(/mixBlendMode/g)).toHaveLength(1);
     expect(GLASS_MATERIAL.rimWidthPx).toBeGreaterThanOrEqual(1);

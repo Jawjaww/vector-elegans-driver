@@ -18,6 +18,15 @@ describe('guidance map template', () => {
     );
   });
 
+  it('frames an offer on the whole trip, including the approach once it arrives', () => {
+    expect(html).toContain('offerApproachFitted');
+    expect(html).toContain('window.__veApproachLine');
+    const guard = html.indexOf('if (nav.navigating) return;');
+    const fit = html.indexOf('fitRouteBounds(', guard);
+    expect(guard).toBeGreaterThan(-1);
+    expect(fit).toBeGreaterThan(guard);
+  });
+
   it('frames the look-ahead with a top padding, not a bottom one', () => {
     expect(html).toMatch(/top: Math\.round\(h \* 0\.4\)/);
     expect(html).toMatch(/bottom: Math\.round\(h \* 0\.1\)/);

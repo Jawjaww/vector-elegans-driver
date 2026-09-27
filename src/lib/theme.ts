@@ -161,9 +161,9 @@ export const VE_BLUE = {
  * (`rimHighlight` / `rimShade`) is a band of `rimWidthPx` drawn *outside* the card, masked so
  * the centre is punched out, and blended with the map under that band only. The light runs
  * corner to opposite corner (top-left and bottom-right catch, the other pair falls off) —
- * a top-to-bottom gradient would light both upper edges at once. `rimMid` holds the edge
- * centres on a plateau so the band does not read as two halves; highlight and shade only
- * peak at the corners, with ramps between. It is static:
+ * a top-to-bottom gradient would light both upper edges at once. `rimMid` is only the tone
+ * the ramp passes through at the middle of each edge: highlight and shade peak at the
+ * corners, and the band between them is a continuous falloff, not a held plateau. It is static:
  * the blur of the face is the only per-frame cost.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
@@ -186,8 +186,8 @@ export type GlassMaterial = {
    */
   rimShade: string;
   /**
-   * Mid tone on the flat of each edge, between the corner peaks. Stops on the conic
-   * gradient hold here long enough that the rim reads as several steps, not a hard bisect.
+   * Halfway tone. The rim crosses it at the middle of each edge and does not stay there:
+   * a plateau would read as a third stripe.
    */
   rimMid: string;
   /**
@@ -233,3 +233,27 @@ export const GLASS_MATERIAL: GlassMaterial = {
   accentStrong: VE_BLUE.edge,
   chipTintAlpha: VE_BLUE.tintAlpha,
 };
+
+/**
+ * Exterior rim as one conic, sampled once.
+ *
+ * Highlight peaks at 315° and 135° (top-left, bottom-right), shade at 45° and 225°.
+ * A cosine between those peaks passes through `rimMid` at each edge centre and does not
+ * sit on it: two identical stops in a row were the plateau that read as a stripe.
+ * The face colours are not in this gradient.
+ */
+export function frostRimConic(material: GlassMaterial = GLASS_MATERIAL): string {
+  const stops: string[] = [];
+  for (let deg = 0; deg <= 360; deg += 15) {
+    const wave = Math.cos(((deg - 315) * 2 * Math.PI) / 180);
+    const towardHighlight = (wave + 1) / 2;
+    const pct = Math.round(Math.abs(towardHighlight - 0.5) * 200);
+    let color = material.rimMid;
+    if (pct > 0) {
+      const end = towardHighlight > 0.5 ? material.rimHighlight : material.rimShade;
+      color = `color-mix(in srgb, ${end} ${pct}%, ${material.rimMid})`;
+    }
+    stops.push(`${color} ${deg}deg`);
+  }
+  return `conic-gradient(from 0deg, ${stops.join(', ')})`;
+}

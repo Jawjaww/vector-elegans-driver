@@ -6,15 +6,15 @@ import {
 
 describe('resolveOfferFitCamera', () => {
   it('allows tight zoom under 2 km', () => {
-    expect(resolveOfferFitCamera(1)).toEqual({ maxZoom: 15, boundsExpand: 1.0 });
+    expect(resolveOfferFitCamera(1)).toEqual({ maxZoom: 15, boundsExpand: 1.06 });
   });
 
   it('moderates zoom between 2 and 5 km', () => {
-    expect(resolveOfferFitCamera(4)).toEqual({ maxZoom: 14, boundsExpand: 1.02 });
+    expect(resolveOfferFitCamera(4)).toEqual({ maxZoom: 14, boundsExpand: 1.08 });
   });
 
   it('uses legacy long-trip cap beyond 15 km', () => {
-    expect(resolveOfferFitCamera(20)).toEqual({ maxZoom: 10, boundsExpand: 1.38 });
+    expect(resolveOfferFitCamera(20)).toEqual({ maxZoom: 10, boundsExpand: 1.44 });
   });
 });
 
