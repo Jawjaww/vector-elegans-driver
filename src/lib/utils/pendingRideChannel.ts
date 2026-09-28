@@ -9,6 +9,8 @@ export type RideOfferRealtimeRow = {
   driver_id: string;
   status: string;
   expires_at?: string | null;
+  /** Compact ride fields written at offer time — enough to paint without a round-trip. */
+  snapshot?: Record<string, unknown> | null;
 };
 
 export function shouldHydrateOffersOnRealtimeStatus(status: string): boolean {

@@ -16,6 +16,7 @@ import {
   OFFER_ARRIVAL_INSTANT_WINDOW_MS,
   isNotificationArrival,
   previewFromPushData,
+  rideFromPushData,
 } from '../notifications/offerPreview';
 import { queueOfferOpen } from '../notifications/pushOpen';
 import { OFFER_PIPELINE_STAGES } from '../notifications/offerPipelineDiag';
@@ -221,13 +222,129 @@ describe('queueOfferOpen: the arrival is written before any network', () => {
     useDriverStore.getState().clearProvisionalOffer('ride-1');
     expect(useDriverStore.getState().provisionalOffer).toBeNull();
   });
+});
 
-  // Both fields describe a single tap. Persisting them would replay a stale arrival, and the
-  // entry-animation window, on the next cold start.
+describe('rideFromPushData: the payload can be a real Ride', () => {
+  const future = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+  const payload = {
+    pickup_lat: '48.8566',
+    pickup_lon: '2.3522',
+    dropoff_lat: 49.0097,
+    dropoff_lon: 2.5479,
+    pickup_address: '12 Rue de Rivoli, Paris',
+    dropoff_address: 'CDG Terminal 2',
+    pickup_time: future,
+    matching_deadline_at: future,
+    estimated_price: '42.5',
+    distance: '12.3',
+    duration: '28',
+    vehicle_type: 'STANDARD',
+    status: 'pending',
+    user_id: 'user-1',
+  };
+
+  it('rebuilds a Ride from stringified FCM fields', () => {
+    expect(rideFromPushData(payload, 'ride-1')).toMatchObject({
+      id: 'ride-1',
+      pickup_lat: 48.8566,
+      pickup_lon: 2.3522,
+      dropoff_lat: 49.0097,
+      dropoff_lon: 2.5479,
+      estimated_price: 42.5,
+      distance: 12.3,
+      duration: 28,
+      offerUnconfirmed: true,
+    });
+  });
+
+  it('parses options from a JSON string', () => {
+    const ride = rideFromPushData(
+      { ...payload, options: '["wifi","child_seat"]' },
+      'ride-1',
+    );
+    expect(ride?.options).toEqual(['wifi', 'child_seat']);
+  });
+
+  it('refuses a payload without coordinates', () => {
+    expect(
+      rideFromPushData({ pickup_lat: 48.8, pickup_time: future }, 'ride-1'),
+    ).toBeNull();
+  });
+
+  it('refuses a paused matching window', () => {
+    expect(
+      rideFromPushData({ ...payload, matching_paused_at: future }, 'ride-1'),
+    ).toBeNull();
+  });
+});
+
+describe('queueOfferOpen: a snapshot Ride skips the placeholder', () => {
+  const future = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+  const snapshot = rideFromPushData(
+    {
+      pickup_lat: 48.8566,
+      pickup_lon: 2.3522,
+      dropoff_lat: 49.0097,
+      dropoff_lon: 2.5479,
+      pickup_address: '12 Rue de Rivoli, Paris',
+      dropoff_address: 'CDG',
+      pickup_time: future,
+      matching_deadline_at: future,
+      estimated_price: 42.5,
+      status: 'pending',
+    },
+    'ride-1',
+  );
+
+  beforeEach(() => {
+    useDriverStore.setState({
+      pendingOfferOpen: null,
+      provisionalOffer: null,
+      offerArrivalAt: null,
+      offerArrivalSource: null,
+      availableRides: [],
+      availableRide: null,
+      deferredRides: [],
+      declinedOfferIds: [],
+      suppressedRideIds: [],
+      activeRide: null,
+    });
+  });
+
+  it('promotes the snapshot immediately and does not paint the placeholder', () => {
+    expect(snapshot).not.toBeNull();
+    queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
+    const state = useDriverStore.getState();
+    expect(state.provisionalOffer).toBeNull();
+    expect(state.availableRides[0]?.id).toBe('ride-1');
+    expect(state.availableRides[0]?.offerUnconfirmed).toBe(true);
+    expect(state.availableRides[0]?.pickup_lat).toBe(48.8566);
+  });
+
+  it('does not overlay a snapshot on an active trip', () => {
+    useDriverStore.setState({ activeRide: makeRide('other') });
+    queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
+    expect(useDriverStore.getState().availableRides).toEqual([]);
+  });
+
+  it('does not un-confirm a ride the server already delivered', () => {
+    useDriverStore.setState({
+      availableRides: [{ ...makeRide('ride-1'), offerUnconfirmed: false }],
+    });
+    queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
+    expect(useDriverStore.getState().availableRides[0]?.offerUnconfirmed).toBe(
+      false,
+    );
+    expect(useDriverStore.getState().provisionalOffer).toBeNull();
+  });
+
   it('never persists the arrival markers', () => {
-    queueOfferOpen('ride-1', null, preview);
+    queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
     const partialize = useDriverStore.persist.getOptions().partialize;
-    const persisted = partialize?.(useDriverStore.getState()) as Record<string, unknown>;
+    const persisted = partialize?.(useDriverStore.getState()) as Record<
+      string,
+      unknown
+    >;
     expect(persisted).toBeTruthy();
     expect(persisted).not.toHaveProperty('provisionalOffer');
     expect(persisted).not.toHaveProperty('offerArrivalAt');
@@ -298,7 +415,8 @@ describe('the boot no longer stands between the tap and the ride', () => {
     expect(dashboard).toContain('booting={loading}');
     // The boot gate and the display gate stay composed: the placeholder is shown through the
     // boot, and it yields only once the deck holds that same ride (pinned separately below).
-    expect(dashboard).toContain('const deckRides = canShowOffers ? rides : [];');
+    expect(dashboard).toContain('const deckRides = canShowOffers');
+    expect(dashboard).toContain('rides.filter((ride) => ride.offerUnconfirmed)');
   });
 
   it('drops the placeholder as soon as the deck holds the same ride', () => {
@@ -338,12 +456,16 @@ describe('the boot no longer stands between the tap and the ride', () => {
     expect(dashboard).toContain(
       'hasProvisionalOffer: visibleProvisional !== null',
     );
+    expect(readSource(join('src', 'lib', 'utils', 'notificationOfferOpen.ts'))).toContain(
+      'offerUnconfirmed',
+    );
   });
 
   it('decides nothing about an offer before the persisted store is back', () => {
     expect(dashboard).toContain('useDriverStoreHydrated()');
     expect(dashboard).toMatch(/const canDisplay =\s*storeHydrated &&/);
-    expect(dashboard).toMatch(/takeReadyOfferOpen\(\{[^}]*storeHydrated/);
+    expect(dashboard).toContain('runPendingNotificationOfferOpen');
+    expect(dashboard).toContain('storeHydrated');
   });
 
   it('presents the arrival without entry motion', () => {
@@ -391,6 +513,10 @@ describe('the silent wake hands the ride to JS', () => {
   // A silent wake resumes the launcher activity: no extras, no NotificationResponse, nothing
   // for the tap path to read. Without this read the offer goes back to being rediscovered by
   // the boot — the very latency the wake was built to remove.
+  it('rebuilds a Ride from the wake payload before any network', () => {
+    expect(notifications).toContain('rideFromPushData(data, rideId)');
+  });
+
   it('reads the payload the native side kept', () => {
     expect(notifications).toContain('consumeNativeOfferPush()');
     expect(notifications).toContain(

@@ -38,6 +38,11 @@ export interface Ride {
   client_incentive?: number | null;
   matching_deadline_at?: string | null;
   matching_paused_at?: string | null;
+  /**
+   * Painted from a push / Realtime snapshot before `get_driver_offer_ride` confirms.
+   * Cleared on the server merge so a later snapshot cannot un-confirm a live card.
+   */
+  offerUnconfirmed?: boolean;
 }
 
 export interface DriverStats {
@@ -162,6 +167,10 @@ export function mergeRideSnapshot(existing: Ride, incoming: Ride): Ride {
     matching_paused_at:
       incoming.matching_paused_at ?? existing.matching_paused_at,
     updated_at: incoming.updated_at ?? existing.updated_at,
+    options: incoming.options ?? existing.options,
+    // A confirmed card stays confirmed: a later push snapshot must not flip this back on.
+    offerUnconfirmed:
+      incoming.offerUnconfirmed === true && existing.offerUnconfirmed !== false,
   };
 }
 

@@ -339,3 +339,29 @@ describe('rideService.fetchOpenOfferRides', () => {
     expect(inFn).toHaveBeenCalledWith('id', ['r1']);
   });
 });
+
+describe('rideService.fetchRideById', () => {
+  it('returns a still-offerable row and ignores a hidden one', async () => {
+    const ride = {
+      id: 'r1',
+      status: 'pending',
+      matching_paused_at: null,
+      matching_deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      pickup_time: new Date().toISOString(),
+    };
+    const maybeSingle = jest.fn().mockResolvedValue({ data: ride, error: null });
+    const eq = jest.fn(() => ({ maybeSingle }));
+    const select = jest.fn(() => ({ eq }));
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({ select });
+
+    await expect(rideService.fetchRideById('r1')).resolves.toMatchObject({
+      id: 'r1',
+      offerUnconfirmed: false,
+    });
+    expect(eq).toHaveBeenCalledWith('id', 'r1');
+
+    maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    await expect(rideService.fetchRideById('missing')).resolves.toBeNull();
+  });
+});

@@ -18,7 +18,7 @@ import {
 import { presentationForIncomingPush, SUPPRESS_INCOMING_PUSH } from '../lib/notifications/pushPresentation';
 import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
 import { acknowledgeOfferPush } from '../lib/notifications/offerPushAck';
-import { previewFromPushData } from '../lib/notifications/offerPreview';
+import { previewFromPushData, rideFromPushData } from '../lib/notifications/offerPreview';
 import {
   consumeNativeOfferPush,
   drainOverlayDiagnostics,
@@ -168,7 +168,14 @@ export function useNotifications() {
       if (rideId) {
         // The stage is carried into the queue, not merely logged: the ring gate reads it to
         // know whether anything has already made a sound for this offer.
-        queueOfferOpen(rideId, action, previewFromPushData(data, rideId), stage);
+        const snapshot = rideFromPushData(data, rideId);
+        queueOfferOpen(
+          rideId,
+          action,
+          snapshot ? null : previewFromPushData(data, rideId),
+          stage,
+          snapshot,
+        );
       }
       // The one place both paths converge — a tray tap and a silent wake — which is exactly
       // what makes it the right place to report receipt: beyond this point the server could no

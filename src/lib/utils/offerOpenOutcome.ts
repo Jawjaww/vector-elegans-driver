@@ -100,18 +100,22 @@ export function canReceiveOffers(args: {
  * The single visibility rule, used by the boot branch and by the dashboard tree alike, so the
  * two cannot drift apart.
  *
- * `booting` is the dashboard's own spinner state, which gates the whole screen. Only a
- * provisional card may be painted through it: that card is drawn from the notification payload
- * and therefore needs nothing the boot provides. A real offer must keep respecting the display
- * gate (`canShowOffers`) — before the identity and the persisted store are known, that gate
- * cannot answer, and showing a real offer then would be a guess.
+ * `booting` is the dashboard's own spinner state, which gates the whole screen. Two payload
+ * shapes may paint through it: a provisional card, and an unconfirmed Ride rebuilt from the
+ * same push (coords included). Both come from the notification, so they need nothing the boot
+ * provides. A *confirmed* offer must keep respecting the display gate (`canShowOffers`) —
+ * before the identity and the persisted store are known, that gate cannot answer, and showing
+ * a confirmed offer then would be a guess.
  */
 export function shouldBypassBootGate(args: {
   booting: boolean;
   hasProvisionalOffer: boolean;
   canShowOffers: boolean;
+  /** Ride rebuilt from the push/realtime snapshot, not yet confirmed by the server. */
+  hasUnconfirmedOffer?: boolean;
 }): boolean {
   if (args.hasProvisionalOffer) return true;
+  if (args.hasUnconfirmedOffer) return true;
   if (args.booting) return false;
   return args.canShowOffers;
 }
