@@ -196,10 +196,10 @@ export default function ProfileScreen() {
       >
         <View className="pb-6">
           <Text className="text-3xl font-black text-white tracking-tighter uppercase mb-1">
-            Profile
+            {t('profile.title')}
           </Text>
           <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
-            Driver Account
+            {t('profile.screenSubtitle')}
           </Text>
         </View>
 

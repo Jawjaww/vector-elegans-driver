@@ -146,8 +146,27 @@
       "currentRide": "Voir ma course"
     }
   },
+  "earningsScreen": {
+    "title": "Gains",
+    "subtitle": "Performance",
+    "today": "Aujourd'hui",
+    "ridesChip": "+{{count}} COURSES",
+    "completedToday": "terminées aujourd'hui",
+    "weekEst": "Cette semaine (estim.)",
+    "monthEst": "Ce mois (estim.)"
+  },
+  "ridesScreen": {
+    "title": "Courses",
+    "subtitle": "En cours et historique",
+    "noActiveTitle": "Aucune course en cours",
+    "noActiveBody": "Passez en ligne pour recevoir des demandes. Le guidage trajet se fait sur la carte Accueil.",
+    "todaySummary": "Résumé du jour",
+    "rides": "Courses",
+    "earned": "Gagné"
+  },
   "profile": {
     "title": "Profil",
+    "screenSubtitle": "Compte chauffeur",
     "updates": {
       "menu": "Mises à jour",
       "menuReady": "Mise à jour prête — redémarrer",

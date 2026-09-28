@@ -140,8 +140,27 @@
       "currentRide": "View my ride"
     }
   },
+  "earningsScreen": {
+    "title": "Earnings",
+    "subtitle": "Performance",
+    "today": "Today",
+    "ridesChip": "+{{count}} RIDES",
+    "completedToday": "completed today",
+    "weekEst": "This week (est.)",
+    "monthEst": "This month (est.)"
+  },
+  "ridesScreen": {
+    "title": "Rides",
+    "subtitle": "Current & history",
+    "noActiveTitle": "No active rides",
+    "noActiveBody": "Go online to receive ride requests. Trip controls live on the Home map.",
+    "todaySummary": "Today's summary",
+    "rides": "Rides",
+    "earned": "Earned"
+  },
   "profile": {
     "title": "Profile",
+    "screenSubtitle": "Driver account",
     "updates": {
       "menu": "Software updates",
       "menuReady": "Update ready — restart",
