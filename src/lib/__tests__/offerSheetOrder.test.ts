@@ -153,6 +153,14 @@ describe('the provisional card yields to the real one, on the ride', () => {
     expect(visibleProvisionalOffer(provisional, [provisional.rideId])).toBeNull();
   });
 
+  it('yields when the ride has been parked in the sheet', () => {
+    expect(
+      visibleProvisionalOffer(provisional, ['other-ride'], null, [
+        provisional.rideId,
+      ]),
+    ).toBeNull();
+  });
+
   it('has nothing to show without a payload', () => {
     expect(visibleProvisionalOffer(null, ['ride-1'])).toBeNull();
   });

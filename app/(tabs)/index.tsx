@@ -1082,9 +1082,11 @@ export default function DashboardScreen() {
     availableRide,
     availableRides,
     deferredRides,
+    declinedOfferIds,
     addAvailableRide,
     removeAvailableRide,
     deferAvailableRide,
+    dismissDeferredRide,
     suppressRide,
     promoteDeferredRide,
     promoteTrackedRideToFront,
@@ -1101,9 +1103,11 @@ export default function DashboardScreen() {
       availableRide: s.availableRide,
       availableRides: s.availableRides,
       deferredRides: s.deferredRides,
+      declinedOfferIds: s.declinedOfferIds,
       addAvailableRide: s.addAvailableRide,
       removeAvailableRide: s.removeAvailableRide,
       deferAvailableRide: s.deferAvailableRide,
+      dismissDeferredRide: s.dismissDeferredRide,
       suppressRide: s.suppressRide,
       promoteDeferredRide: s.promoteDeferredRide,
       promoteTrackedRideToFront: s.promoteTrackedRideToFront,
@@ -1505,9 +1509,21 @@ export default function DashboardScreen() {
     // Same for the tray entry: refusing leaves nothing to announce.
     stopOfferRing(reason === "timeout" ? "timed_out" : "declined");
     void dismissOfferNotification(rideId);
-    // Soft refuse / timeout (Refuser button or countdown) — not swipe
+    // Soft refuse / timeout (Refuser button or countdown) — not swipe.
+    // Clears the placeholder in the same store write: otherwise the card yields
+    // only while the ride is on the deck, and Refuser makes it reappear as
+    // "Preparing offer…" instead of handing the ride to the bottomsheet.
     deferAvailableRide(rideId);
-    await rideService.respondOffer(rideId, reason);
+    if (reason === "declined") {
+      await rideService.respondOffer(rideId, "declined");
+    }
+  };
+
+  const handleDismissDeferredRide = (rideId: string) => {
+    dismissDeferredRide(rideId);
+    // Idempotent on a ride already declined from the overlay; records the
+    // refusal for a timeout/overflow card that was only parked locally.
+    void rideService.respondOffer(rideId, "declined");
   };
 
   const handleToggleOnline = () => {
@@ -1565,9 +1581,23 @@ export default function DashboardScreen() {
     [showOfferCarousel, availableRides],
   );
 
+  const parkedOfferIds = useMemo(
+    () => [
+      ...deferredRides.map((ride) => ride.id),
+      ...(declinedOfferIds ?? []),
+    ],
+    [deferredRides, declinedOfferIds],
+  );
+
   const visibleProvisional = useMemo(
-    () => visibleProvisionalOffer(provisionalOffer, deckOfferIds, activeRide?.id ?? null),
-    [provisionalOffer, deckOfferIds, activeRide?.id],
+    () =>
+      visibleProvisionalOffer(
+        provisionalOffer,
+        deckOfferIds,
+        activeRide?.id ?? null,
+        parkedOfferIds,
+      ),
+    [provisionalOffer, deckOfferIds, activeRide?.id, parkedOfferIds],
   );
 
   // Whether an offer card is actually painted, from the very rule the overlay applies. The sheet
@@ -1860,6 +1890,7 @@ export default function DashboardScreen() {
             tripActions={tripActions}
             onOpenActiveRide={() => router.push("/(tabs)/rides")}
             onPromoteDeferred={promoteDeferredRide}
+            onDismissDeferred={handleDismissDeferredRide}
           />
         </BottomSheet>
       </View>
@@ -1875,6 +1906,7 @@ function DriverHomeSheetBody({
   tripActions,
   onOpenActiveRide,
   onPromoteDeferred,
+  onDismissDeferred,
 }: Readonly<{
   activeRide: Ride | null;
   availableRide: Ride | null;
@@ -1883,6 +1915,7 @@ function DriverHomeSheetBody({
   tripActions: ReturnType<typeof useActiveTripActions>;
   onOpenActiveRide: () => void;
   onPromoteDeferred: (rideId: string) => void;
+  onDismissDeferred: (rideId: string) => void;
 }>) {
   const pickupDest = tripActions.pickupDest();
   const dropoffDest = tripActions.dropoffDest();
@@ -1931,6 +1964,7 @@ function DriverHomeSheetBody({
             contentInset={24}
             onOpenActiveRide={onOpenActiveRide}
             onPromoteDeferred={onPromoteDeferred}
+            onDismissDeferred={onDismissDeferred}
           />
         )}
       </View>
@@ -2174,13 +2208,16 @@ function DeferredRideCard({
   isLast,
   gap,
   onPromote,
+  onDismiss,
 }: Readonly<{
   ride: Ride;
   cardWidth: number;
   isLast: boolean;
   gap: number;
   onPromote: (rideId: string) => void;
+  onDismiss: (rideId: string) => void;
 }>) {
+  const { t } = useTranslation();
   const incentive = Number(ride.client_incentive ?? 0);
   const { total } = resolveRideOfferPrice(ride);
   let priceLabel = "Prix estimé";
@@ -2204,10 +2241,7 @@ function DeferredRideCard({
   const isOverdue = !isRideStillOfferable(ride);
 
   return (
-    <Pressable
-      onPress={() => onPromote(ride.id)}
-      style={{ width: cardWidth, marginRight: isLast ? 0 : gap }}
-    >
+    <View style={{ width: cardWidth, marginRight: isLast ? 0 : gap }}>
       <View
         style={{
           padding: 14,
@@ -2218,32 +2252,53 @@ function DeferredRideCard({
         }}
       >
         <View className="flex-row justify-between items-start mb-3">
-          <View
-            className="px-2 py-0.5 rounded"
-            style={{
-              backgroundColor: isOverdue
-                ? "rgba(251, 113, 133, 0.2)"
-                : "rgba(251, 191, 36, 0.2)",
-            }}
-          >
-            {showMatchingFlame ? (
-              <MaterialCommunityIcons
-                name="fire"
-                size={12}
-                color={isOverdue ? "#fb7185" : "#fbbf24"}
-                accessibilityLabel="En recherche"
-              />
-            ) : (
-              <Text
-                className="text-[10px] font-bold tracking-wide"
-                style={{ color: isOverdue ? "#fb7185" : "#fbbf24" }}
-              >
-                {statusLabel}
-              </Text>
-            )}
-          </View>
+          <Pressable onPress={() => onPromote(ride.id)} className="flex-1">
+            <View
+              className="px-2 py-0.5 rounded self-start"
+              style={{
+                backgroundColor: isOverdue
+                  ? "rgba(251, 113, 133, 0.2)"
+                  : "rgba(251, 191, 36, 0.2)",
+              }}
+            >
+              {showMatchingFlame ? (
+                <MaterialCommunityIcons
+                  name="fire"
+                  size={12}
+                  color={isOverdue ? "#fb7185" : "#fbbf24"}
+                  accessibilityLabel="En recherche"
+                />
+              ) : (
+                <Text
+                  className="text-[10px] font-bold tracking-wide"
+                  style={{ color: isOverdue ? "#fb7185" : "#fbbf24" }}
+                >
+                  {statusLabel}
+                </Text>
+              )}
+            </View>
+          </Pressable>
           <View className="items-end">
-            <Text className="text-white text-xl font-bold">{priceLabel}</Text>
+            <Pressable
+              onPress={() => onDismiss(ride.id)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={t("ride.hideDeferredOffer")}
+              style={{
+                marginBottom: 6,
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(255,255,255,0.08)",
+              }}
+            >
+              <Feather name="x" size={16} color="rgba(255,255,255,0.7)" />
+            </Pressable>
+            <Pressable onPress={() => onPromote(ride.id)}>
+              <Text className="text-white text-xl font-bold">{priceLabel}</Text>
+            </Pressable>
             {incentive > 0 ? (
               <View className="mt-0.5 rounded-full bg-amber-500/20 px-1.5 py-0.5">
                 <Text className="text-amber-300 text-[10px] font-bold">
@@ -2254,6 +2309,7 @@ function DeferredRideCard({
           </View>
         </View>
 
+        <Pressable onPress={() => onPromote(ride.id)}>
         {pickupWhen ? (
           <View
             className="flex-row items-center mb-2.5"
@@ -2309,8 +2365,9 @@ function DeferredRideCard({
             Voir l’offre
           </Text>
         </View>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -2321,6 +2378,7 @@ function DashboardRidePreview({
   contentInset = 24,
   onOpenActiveRide,
   onPromoteDeferred,
+  onDismissDeferred,
 }: Readonly<{
   activeRide: Ride | null;
   availableRide: Ride | null;
@@ -2328,6 +2386,7 @@ function DashboardRidePreview({
   contentInset?: number;
   onOpenActiveRide: () => void;
   onPromoteDeferred: (rideId: string) => void;
+  onDismissDeferred: (rideId: string) => void;
 }>) {
   const gap = 12;
   const screenW = Dimensions.get("window").width;
@@ -2450,6 +2509,7 @@ function DashboardRidePreview({
               gap={gap}
               isLast={index === deferredRides.length - 1}
               onPromote={onPromoteDeferred}
+              onDismiss={onDismissDeferred}
             />
           ))}
         </ScrollView>

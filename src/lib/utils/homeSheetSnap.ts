@@ -35,10 +35,17 @@ export function visibleProvisionalOffer(
   provisional: ProvisionalOffer | null,
   deckRideIds: readonly string[],
   activeRideId: string | null = null,
+  parkedRideIds: readonly string[] = [],
 ): ProvisionalOffer | null {
   if (provisional === null) return null;
   if (activeRideId !== null && provisional.rideId === activeRideId) return null;
-  return deckRideIds.includes(provisional.rideId) ? null : provisional;
+  if (deckRideIds.includes(provisional.rideId)) return null;
+  // Refusing a ride takes it off the deck. The placeholder used to yield only while the
+  // deck still held that id, so the same card reappeared as "Preparing offer…" instead of
+  // letting the bottomsheet take over. Parked (deferred / declined) rides are the same
+  // case as an accepted one: there is nothing left to prepare.
+  if (parkedRideIds.includes(provisional.rideId)) return null;
+  return provisional;
 }
 
 /**

@@ -95,6 +95,7 @@
     "swipeToDecline": "Swipe to decline",
     "offerAccept": "Accept",
     "offerDecline": "Decline",
+    "hideDeferredOffer": "Hide this ride",
     "offerNotice": {
       "dismiss": "Got it",
       "offer_expired": {

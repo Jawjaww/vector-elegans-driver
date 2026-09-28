@@ -208,10 +208,10 @@ describe('queueOfferOpen: the arrival is written before any network', () => {
     expect(useDriverStore.getState().provisionalOffer).toEqual(preview);
   });
 
-  it('keeps the provisional card when the ride is only deferred', () => {
+  it('does not paint the placeholder when the ride is already parked', () => {
     useDriverStore.setState({ deferredRides: [makeRide('ride-1')] });
     queueOfferOpen('ride-1', null, preview);
-    expect(useDriverStore.getState().provisionalOffer).toEqual(preview);
+    expect(useDriverStore.getState().provisionalOffer).toBeNull();
   });
 
   it('clears a provisional card only while it still describes the same ride', () => {
@@ -325,6 +325,19 @@ describe('queueOfferOpen: a snapshot Ride skips the placeholder', () => {
     useDriverStore.setState({ activeRide: makeRide('other') });
     queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
     expect(useDriverStore.getState().availableRides).toEqual([]);
+  });
+
+  it('does not reopen a parked ride from a leftover snapshot', () => {
+    expect(snapshot).not.toBeNull();
+    useDriverStore.setState({
+      deferredRides: [makeRide('ride-1')],
+      declinedOfferIds: ['ride-1'],
+    });
+    queueOfferOpen('ride-1', null, null, 'silent_wake', snapshot);
+    const state = useDriverStore.getState();
+    expect(state.provisionalOffer).toBeNull();
+    expect(state.availableRides).toEqual([]);
+    expect(state.deferredRides.map((ride) => ride.id)).toEqual(['ride-1']);
   });
 
   it('does not un-confirm a ride the server already delivered', () => {
@@ -446,12 +459,18 @@ describe('the boot no longer stands between the tap and the ride', () => {
     expect(visibleProvisionalOffer(preview, [], preview.rideId)).toBeNull();
     // A deck for some *other* ride is still no reason to drop it.
     expect(visibleProvisionalOffer(preview, [preview.rideId], 'other-ride')).toBeNull();
+    expect(
+      visibleProvisionalOffer(preview, ['other-ride'], null, [preview.rideId]),
+    ).toBeNull();
 
     // And the dashboard resolves it once, for the overlay and for the sheet alike, with the
     // active ride passed in so the two cannot disagree.
     expect(dashboard).toContain(
-      'visibleProvisionalOffer(provisionalOffer, deckOfferIds, activeRide?.id ?? null)',
+      'visibleProvisionalOffer(',
     );
+    expect(dashboard).toContain('dismissDeferredRide');
+    expect(dashboard).toContain('ride.hideDeferredOffer');
+    expect(dashboard).toContain('handleDismissDeferredRide');
     expect(dashboard).toContain('provisional={visibleProvisional}');
     expect(dashboard).toContain(
       'hasProvisionalOffer: visibleProvisional !== null',

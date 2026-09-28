@@ -101,6 +101,7 @@
     "swipeToDecline": "Glisser pour refuser",
     "offerAccept": "Accepter",
     "offerDecline": "Refuser",
+    "hideDeferredOffer": "Masquer cette course",
     "offerNotice": {
       "dismiss": "Compris",
       "offer_expired": {
