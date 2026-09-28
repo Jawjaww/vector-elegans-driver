@@ -5,7 +5,9 @@ import type { OfferNotificationAction, Ride } from '../stores/driverStore';
 import { useDriverStore } from '../stores/driverStore';
 import { acceptTrackedRide } from './acceptTrackedRide';
 import {
+  isOfferParkedLocally,
   resolveOfferOpenOutcome,
+  shouldReopenParkedOffer,
   takeReadyOfferOpen,
   type OfferNotice,
 } from './offerOpenOutcome';
@@ -85,6 +87,19 @@ function handleDeadDeferredOffer(
   });
 }
 
+function applyServerConfirmationIfParked(rideId: string, ride: Ride): boolean {
+  const store = useDriverStore.getState();
+  const inSheet = store.deferredRides.some((row) => row.id === rideId);
+  const onOverlay = store.availableRides.some((row) => row.id === rideId);
+  const declined = (store.declinedOfferIds ?? []).includes(rideId);
+  if (!inSheet && !(declined && !onOverlay)) return false;
+  // Confirming must not call promoteTrackedRideToFront: that helper clears
+  // declinedOfferIds and puts the card back on the map.
+  store.clearProvisionalOffer(rideId);
+  store.patchTrackedRide({ ...ride, offerUnconfirmed: false });
+  return true;
+}
+
 async function confirmOfferFromServer(
   rideId: string,
   alreadyShown: boolean,
@@ -122,6 +137,7 @@ async function confirmOfferFromServer(
     rideId,
   );
   if (outcome.kind === 'overlay' && isRideStillOfferable(outcome.ride)) {
+    if (applyServerConfirmationIfParked(rideId, outcome.ride)) return;
     ctx.setOfferNotice(null);
     ctx.promoteTrackedRideToFront({
       ...outcome.ride,
@@ -142,6 +158,11 @@ async function confirmOfferFromServer(
   useDriverStore.getState().clearProvisionalOffer(rideId);
   if (alreadyShown) {
     useDriverStore.getState().removeAvailableRide(rideId);
+  }
+  if (isOfferParkedLocally(rideId, useDriverStore.getState())) {
+    // Their own refuse, or a timeout already sitting in the sheet: do not replace
+    // the parked card with a "you declined" notice.
+    return;
   }
   const notice =
     outcome.kind === 'notice'
@@ -168,6 +189,18 @@ export async function runPendingNotificationOfferOpen(
   const { rideId, action } = readyOpen;
   consumePendingOfferOpen();
   logOfferStage('boot_ready', { action: action ?? 'open' }, rideId);
+
+  const parked = isOfferParkedLocally(rideId, useDriverStore.getState());
+  if (
+    parked &&
+    !shouldReopenParkedOffer({
+      arrivalSource: useDriverStore.getState().offerArrivalSource,
+      action,
+    })
+  ) {
+    useDriverStore.getState().clearProvisionalOffer(rideId);
+    return;
+  }
 
   const confirmCtx = {
     driverStatus: args.driverStatus,

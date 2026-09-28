@@ -152,6 +152,37 @@ export function takeReadyOfferOpen<T>(args: {
 }
 
 /**
+ * Whether this ride already sits in the bottomsheet, or was soft-refused this session.
+ *
+ * Overlay re-present is gated separately (`canPresentRideOffer`). This helper answers a
+ * narrower question: a confirmation or a duplicate wake must not treat a parked ride as a
+ * fresh arrival.
+ */
+export function isOfferParkedLocally(
+  rideId: string,
+  state: {
+    declinedOfferIds?: readonly string[];
+    deferredRides: readonly { id: string }[];
+  },
+): boolean {
+  if ((state.declinedOfferIds ?? []).includes(rideId)) return true;
+  return state.deferredRides.some((ride) => ride.id === rideId);
+}
+
+/**
+ * A ride the driver already sent to the sheet must not come back as an overlay from a
+ * silent wake (or a leftover FCM). A tray tap still reopens it — that is the documented
+ * "tap a sheet ride" path, and the Accept / Decline tray actions need the card on screen.
+ */
+export function shouldReopenParkedOffer(args: {
+  arrivalSource: 'wake' | 'tap' | null;
+  action: 'accept' | 'decline' | null;
+}): boolean {
+  if (args.action === 'accept' || args.action === 'decline') return true;
+  return args.arrivalSource !== 'wake';
+}
+
+/**
  * Decide what a tapped ride_offer notification should do.
  *
  * Offline is deliberately NOT a gate: the driver may open an offer while offline

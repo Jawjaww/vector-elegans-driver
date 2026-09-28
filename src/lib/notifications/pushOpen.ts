@@ -84,9 +84,14 @@ export function queueOfferOpen(
   state.setOfferArrivalSource(arrivalSourceFromStage(stage));
 
   const existing = state.availableRides.find((ride) => ride.id === rideId);
+  const parked =
+    state.deferredRides.some((ride) => ride.id === rideId) ||
+    (state.declinedOfferIds ?? []).includes(rideId) ||
+    state.suppressedRideIds.includes(rideId);
   const canHydrateSnapshot =
     snapshot !== null &&
     !state.activeRide &&
+    !parked &&
     (existing !== undefined || canPresentRideOffer(rideId, state));
 
   if (canHydrateSnapshot && snapshot) {
@@ -96,6 +101,10 @@ export function queueOfferOpen(
       logOfferStage('promoted', { source: 'push_snapshot' }, rideId);
     }
     state.setProvisionalOffer(null);
+  } else if (parked) {
+    // Already in the sheet (or hard-suppressed). A leftover wake after Refuser must not
+    // paint "Preparing offer…" over the ride the driver just parked.
+    state.clearProvisionalOffer(rideId);
   } else {
     // Set even when the ride is already tracked. "Already tracked" only means a copy exists
     // somewhere in the store; it says nothing about whether the dashboard can paint it yet.

@@ -90,6 +90,7 @@
     },
     "offerAccept": "Aceptar",
     "offerDecline": "Rechazar",
+    "hideDeferredOffer": "Ocultar este viaje",
     "offerNotice": {
       "dismiss": "Entendido",
       "offer_expired": {

@@ -121,6 +121,49 @@ describe('driverStore defer / suppress / promote', () => {
     expect(canPresentRideOffer(ride.id, state)).toBe(false);
   });
 
+  it('defer clears the placeholder so Refuser cannot resurrect Preparing offer', () => {
+    const ride = baseRide('defer-1');
+    const preview = {
+      rideId: ride.id,
+      pickupAddress: 'A',
+      dropoffAddress: 'B',
+      priceLabel: '20 €',
+    };
+    useDriverStore.getState().addAvailableRide(ride);
+    useDriverStore.setState({ provisionalOffer: preview });
+    useDriverStore.getState().deferAvailableRide(ride.id);
+    expect(useDriverStore.getState().provisionalOffer).toBeNull();
+  });
+
+  it('dismissDeferredRide hides the sheet card without suppressing it', () => {
+    const ride = baseRide('sheet-1');
+    useDriverStore.getState().addAvailableRide(ride);
+    useDriverStore.getState().deferAvailableRide(ride.id);
+    useDriverStore.getState().dismissDeferredRide(ride.id);
+
+    const state = useDriverStore.getState();
+    expect(state.deferredRides).toHaveLength(0);
+    expect(state.declinedOfferIds).toContain('sheet-1');
+    expect(state.suppressedRideIds).not.toContain('sheet-1');
+    expect(canPresentRideOffer(ride.id, state)).toBe(false);
+  });
+
+  it('client edit still promotes a ride dismissed from the sheet', () => {
+    const ride = baseRide('sheet-1', { estimated_price: 20 });
+    useDriverStore.getState().addAvailableRide(ride);
+    useDriverStore.getState().deferAvailableRide(ride.id);
+    useDriverStore.getState().dismissDeferredRide(ride.id);
+    useDriverStore.getState().promoteTrackedRideToFront(
+      baseRide('sheet-1', { estimated_price: 45, pickup_address: 'Gare' }),
+    );
+
+    const state = useDriverStore.getState();
+    expect(state.availableRide?.id).toBe('sheet-1');
+    expect(state.availableRide?.estimated_price).toBe(45);
+    expect(state.declinedOfferIds).not.toContain('sheet-1');
+    expect(state.suppressedRideIds).not.toContain('sheet-1');
+  });
+
   it('cycleAvailableRideToBack rotates overlay without deferring', () => {
     const a = baseRide('a');
     const b = baseRide('b');

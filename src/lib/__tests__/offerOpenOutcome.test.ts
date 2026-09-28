@@ -1,8 +1,10 @@
 import {
   canDisplayOffers,
   canReceiveOffers,
+  isOfferParkedLocally,
   resolveOfferOpenOutcome,
   shouldBypassBootGate,
+  shouldReopenParkedOffer,
   takeReadyOfferOpen,
   toOfferOpenFetch,
   type DriverOfferState,
@@ -383,6 +385,44 @@ describe('takeReadyOfferOpen: the minimal readiness gate', () => {
   });
 });
 
+describe('a ride already in the sheet is not a fresh arrival', () => {
+  it('is parked when deferred or declined this session', () => {
+    expect(
+      isOfferParkedLocally('ride-1', {
+        deferredRides: [ride()],
+        declinedOfferIds: [],
+      }),
+    ).toBe(true);
+    expect(
+      isOfferParkedLocally('ride-1', {
+        deferredRides: [],
+        declinedOfferIds: ['ride-1'],
+      }),
+    ).toBe(true);
+    expect(
+      isOfferParkedLocally('ride-1', {
+        deferredRides: [],
+        declinedOfferIds: [],
+      }),
+    ).toBe(false);
+  });
+
+  it('reopens a parked ride on a tap, never on a silent wake', () => {
+    expect(
+      shouldReopenParkedOffer({ arrivalSource: 'wake', action: null }),
+    ).toBe(false);
+    expect(
+      shouldReopenParkedOffer({ arrivalSource: 'tap', action: null }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedOffer({ arrivalSource: 'wake', action: 'accept' }),
+    ).toBe(true);
+    expect(
+      shouldReopenParkedOffer({ arrivalSource: 'wake', action: 'decline' }),
+    ).toBe(true);
+  });
+});
+
 describe('shouldBypassBootGate: what the overlay may show, and when', () => {
   const base = { booting: false, hasProvisionalOffer: false, canShowOffers: false };
 
@@ -462,6 +502,12 @@ describe('offer notice copy', () => {
   it('translates the shared dismiss label', () => {
     for (const [name, locale] of LOCALES) {
       expectTranslated(name, locale, 'ride.offerNotice.dismiss');
+    }
+  });
+
+  it('translates the bottomsheet hide action', () => {
+    for (const [name, locale] of LOCALES) {
+      expectTranslated(name, locale, 'ride.hideDeferredOffer');
     }
   });
 });

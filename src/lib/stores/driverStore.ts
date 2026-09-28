@@ -224,6 +224,11 @@ interface DriverState {
    */
   pruneUnofferableRides: () => void;
   deferAvailableRide: (rideId: string) => void;
+  /**
+   * Hide a bottomsheet ride for this session. Does not suppress it: a client edit still
+   * promotes (`promoteTrackedRideToFront`), and a notification tap still reopens.
+   */
+  dismissDeferredRide: (rideId: string) => void;
   /** Swipe front to back of the overlay stack (does not defer). */
   cycleAvailableRideToBack: () => void;
   /** Seed bottomsheet carousel with pending rides not currently offered */
@@ -339,7 +344,15 @@ export const useDriverStore = create<DriverState>()(
           const ride =
             state.availableRides.find((r) => r.id === rideId) ??
             (state.availableRide?.id === rideId ? state.availableRide : null);
-          if (!ride) return state;
+          const nextProvisional =
+            state.provisionalOffer?.rideId === rideId
+              ? null
+              : state.provisionalOffer;
+          if (!ride) {
+            return nextProvisional === state.provisionalOffer
+              ? state
+              : { provisionalOffer: nextProvisional };
+          }
           const without = state.availableRides.filter((r) => r.id !== rideId);
           const deferredBase = state.deferredRides.some((r) => r.id === rideId)
             ? state.deferredRides
@@ -353,6 +366,28 @@ export const useDriverStore = create<DriverState>()(
             availableRide: without[0] ?? null,
             deferredRides: deferredBase,
             declinedOfferIds,
+            provisionalOffer: nextProvisional,
+          };
+        }),
+      dismissDeferredRide: (rideId) =>
+        set((state) => {
+          if (!state.deferredRides.some((r) => r.id === rideId)) {
+            return state.provisionalOffer?.rideId === rideId
+              ? { provisionalOffer: null }
+              : state;
+          }
+          const declinedOfferIds = (state.declinedOfferIds ?? []).includes(
+            rideId,
+          )
+            ? state.declinedOfferIds
+            : [...(state.declinedOfferIds ?? []), rideId];
+          return {
+            deferredRides: state.deferredRides.filter((r) => r.id !== rideId),
+            declinedOfferIds,
+            provisionalOffer:
+              state.provisionalOffer?.rideId === rideId
+                ? null
+                : state.provisionalOffer,
           };
         }),
       cycleAvailableRideToBack: () =>
