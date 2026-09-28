@@ -15,6 +15,7 @@ import {
   DriverDocumentsStatusList,
   MissingChecklistCard,
 } from './DriverDocumentsStatusList';
+import { VE_BLUE } from '../lib/theme';
 
 function opsChecklistCopyKeys(status: string): {
   titleKey: string;
@@ -86,7 +87,7 @@ export const DossierValidationChecklist: React.FC<
   if (mode === 'validated') {
     return (
       <View>
-        <Text className="text-sm text-emerald-300/90 leading-5">
+        <Text className="text-sm leading-5" style={{ color: VE_BLUE.glyphGradient[0] }}>
           {t('profile.folderStatus.validatedNoSubmit')}
         </Text>
       </View>
@@ -120,7 +121,7 @@ export const DossierValidationChecklist: React.FC<
 
   return (
     <View>
-      <Text className="text-sm text-emerald-300/90 leading-5">
+      <Text className="text-sm leading-5" style={{ color: VE_BLUE.glyphGradient[0] }}>
         {t('profile.checklist.allReady')}
       </Text>
     </View>

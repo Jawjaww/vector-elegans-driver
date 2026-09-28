@@ -1,13 +1,14 @@
-import React from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import Animated, { FadeInDown, FadeInRight, FadeOutLeft } from 'react-native-reanimated';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import {
   VEHICLE_TYPES,
   type DriverVehicleForm,
   type VehicleType,
 } from '../lib/services/vehicleService';
+import { VE_BLUE } from '../lib/theme';
+import type { FeatherGlyphName } from '../lib/featherGlyphs';
+import { FeatherGlyph } from './FeatherGlyph';
 
 interface DriverVehicleSectionProps {
   form: DriverVehicleForm;
@@ -99,13 +100,21 @@ export function DriverVehicleSection({
                 disabled={!editable}
                 onPress={() => onChange({ vehicle_type: type })}
                 className={`px-3 py-2 rounded-full border ${
-                  selected
-                    ? 'bg-emerald-500/30 border-emerald-400'
-                    : 'bg-white/10 border-white/20'
+                  selected ? 'border-0' : 'bg-white/10 border-white/20'
                 }`}
+                style={
+                  selected
+                    ? {
+                        backgroundColor: `${VE_BLUE.base}${VE_BLUE.strongAlpha}`,
+                        borderWidth: 1,
+                        borderColor: VE_BLUE.edge,
+                      }
+                    : undefined
+                }
               >
                 <Text
-                  className={`text-sm ${selected ? 'text-emerald-200' : 'text-white'}`}
+                  className="text-sm"
+                  style={{ color: selected ? VE_BLUE.glyphGradient[0] : '#fff' }}
                 >
                   {t(TYPE_LABEL_KEYS[type])}
                 </Text>
@@ -130,7 +139,7 @@ function Field({
 }: Readonly<{
   delay: number;
   label: string;
-  icon: React.ComponentProps<typeof Feather>['name'];
+  icon: FeatherGlyphName;
   placeholder: string;
   value: string;
   editable: boolean;
@@ -141,7 +150,7 @@ function Field({
     <Animated.View entering={FadeInDown.duration(400).delay(delay)} className="mb-4">
       <Text className="text-sm text-white font-medium mb-2">{label}</Text>
       <View className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20">
-        <Feather name={icon} size={20} color="#10b981" />
+        <FeatherGlyph name={icon} size={20} />
         <TextInput
           className="flex-1 text-white ml-3 text-base"
           placeholder={placeholder}

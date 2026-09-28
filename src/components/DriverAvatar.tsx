@@ -1,6 +1,6 @@
 import React from 'react';
-import { Image, Text, View } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Image, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { FeatherGlyph } from './FeatherGlyph';
 
 type DriverAvatarFallback = 'emoji' | 'camera';
 
@@ -9,6 +9,7 @@ type DriverAvatarProps = Readonly<{
   size: number;
   fallback?: DriverAvatarFallback;
   className?: string;
+  style?: StyleProp<ViewStyle>;
 }>;
 
 /** Circular driver photo, or emoji/camera placeholder when missing. */
@@ -17,12 +18,13 @@ export function DriverAvatar({
   size,
   fallback = 'emoji',
   className = '',
+  style,
 }: DriverAvatarProps) {
   if (uri) {
     return (
       <View
         className={`overflow-hidden rounded-full border border-white/10 ${className}`}
-        style={{ width: size, height: size }}
+        style={[{ width: size, height: size }, style]}
       >
         <Image
           source={{ uri }}
@@ -37,10 +39,10 @@ export function DriverAvatar({
   return (
     <View
       className={`items-center justify-center rounded-full border border-white/10 bg-white/5 ${className}`}
-      style={{ width: size, height: size }}
+      style={[{ width: size, height: size }, style]}
     >
       {fallback === 'camera' ? (
-        <Feather name="camera" size={Math.round(size * 0.4)} color="#10b981" />
+        <FeatherGlyph name="camera" size={Math.round(size * 0.4)} />
       ) : (
         <Text style={{ fontSize: Math.round(size * 0.45) }}>👤</Text>
       )}

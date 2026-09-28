@@ -13,9 +13,12 @@ import { supabase } from "../lib/supabase";
 import { openDocumentPreview } from "../lib/documentPreview";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { FeatherGlyph } from "./FeatherGlyph";
 import { NativeDateField } from "./NativeDateField";
+import { VE_BLUE } from "../lib/theme";
 import { isValidDocumentExpiry } from "../lib/dossierChecklist";
 import { showAppAlert } from "./AppDialog";
+import type { FeatherGlyphName } from "../lib/featherGlyphs";
 import {
   persistDocumentExpiryIfNeeded,
   useDebouncedExpiryPersist,
@@ -94,7 +97,7 @@ function documentStatusColor(
 ): string {
   if (!hasDocument) return "#94a3b8";
   if (isRejected || expiryMissing) return "#f59e0b";
-  return "#10b981";
+  return VE_BLUE.glyphGradient[0];
 }
 
 function documentCardClass(
@@ -109,17 +112,32 @@ function documentCardClass(
   if (isRejected || expiryMissing) {
     return `${base} border-amber-500/50 bg-amber-500/10`;
   }
-  return `${base} border-emerald-500/50 bg-emerald-500/10`;
+  return `${base} border-2`;
+}
+
+function documentReadyCardStyle(): { borderColor: string; backgroundColor: string } {
+  return {
+    borderColor: `${VE_BLUE.base}${VE_BLUE.strongAlpha}`,
+    backgroundColor: `${VE_BLUE.base}${VE_BLUE.tintAlpha}`,
+  };
 }
 
 function documentStatusIcon(
   hasDocument: boolean,
   isRejected: boolean,
   expiryMissing: boolean,
-): keyof typeof Feather.glyphMap {
+): FeatherGlyphName {
   if (!hasDocument) return "upload-cloud";
   if (isRejected || expiryMissing) return "alert-circle";
   return "file-text";
+}
+
+function isDocumentReadyAccent(
+  hasDocument: boolean,
+  isRejected: boolean,
+  expiryMissing: boolean,
+): boolean {
+  return hasDocument && !isRejected && !expiryMissing;
 }
 
 function documentIconBackgroundClass(
@@ -129,7 +147,7 @@ function documentIconBackgroundClass(
 ): string {
   if (!hasDocument) return "bg-slate-700";
   if (isRejected || expiryMissing) return "bg-amber-500/20";
-  return "bg-emerald-500/20";
+  return "";
 }
 
 function documentHintText(
@@ -291,9 +309,9 @@ async function uploadDriverDocument(
 const GLASS_BUTTON =
   "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-white/10 border border-white/20";
 const GLASS_BUTTON_ACCENT =
-  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40";
+  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg border";
 const PRIMARY_BUTTON =
-  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg bg-emerald-600 border border-emerald-500/50";
+  "flex-1 flex-row items-center justify-center py-2.5 rounded-lg border";
 
 const DocumentActionRow: React.FC<
   Readonly<{
@@ -368,16 +386,26 @@ const DocumentActionRow: React.FC<
       <Pressable
         onPress={onPick}
         className={hasDocument ? GLASS_BUTTON_ACCENT : PRIMARY_BUTTON}
+        style={
+          hasDocument
+            ? {
+                backgroundColor: `${VE_BLUE.base}${VE_BLUE.tintAlpha}`,
+                borderColor: `${VE_BLUE.base}${VE_BLUE.strongAlpha}`,
+              }
+            : {
+                backgroundColor: VE_BLUE.base,
+                borderColor: VE_BLUE.edge,
+              }
+        }
       >
-        <Feather
-          name={hasDocument ? "refresh-cw" : "upload"}
-          size={16}
-          color={hasDocument ? "#34d399" : "#fff"}
-        />
+        {hasDocument ? (
+          <FeatherGlyph name="refresh-cw" size={16} />
+        ) : (
+          <FeatherGlyph name="upload" size={16} color="#fff" />
+        )}
         <Text
-          className={`text-sm font-medium ml-2 ${
-            hasDocument ? "text-emerald-300" : "text-white"
-          }`}
+          className="text-sm font-medium ml-2"
+          style={hasDocument ? { color: VE_BLUE.glyphGradient[0] } : { color: '#fff' }}
         >
           {hasDocument
             ? t("documents.replaceDocument")
@@ -538,14 +566,21 @@ export const DriverDocumentUploader: React.FC<
         />
       </View>
 
-      <View className={documentCardClass(hasDocument, isRejected, expiryMissing)}>
+      <View
+        className={documentCardClass(hasDocument, isRejected, expiryMissing)}
+        style={
+          hasDocument && !isRejected && !expiryMissing
+            ? documentReadyCardStyle()
+            : undefined
+        }
+      >
         {uploading ? (
           <Animated.View
             entering={FadeIn}
             exiting={FadeOut}
             className="py-8 items-center justify-center"
           >
-            <ActivityIndicator size="large" color="#10b981" />
+            <ActivityIndicator size="large" color={VE_BLUE.base} />
             <Text className="text-slate-400 mt-3 text-sm font-medium">
               {t("documents.uploading")}
             </Text>
@@ -559,15 +594,28 @@ export const DriverDocumentUploader: React.FC<
                   isRejected,
                   expiryMissing,
                 )}`}
+                style={
+                  hasDocument && !isRejected && !expiryMissing
+                    ? { backgroundColor: `${VE_BLUE.base}${VE_BLUE.tintAlpha}` }
+                    : undefined
+                }
               >
-                <Feather
+                <FeatherGlyph
                   name={documentStatusIcon(
                     hasDocument,
                     isRejected,
                     expiryMissing,
                   )}
                   size={24}
-                  color={statusColor}
+                  color={
+                    isDocumentReadyAccent(
+                      hasDocument,
+                      isRejected,
+                      expiryMissing,
+                    )
+                      ? undefined
+                      : statusColor
+                  }
                 />
               </View>
               <View className="ml-4 flex-1">

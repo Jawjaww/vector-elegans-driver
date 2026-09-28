@@ -2,17 +2,12 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
-  TextInput,
   ScrollView,
   Pressable,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
-  type StyleProp,
-  type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -24,31 +19,18 @@ import Animated, {
   withDelay,
   interpolate,
   Easing,
-  FadeInRight,
-  FadeOutLeft,
   FadeInUp,
-  FadeInDown,
-  FadeIn,
-  FlipInEasyX,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { supabase } from "../lib/supabase";
-import { DriverDocumentUploader } from "./DriverDocumentUploader";
-import { DossierValidationChecklist } from "./DossierValidationChecklist";
 import { showAppAlert } from "./AppDialog";
 import { DriverVehicleSection } from "./DriverVehicleSection";
-import {
-  computeWizardCompletion,
-  hasDocumentFile,
-  isDocumentUploaded,
-  type DocumentTypeKey,
-} from "../lib/dossierChecklist";
+import { computeWizardCompletion, hasDocumentFile, isDocumentUploaded, type DocumentTypeKey } from "../lib/dossierChecklist";
 import { resolveAvatarPreviewUrl } from "../lib/avatarPreview";
 import {
   ensureActiveDriverId,
   storePickedDriverAvatar,
 } from "../lib/avatarUpload";
-import { translateDocumentType } from "../lib/documentTypeLabels";
 import {
   getFormExpiryFieldForDocument,
   persistDocumentExpiryIfNeeded,
@@ -56,7 +38,7 @@ import {
   syncUploadedDocumentExpiries,
 } from "../lib/documentExpirySync";
 import { DriverAvatar } from "./DriverAvatar";
-import { NativeDateField } from "./NativeDateField";
+import { FeatherGlyph } from "./FeatherGlyph";
 import * as ImagePicker from "expo-image-picker";
 import { useDriverSubmissionLogger } from "../lib/services/driverSubmissionLogger";
 import {
@@ -83,48 +65,31 @@ import {
   upsertOwnPrimaryVehicle,
   type DriverVehicleForm,
 } from "../lib/services/vehicleService";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-function avatarButtonLabel(
-  uploading: boolean,
-  hasAvatar: boolean,
-  labels: { uploading: string; ready: string; upload: string },
-): string {
-  if (uploading) return labels.uploading;
-  if (hasAvatar) return labels.ready;
-  return labels.upload;
-}
-
-/** Reanimated NativeWind gradients are ignored — paint the fill with LinearGradient. */
-function EmeraldProgressFill({
-  animatedStyle,
-  height,
-}: Readonly<{
-  animatedStyle: StyleProp<ViewStyle>;
-  height: number;
-}>) {
-  return (
-    <Animated.View
-      style={[
-        animatedStyle,
-        {
-          height,
-          borderRadius: 9999,
-          overflow: "hidden",
-          backgroundColor: "#10b981",
-        },
-      ]}
-    >
-      <LinearGradient
-        colors={["#059669", "#10b981"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={{ height, width: "100%" }}
-      />
-    </Animated.View>
-  );
-}
+import { VE_BLUE } from "../lib/theme";
+import type { FeatherGlyphName } from "../lib/featherGlyphs";
+import {
+  emptyToNull,
+  requiredDriverDate,
+  requiredDriverPhone,
+  requiredDriverText,
+  toFormDate,
+  toFormPhone,
+  toFormText,
+} from "./dossier/dossierDraftPlaceholders";
+import type {
+  DocumentMetaMap,
+  DocumentStatus,
+  DriverProfileData,
+} from "./dossier/dossierWizardTypes";
+import { DossierProgressFill, DossierAccentGradientFill } from "./dossier/DossierProgressFill";
+import { DossierProfilSection } from "./dossier/DossierProfilSection";
+import { DossierProfessionnelSection } from "./dossier/DossierProfessionnelSection";
+import {
+  DossierDocumentsSection,
+  REQUIRED_DOCUMENTS,
+} from "./dossier/DossierDocumentsSection";
+import { DossierValidationSection } from "./dossier/DossierValidationSection";
+import { DossierWizardFooter } from "./dossier/DossierWizardFooter";
 
 const PROGRESS_BAR_TIMING = {
   duration: 320,
@@ -139,91 +104,16 @@ function isPendingLikeStatus(status: string): boolean {
   return status === "pending_review" || status === "submitted";
 }
 
-function nextSectionButtonClass(
+function nextSectionButtonOpacity(
   currentSection: number,
   lastSectionIndex: number,
   isEditable: boolean,
   canProceed: boolean,
-): string {
-  const base = "flex-row items-center py-3 px-6 rounded-full bg-emerald-500";
-  if (currentSection === lastSectionIndex) return `${base} opacity-30`;
-  if (isEditable && !canProceed) return `${base} opacity-80`;
-  return `${base} opacity-100`;
+): number {
+  if (currentSection === lastSectionIndex) return 0.3;
+  if (isEditable && !canProceed) return 0.8;
+  return 1;
 }
-
-// Structure des données du profil
-interface DriverProfileData {
-  first_name: string;
-  last_name: string;
-  phone: string;
-  date_of_birth: string;
-  emergency_contact_name: string;
-  emergency_contact_phone: string;
-  license_number: string;
-  driving_license_expiry_date: string;
-  vtc_card_number: string;
-  vtc_card_expiry_date: string;
-  insurance_number: string;
-  company_siret: string;
-  address: string;
-  city: string;
-  postal_code: string;
-}
-
-// Statut des documents
-interface DocumentStatus {
-  driving_license: string | null;
-  vtc_card: string | null;
-  insurance: string | null;
-  id_card: string | null;
-  proof_of_address: string | null;
-}
-
-const emptyToNull = (value: string): string | null => {
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
-};
-
-/** DB CHECK placeholders — treated as empty in the form and by completeness RPCs. */
-const DRAFT_PLACEHOLDER_TEXT = "À compléter";
-const DRAFT_PLACEHOLDER_PHONE = "+00000000000";
-const DRAFT_PLACEHOLDER_DATE = "2099-12-31";
-
-const isPlaceholderText = (value: string | null | undefined): boolean =>
-  !value || value === DRAFT_PLACEHOLDER_TEXT;
-
-const isPlaceholderPhone = (value: string | null | undefined): boolean =>
-  !value ||
-  value === DRAFT_PLACEHOLDER_TEXT ||
-  value === DRAFT_PLACEHOLDER_PHONE;
-
-const isPlaceholderDate = (value: string | null | undefined): boolean =>
-  !value || value === DRAFT_PLACEHOLDER_DATE;
-
-const toFormText = (value: string | null | undefined): string =>
-  isPlaceholderText(value) ? "" : (value ?? "");
-
-const toFormPhone = (value: string | null | undefined): string =>
-  isPlaceholderPhone(value) ? "" : (value ?? "");
-
-const toFormDate = (value: string | null | undefined): string =>
-  isPlaceholderDate(value) ? "" : (value ?? "");
-
-/** Never NULL — satisfies drivers.required_fields and related CHECK constraints. */
-const requiredDriverText = (value: string): string => {
-  const trimmed = value.trim();
-  return trimmed === "" ? DRAFT_PLACEHOLDER_TEXT : trimmed;
-};
-
-const requiredDriverPhone = (value: string): string => {
-  const trimmed = value.trim();
-  return trimmed === "" ? DRAFT_PLACEHOLDER_PHONE : trimmed;
-};
-
-const requiredDriverDate = (value: string): string => {
-  const trimmed = value.trim();
-  return trimmed === "" ? DRAFT_PLACEHOLDER_DATE : trimmed;
-};
 
 // Champs requis par section
 const REQUIRED_FIELDS = {
@@ -246,15 +136,6 @@ const REQUIRED_FIELDS = {
   ] as const,
 };
 
-// Documents requis
-const REQUIRED_DOCUMENTS: (keyof DocumentStatus)[] = [
-  "driving_license",
-  "vtc_card",
-  "insurance",
-  "id_card",
-  "proof_of_address",
-];
-
 const FORM_EXPIRY_TO_DOC: Partial<
   Record<keyof DriverProfileData, DocumentTypeKey>
 > = {
@@ -262,17 +143,13 @@ const FORM_EXPIRY_TO_DOC: Partial<
   vtc_card_expiry_date: "vtc_card",
 };
 
-// Labels des documents
-const DOC_LABELS: Record<keyof DocumentStatus, string> = {
-  driving_license: "Permis de conduire",
-  vtc_card: "Carte VTC",
-  insurance: "Assurance",
-  id_card: "Pièce d'identité",
-  proof_of_address: "Justificatif de domicile",
-};
-
 // Sections du formulaire
-const SECTIONS = [
+const SECTIONS: ReadonlyArray<{
+  id: string;
+  label: string;
+  icon: FeatherGlyphName;
+  description: string;
+}> = [
   {
     id: "profil",
     label: "Profil",
@@ -410,18 +287,7 @@ export default function DriverProfileSetup({
     id_card: null,
     proof_of_address: null,
   });
-  const [documentMeta, setDocumentMeta] = useState<
-    Partial<
-      Record<
-        keyof DocumentStatus,
-        {
-          status: string;
-          rejectionReason: string | null;
-          expiryDate: string | null;
-        }
-      >
-    >
-  >({});
+  const [documentMeta, setDocumentMeta] = useState<DocumentMetaMap>({});
   const [missingForSubmit, setMissingForSubmit] = useState<string[]>([]);
   const [rpcCompletionPercentage, setRpcCompletionPercentage] = useState(0);
   const [documentsLoading, setDocumentsLoading] = useState(false);
@@ -1268,453 +1134,6 @@ export default function DriverProfileSetup({
     }
   };
 
-  const renderSectionContent = () => {
-    if (currentSection === 0) return renderProfilSection();
-    if (currentSection === 1) return renderProfessionnelSection();
-    if (currentSection === 2) return renderVehicleSection();
-    if (currentSection === 3) return renderDocumentsSection();
-    if (currentSection === 4) return renderValidationSection();
-    return null;
-  };
-
-  const renderVehicleSection = () => (
-    <DriverVehicleSection
-      form={vehicleForm}
-      editable={isFieldEditable()}
-      onChange={(patch) => setVehicleForm((prev) => ({ ...prev, ...patch }))}
-      contentStyle={animatedContentStyle}
-    />
-  );
-
-  const renderProfilSection = () => {
-        return (
-          <Animated.View
-            entering={FadeInRight.duration(400).springify()}
-            exiting={FadeOutLeft.duration(300)}
-            style={animatedContentStyle}
-            className="space-y-6"
-          >
-            <Animated.Text
-              entering={FadeInDown.duration(500).delay(100)}
-              className="text-xl font-bold text-white mb-4"
-            >
-              {t("profile.personalInfo")}
-            </Animated.Text>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(120)} className="mb-4">
-              <Text className="text-sm text-white font-medium mb-2">
-                {t("profile.avatar")} *
-              </Text>
-              <Pressable
-                onPress={uploadAvatar}
-                disabled={!isFieldEditable() || uploadingAvatar}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 py-3 border border-white/20"
-              >
-                <DriverAvatar
-                  uri={avatarPreviewUri}
-                  size={48}
-                  fallback="camera"
-                  className="mr-3 bg-emerald-500/20"
-                />
-                <View className="flex-1">
-                  <Text className="text-white font-medium">
-                    {avatarButtonLabel(uploadingAvatar, Boolean(avatarUrl), {
-                      uploading: t("documents.uploading"),
-                      ready: t("profile.avatarReady"),
-                      upload: t("profile.avatarUpload"),
-                    })}
-                  </Text>
-                  <Text className="text-slate-400 text-xs mt-0.5">
-                    {t("profile.avatarHint")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color="#64748b" />
-              </Pressable>
-            </Animated.View>
-
-            <Animated.View style={animatedFieldStyle}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(200)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.firstName")} *
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(300)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="user" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.firstNamePlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.first_name}
-                  onChangeText={(text) => handleInputChange("first_name", text)}
-                  autoCapitalize="words"
-                  editable={isFieldEditable()}
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View style={animatedFieldStyle}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(400)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.lastName")} *
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(500)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="user" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.lastNamePlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.last_name}
-                  onChangeText={(text) => handleInputChange("last_name", text)}
-                  autoCapitalize="words"
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(700)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(600)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.phone")} *
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(700)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="phone" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.phonePlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.phone}
-                  onChangeText={(text) => handleInputChange("phone", text)}
-                  keyboardType="phone-pad"
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(900)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(800)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.dateOfBirth")}
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(900)}
-                className="mt-0"
-              >
-                <NativeDateField
-                  value={(formData.date_of_birth || "").slice(0, 10)}
-                  onChange={(ymd) => handleInputChange("date_of_birth", ymd)}
-                  placeholder={t("profile.dateOfBirthPlaceholder")}
-                  editable={isFieldEditable()}
-                  maximumDate={new Date()}
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <View className="pt-4 border-t border-white/10">
-              <Text className="text-lg font-bold text-white mb-4">
-                {t("profile.address")}
-              </Text>
-
-              <Animated.View
-                className="mb-4"
-                entering={FadeInDown.duration(400).delay(1100)}
-              >
-                <Animated.Text
-                  entering={FadeInDown.duration(400).delay(1000)}
-                  className="text-sm text-white font-medium mb-2"
-                >
-                  {t("profile.address")} *
-                </Animated.Text>
-                <Animated.View
-                  entering={FadeInRight.duration(400).delay(1100)}
-                  className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-                >
-                  <Feather name="map-pin" size={20} color="#10b981" />
-                  <TextInput
-                    className="flex-1 text-white ml-3 text-base"
-                    placeholder={t("profile.addressPlaceholder")}
-                    placeholderTextColor="#6b7280"
-                    value={formData.address}
-                    onChangeText={(text) => handleInputChange("address", text)}
-                  />
-                </Animated.View>
-              </Animated.View>
-
-              <Animated.View
-                className="mb-4"
-                entering={FadeInDown.duration(400).delay(1300)}
-              >
-                <Animated.Text
-                  entering={FadeInDown.duration(400).delay(1200)}
-                  className="text-sm text-white font-medium mb-2"
-                >
-                  {t("profile.city")} *
-                </Animated.Text>
-                <Animated.View
-                  entering={FadeInRight.duration(400).delay(1300)}
-                  className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-                >
-                  <Feather name="home" size={20} color="#10b981" />
-                  <TextInput
-                    className="flex-1 text-white ml-3 text-base"
-                    placeholder={t("profile.cityPlaceholder")}
-                    placeholderTextColor="#6b7280"
-                    value={formData.city}
-                    onChangeText={(text) => handleInputChange("city", text)}
-                  />
-                </Animated.View>
-              </Animated.View>
-
-              <Animated.View entering={FadeInDown.duration(400).delay(1500)}>
-                <Animated.Text
-                  entering={FadeInDown.duration(400).delay(1400)}
-                  className="text-sm text-white font-medium mb-2"
-                >
-                  {t("profile.postalCode")} *
-                </Animated.Text>
-                <Animated.View
-                  entering={FadeInRight.duration(400).delay(1500)}
-                  className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-                >
-                  <Feather name="hash" size={20} color="#10b981" />
-                  <TextInput
-                    className="flex-1 text-white ml-3 text-base"
-                    placeholder={t("profile.postalCodePlaceholder")}
-                    placeholderTextColor="#6b7280"
-                    value={formData.postal_code}
-                    onChangeText={(text) =>
-                      handleInputChange("postal_code", text)
-                    }
-                    editable={isFieldEditable()}
-                  />
-                </Animated.View>
-              </Animated.View>
-            </View>
-
-            <View className="pt-4 border-t border-white/10">
-              <Text className="text-lg font-bold text-white mb-4">
-                {t("profile.emergencyContact")}
-              </Text>
-
-              <Animated.View
-                className="mb-4"
-                entering={FadeInDown.duration(400).delay(1600)}
-              >
-                <Text className="text-sm text-white font-medium mb-2">
-                  {t("profile.emergencyContactName")} *
-                </Text>
-                <View className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20">
-                  <Feather name="users" size={20} color="#10b981" />
-                  <TextInput
-                    className="flex-1 text-white ml-3 text-base"
-                    placeholder={t("profile.emergencyContactNamePlaceholder")}
-                    placeholderTextColor="#6b7280"
-                    value={formData.emergency_contact_name}
-                    onChangeText={(text) =>
-                      handleInputChange("emergency_contact_name", text)
-                    }
-                    autoCapitalize="words"
-                    editable={isFieldEditable()}
-                  />
-                </View>
-              </Animated.View>
-
-              <Animated.View entering={FadeInDown.duration(400).delay(1700)}>
-                <Text className="text-sm text-white font-medium mb-2">
-                  {t("profile.emergencyContactPhone")} *
-                </Text>
-                <View className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20">
-                  <Feather name="phone-call" size={20} color="#10b981" />
-                  <TextInput
-                    className="flex-1 text-white ml-3 text-base"
-                    placeholder={t(
-                      "profile.emergencyContactPhonePlaceholder",
-                    )}
-                    placeholderTextColor="#6b7280"
-                    value={formData.emergency_contact_phone}
-                    onChangeText={(text) =>
-                      handleInputChange("emergency_contact_phone", text)
-                    }
-                    keyboardType="phone-pad"
-                    editable={isFieldEditable()}
-                  />
-                </View>
-              </Animated.View>
-            </View>
-          </Animated.View>
-        );
-  };
-  const renderProfessionnelSection = () => {
-        return (
-          <Animated.View
-            entering={FadeInRight.duration(300)}
-            exiting={FadeOutLeft.duration(300)}
-            style={animatedContentStyle}
-            className="space-y-6"
-          >
-            <Text className="text-xl font-bold text-white mb-4">
-              {t("profile.professionalInfo")}
-            </Text>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(200)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(100)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.licenseNumber")} *
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(200)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="credit-card" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.licenseNumberPlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.license_number}
-                  onChangeText={(text) =>
-                    handleInputChange("license_number", text)
-                  }
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(400)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(300)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.licenseExpiry")} *
-              </Animated.Text>
-              <Animated.View entering={FadeInRight.duration(400).delay(400)}>
-                <NativeDateField
-                  value={(formData.driving_license_expiry_date || "").slice(
-                    0,
-                    10,
-                  )}
-                  onChange={(ymd) =>
-                    handleInputChange("driving_license_expiry_date", ymd)
-                  }
-                  placeholder="YYYY-MM-DD"
-                  editable={isFieldEditable()}
-                  minimumDate={new Date()}
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(600)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(500)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.vtcCardNumber")} *
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(600)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="award" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.vtcCardNumberPlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.vtc_card_number}
-                  onChangeText={(text) =>
-                    handleInputChange("vtc_card_number", text)
-                  }
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(800)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(700)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.vtcCardExpiry")} *
-              </Animated.Text>
-              <Animated.View entering={FadeInRight.duration(400).delay(800)}>
-                <NativeDateField
-                  value={(formData.vtc_card_expiry_date || "").slice(0, 10)}
-                  onChange={(ymd) =>
-                    handleInputChange("vtc_card_expiry_date", ymd)
-                  }
-                  placeholder="YYYY-MM-DD"
-                  editable={isFieldEditable()}
-                  minimumDate={new Date()}
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(1000)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(900)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.insuranceNumber")}
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(1000)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="shield" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.insuranceNumberPlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.insurance_number}
-                  onChangeText={(text) =>
-                    handleInputChange("insurance_number", text)
-                  }
-                />
-              </Animated.View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInDown.duration(400).delay(1200)}>
-              <Animated.Text
-                entering={FadeInDown.duration(400).delay(1100)}
-                className="text-sm text-white font-medium mb-2"
-              >
-                {t("profile.companySiret")}
-              </Animated.Text>
-              <Animated.View
-                entering={FadeInRight.duration(400).delay(1200)}
-                className="flex-row items-center bg-white/10 rounded-lg px-4 h-14 border border-white/20"
-              >
-                <Feather name="briefcase" size={20} color="#10b981" />
-                <TextInput
-                  className="flex-1 text-white ml-3 text-base"
-                  placeholder={t("profile.companySiretPlaceholder")}
-                  placeholderTextColor="#6b7280"
-                  value={formData.company_siret}
-                  onChangeText={(text) =>
-                    handleInputChange("company_siret", text)
-                  }
-                  keyboardType="numeric"
-                />
-              </Animated.View>
-            </Animated.View>
-          </Animated.View>
-        );
-  };
-
-  const isPendingReviewUi =
-    status === "pending_review" || status === "submitted";
-
   const confirmCancelReview = (messageKey: string) => {
     showAppAlert(t("common.confirm"), t(messageKey), [
       { text: t("common.cancel"), style: "cancel" },
@@ -1725,298 +1144,97 @@ export default function DriverProfileSetup({
     ]);
   };
 
-  const renderAdminUpdateActions = () => (
-    <>
-      <Animated.View
-        entering={FadeInUp.duration(500).delay(950)}
-        className="bg-sky-500/15 border border-sky-400/30 rounded-xl p-3 mb-1"
-      >
-        <Text className="text-sky-100 text-sm font-semibold">
-          {t("profile.adminUpdateRequestedTitle")}
-        </Text>
-        <Text className="text-sky-100/90 text-xs mt-1">
-          {t("profile.adminUpdateRequestedMessage")}
-        </Text>
-      </Animated.View>
-      <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
-        <Pressable
-          onPress={handleSubmit}
-          disabled={submitting || !isEditable}
-          className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
-        >
-          <LinearGradient
-            colors={["#059669", "#10b981"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            className="absolute inset-0 rounded-lg"
-          />
-          <Animated.Text
-            entering={FadeIn.duration(300).delay(1100)}
-            className="text-white text-sm font-semibold"
-          >
-            {submitting
-              ? t("profile.submitting")
-              : t("profile.submitForReview")}
-          </Animated.Text>
-        </Pressable>
-      </Animated.View>
-      <Animated.View entering={FlipInEasyX.duration(600).delay(1050)}>
-        <Pressable
-          onPress={() => confirmCancelReview("profile.confirmReturnToDraft")}
-          className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow mt-2"
-        >
-          <LinearGradient
-            colors={["#374151", "#4b5563"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            className="absolute inset-0 rounded-lg"
-          />
-          <Animated.Text className="text-white text-sm font-semibold">
-            {t("profile.returnToDraft")}
-          </Animated.Text>
-        </Pressable>
-      </Animated.View>
-    </>
-  );
+  const handleSaveProgress = async () => {
+    const savedDriverId = await handleSave({
+      silent: true,
+      syncExpiries: true,
+    });
+    if (!savedDriverId) return;
+    await saveVehicle();
+    await syncDossierStateWithBackend();
+    showAppAlert(t("common.success"), t("profile.profileSaved"));
+  };
 
-  const renderPendingQueueActions = () => (
-    <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
-      <Pressable
-        onPress={() => confirmCancelReview("profile.confirmCancelSubmission")}
-        className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
-      >
-        <LinearGradient
-          colors={["#f97316", "#ef4444"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          className="absolute inset-0 rounded-lg"
+  const renderSectionContent = () => {
+    if (currentSection === 0) {
+      return (
+        <DossierProfilSection
+          formData={formData}
+          onChange={handleInputChange}
+          fieldsEditable={isFieldEditable()}
+          animatedContentStyle={animatedContentStyle}
+          animatedFieldStyle={animatedFieldStyle}
+          avatarPreviewUri={avatarPreviewUri}
+          avatarUrl={avatarUrl}
+          uploadingAvatar={uploadingAvatar}
+          onUploadAvatar={() => void uploadAvatar()}
         />
-        <Animated.Text
-          entering={FadeIn.duration(300).delay(1100)}
-          className="text-white text-sm font-semibold"
-        >
-          {t("profile.cancelSubmission")}
-        </Animated.Text>
-      </Pressable>
-    </Animated.View>
-  );
-
-  const renderDraftValidationActions = () => (
-    <>
-      <Animated.View entering={FlipInEasyX.duration(600).delay(1000)}>
-        <Pressable
-          onPress={async () => {
-            const savedDriverId = await handleSave({
-              silent: true,
-              syncExpiries: true,
-            });
-            if (!savedDriverId) return;
-            await saveVehicle();
-            await syncDossierStateWithBackend();
-            showAppAlert(t("common.success"), t("profile.profileSaved"));
-          }}
-          className="overflow-hidden rounded-lg py-2.5 px-4 items-center shadow"
-        >
-          <LinearGradient
-            colors={["#374151", "#4b5563"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            className="absolute inset-0 rounded-lg"
-          />
-          <Animated.Text
-            entering={FadeIn.duration(300).delay(1100)}
-            className="text-white text-sm font-semibold"
-          >
-            {t("profile.saveProgress")}
-          </Animated.Text>
-        </Pressable>
-      </Animated.View>
-      <Animated.View entering={FlipInEasyX.duration(600).delay(1200)}>
-        <Pressable
-          onPress={handleSubmit}
-          disabled={submitting || !isEditable}
-          className={`overflow-hidden rounded-lg py-2.5 px-4 items-center shadow ${submitting || !isEditable ? "opacity-50" : "opacity-100"}`}
-        >
-          <LinearGradient
-            colors={["#10b981", "#059669"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            className="absolute inset-0 rounded-lg"
-          />
-          <Animated.Text
-            entering={FadeIn.duration(300).delay(1300)}
-            className="text-white text-sm font-semibold"
-          >
-            {submitting
-              ? t("profile.submitting")
-              : t("profile.submitForReview")}
-          </Animated.Text>
-        </Pressable>
-      </Animated.View>
-    </>
-  );
-
-  const renderValidationActions = () => {
-    if (dossierUpdateRequested && isPendingReviewUi) {
-      return renderAdminUpdateActions();
+      );
     }
-    if (isPendingReviewUi) {
-      return renderPendingQueueActions();
+    if (currentSection === 1) {
+      return (
+        <DossierProfessionnelSection
+          formData={formData}
+          onChange={handleInputChange}
+          fieldsEditable={isFieldEditable()}
+          animatedContentStyle={animatedContentStyle}
+        />
+      );
     }
-    if (!canShowDossierSubmit(status, dossierUpdateRequested)) {
-      return null;
+    if (currentSection === 2) {
+      return (
+        <DriverVehicleSection
+          form={vehicleForm}
+          editable={isFieldEditable()}
+          onChange={(patch) => setVehicleForm((prev) => ({ ...prev, ...patch }))}
+          contentStyle={animatedContentStyle}
+        />
+      );
     }
-    return renderDraftValidationActions();
+    if (currentSection === 3) {
+      return (
+        <DossierDocumentsSection
+          animatedContentStyle={animatedContentStyle}
+          documents={documents}
+          documentMeta={documentMeta}
+          documentsLoading={documentsLoading}
+          documentsLoadError={documentsLoadError}
+          driverId={driverId}
+          submitting={submitting}
+          editMode={editMode}
+          rejectedDocumentTypes={rejectedDocumentTypes}
+          onUploadComplete={handleDocumentUpload}
+          onExpiryDateChange={handleDocumentExpiryChange}
+        />
+      );
+    }
+    if (currentSection === 4) {
+      return (
+        <DossierValidationSection
+          animatedContentStyle={animatedContentStyle}
+          animatedCompletionStyle={animatedCompletionStyle}
+          completionPercentage={completionPercentage}
+          checklistInput={checklistInput}
+          status={status}
+          opsStatusReason={opsStatusReason}
+          dossierUpdateRequested={dossierUpdateRequested}
+          actions={
+            <DossierWizardFooter
+              status={status}
+              dossierUpdateRequested={dossierUpdateRequested}
+              submitting={submitting}
+              isEditable={isEditable}
+              onSubmit={() => void handleSubmit()}
+              onConfirmCancelReview={confirmCancelReview}
+              onSaveProgress={() => void handleSaveProgress()}
+            />
+          }
+        />
+      );
+    }
+    return null;
   };
 
-  const renderDocumentsSection = () => {
-        return (
-          <Animated.View
-            entering={FadeInRight.duration(300)}
-            exiting={FadeOutLeft.duration(300)}
-            style={animatedContentStyle}
-            className="space-y-6"
-          >
-            <Text className="text-xl font-bold text-white mb-4">
-              {t("profile.requiredDocuments")}
-            </Text>
-            <Text className="text-sm text-slate-400 mb-2">
-              {t("profile.documentsSectionHint")}
-            </Text>
-
-            {documentsLoading ? (
-              <Text className="text-xs text-slate-400 mb-2">
-                {t("documents.loadingDocuments")}
-              </Text>
-            ) : null}
-            {documentsLoadError ? (
-              <Text className="text-xs text-amber-300 mb-2">
-                {documentsLoadError}
-              </Text>
-            ) : null}
-
-            {REQUIRED_DOCUMENTS.map((docType, index) => {
-              const meta = documentMeta[docType];
-              const isRejected = meta?.status === "rejected";
-              const filePresent = hasDocumentFile(
-                docType as DocumentTypeKey,
-                documents,
-                documentMeta,
-              );
-              const canReplace =
-                !submitting &&
-                canReplaceDocument(
-                  editMode,
-                  docType,
-                  meta?.status,
-                  rejectedDocumentTypes,
-                );
-              const docValidationStatus = (meta?.status ?? "pending") as
-                | "pending"
-                | "approved"
-                | "rejected";
-
-              return (
-              <Animated.View
-                key={docType}
-                entering={FadeInDown.duration(400).delay(index * 150)}
-                className="mb-4"
-              >
-                <Animated.View
-                  entering={FadeInRight.duration(400).delay(index * 150 + 50)}
-                  className="flex-row items-center justify-between mb-2"
-                >
-                  <Animated.Text
-                    entering={FadeInDown.duration(400).delay(index * 150 + 25)}
-                    className="text-sm text-white font-medium"
-                  >
-                    {translateDocumentType(t, docType)}
-                  </Animated.Text>
-                  {isRejected ? (
-                    <Text className="text-xs text-rose-400 font-medium">
-                      {t("documents.status.rejected")}
-                    </Text>
-                  ) : null}
-                </Animated.View>
-                {isRejected && meta?.rejectionReason ? (
-                  <Text className="text-xs text-rose-300 mb-2">
-                    {t("documents.rejectionReason")}: {meta.rejectionReason}
-                  </Text>
-                ) : null}
-                {isRejected && !meta?.rejectionReason ? (
-                  <Text className="text-xs text-rose-300 mb-2">
-                    {t("documents.replaceRejectedHint")}
-                  </Text>
-                ) : null}
-                <Animated.View
-                  entering={FadeInRight.duration(400).delay(index * 150 + 100)}
-                >
-                  <DriverDocumentUploader
-                    documentType={docType}
-                    onUploadComplete={(fileUrl, expiry) =>
-                      handleDocumentUpload(docType, fileUrl, expiry)
-                    }
-                    onExpiryDateChange={(expiry) =>
-                      handleDocumentExpiryChange(docType, expiry)
-                    }
-                    driverId={driverId ?? undefined}
-                    currentUrl={documents[docType] || undefined}
-                    currentExpiry={meta?.expiryDate}
-                    documentStatus={docValidationStatus}
-                    canReplace={canReplace}
-                    hasFile={filePresent}
-                    editMode={editMode}
-                  />
-                </Animated.View>
-              </Animated.View>
-            );
-            })}
-          </Animated.View>
-        );
-  };
-  const renderValidationSection = () => {
-        return (
-          <Animated.View
-            entering={FadeInRight.duration(300)}
-            exiting={FadeOutLeft.duration(300)}
-            style={animatedContentStyle}
-            className="space-y-4"
-          >
-            <Animated.View
-              entering={FadeIn.duration(300).delay(100)}
-              className="bg-white/10 rounded-lg px-3 py-2.5 border border-white/20 mb-4"
-            >
-              <View className="flex-row items-center gap-3">
-                <View className="flex-1 bg-white/15 rounded-full h-1.5 overflow-hidden">
-                  <EmeraldProgressFill
-                    animatedStyle={animatedCompletionStyle}
-                    height={6}
-                  />
-                </View>
-                <Text className="text-xs text-slate-300 font-medium min-w-[72px] text-right tabular-nums">
-                  {Math.round(completionPercentage)}% {t("common.complete")}
-                </Text>
-              </View>
-            </Animated.View>
-
-            <Animated.View entering={FadeInUp.duration(500).delay(500)}>
-              <DossierValidationChecklist
-                input={checklistInput}
-                status={status}
-                opsStatusReason={opsStatusReason}
-                dossierUpdateRequested={dossierUpdateRequested}
-              />
-            </Animated.View>
-
-            <Animated.View
-              entering={FadeInUp.duration(500).delay(900)}
-              className="gap-2.5 pt-2"
-            >
-              {renderValidationActions()}
-            </Animated.View>
-          </Animated.View>
-        );
-  };
 
 
   return (
@@ -2029,7 +1247,7 @@ export default function DriverProfileSetup({
           className="absolute z-20 flex-row items-center rounded-full border border-white/20 bg-white/10 px-3 py-2"
           style={{ top: insets.top + 8, left: 16 }}
         >
-          <Feather name="map" size={16} color="#34d399" />
+          <FeatherGlyph name="map" size={16} />
           <Text className="text-white text-xs font-semibold ml-2">
             {t("profile.backToHome")}
           </Text>
@@ -2083,13 +1301,18 @@ export default function DriverProfileSetup({
                       >
                         <View
                           className={`w-8 h-8 rounded-full items-center justify-center ${
-                            isReached ? "bg-emerald-500" : "bg-white/20"
-                          } ${isActive ? "border-2 border-white/50" : ""}`}
+                            isActive ? "border-2 border-white/50" : ""
+                          }`}
+                          style={{
+                            backgroundColor: isReached
+                              ? `${VE_BLUE.base}${VE_BLUE.tintAlpha}`
+                              : "rgba(255, 255, 255, 0.2)",
+                          }}
                         >
-                          <Feather
-                            name={section.icon as keyof typeof Feather.glyphMap}
+                          <FeatherGlyph
+                            name={section.icon}
                             size={16}
-                            color={isReached ? "white" : "#9ca3af"}
+                            color={isReached ? undefined : "#9ca3af"}
                           />
                         </View>
                         <Text
@@ -2107,7 +1330,7 @@ export default function DriverProfileSetup({
                 {/* Banner de statut du dossier */}
                 <DriverFolderStatusBanner />
                 <View className="bg-white/15 rounded-full h-1 mt-2 overflow-hidden">
-                  <EmeraldProgressFill
+                  <DossierProgressFill
                     animatedStyle={animatedProgressStyle}
                     height={4}
                   />
@@ -2142,13 +1365,17 @@ export default function DriverProfileSetup({
                 <Pressable
                   onPress={nextSection}
                   disabled={currentSection === SECTIONS.length - 1}
-                  className={nextSectionButtonClass(
-                    currentSection,
-                    SECTIONS.length - 1,
-                    isEditable,
-                    canProceedToNext(),
-                  )}
+                  className="flex-row items-center py-3 px-6 rounded-full overflow-hidden"
+                  style={{
+                    opacity: nextSectionButtonOpacity(
+                      currentSection,
+                      SECTIONS.length - 1,
+                      isEditable,
+                      canProceedToNext(),
+                    ),
+                  }}
                 >
+                  <DossierAccentGradientFill />
                   <Text className="text-white mr-2">{t("common.next")}</Text>
                   <Feather name="arrow-right" size={16} color="white" />
                 </Pressable>
