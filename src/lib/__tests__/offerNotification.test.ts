@@ -92,7 +92,8 @@ describe('the dashboard retires it wherever the driver answers', () => {
     // action never goes through `handleAcceptRide`. Covering only one would leave the other
     // ringing a tray entry for a ride already taken — the exact report.
     expect(functionBody('const handleAcceptRide = async')).toContain('dismissOfferNotification');
-    expect(functionBody('const takeAction = async')).toContain('dismissOfferNotification');
+    const trayOpen = readSource('src/lib/utils/notificationOfferOpen.ts');
+    expect(trayOpen).toContain('dismissOfferNotification');
   });
 
   it('does it when the driver refuses', () => {

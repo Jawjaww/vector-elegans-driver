@@ -185,6 +185,24 @@ class RideService {
   }
 
   /**
+   * Live offer row the driver can already SELECT (open ride_offers RLS).
+   *
+   * Faster than get_driver_offer_ride and enough to paint the card. Returns null when the
+   * policy hides the ride (expired) or the row is no longer offerable — the RPC is the
+   * path that can still explain those.
+   */
+  async fetchRideById(rideId: string): Promise<Ride | null> {
+    const { data, error } = await supabase
+      .from('rides')
+      .select('*')
+      .eq('id', rideId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const ride = toAppRide(data);
+    return isRideStillOfferable(ride) ? ride : null;
+  }
+
+  /**
    * Read the ride behind a tapped offer notification, plus that offer's state.
    *
    * Goes through get_driver_offer_ride instead of a plain SELECT: the rides RLS

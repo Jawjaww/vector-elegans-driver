@@ -400,10 +400,19 @@ describe('shouldBypassBootGate: what the overlay may show, and when', () => {
     ).toBe(true);
   });
 
-  // The regression this pins: the whole screen used to sit behind `if (loading)`, so a real
-  // offer could not be painted until the boot resolved — but painting one before the identity
-  // and the persisted store are known means guessing.
-  it('never paints a real offer while the boot is still running', () => {
+  it('lets a payload snapshot through the boot gate', () => {
+    expect(
+      shouldBypassBootGate({
+        ...base,
+        booting: true,
+        hasUnconfirmedOffer: true,
+      }),
+    ).toBe(true);
+  });
+
+  // Confirmed offers still sit behind identity: painting one before the persisted store
+  // is known means guessing. Snapshots are different — they come from the payload.
+  it('never paints a confirmed offer while the boot is still running', () => {
     expect(
       shouldBypassBootGate({ ...base, booting: true, canShowOffers: true }),
     ).toBe(false);

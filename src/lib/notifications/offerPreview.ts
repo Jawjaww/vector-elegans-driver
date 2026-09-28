@@ -1,4 +1,5 @@
-import type { ProvisionalOffer } from '../stores/driverStore';
+import type { ProvisionalOffer, Ride } from '../stores/driverStore';
+import { isRideStillOfferable } from '../utils/ridePickup';
 import { formatPriceLabel, readString } from './rideOfferPushContent';
 
 /**
@@ -33,12 +34,36 @@ export function isNotificationArrival(
   return elapsed < OFFER_ARRIVAL_INSTANT_WINDOW_MS;
 }
 
+export function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const parts = value.filter((item): item is string => typeof item === 'string');
+    return parts.length > 0 ? parts : undefined;
+  }
+  if (typeof value === 'string' && value.trim().startsWith('[')) {
+    try {
+      return readStringArray(JSON.parse(value) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Build the provisional card contents from a ride_offer push payload.
  *
- * The payload already carries the pickup, the dropoff and the price, because the notification
- * body is written from them. Keeping them past the tap is what lets the card paint on the tap
- * itself — no round-trip, and therefore a delay the network cannot stretch.
+ * Used only when the payload lacks coordinates: the real card and the map need a Ride, and
+ * without lat/lon the snapshot path cannot run. Addresses and price are still enough to
+ * decide, so the placeholder stays for older payloads.
  *
  * Returns null when the payload carries nothing displayable: an empty card would be worse
  * than the ordinary path, which at least ends in an explainable notice.
@@ -52,4 +77,79 @@ export function previewFromPushData(
   const priceLabel = formatPriceLabel(data);
   if (!pickupAddress && !dropoffAddress && !priceLabel) return null;
   return { rideId, pickupAddress, dropoffAddress, priceLabel };
+}
+
+/**
+ * Rebuild a Ride from a ride_offer push payload (or ride_offers.snapshot).
+ *
+ * Coordinates and a matching window are required: without them the map cannot draw and
+ * `isRideStillOfferable` cannot answer, so the caller must fall back to the placeholder
+ * plus `get_driver_offer_ride`. FCM stringifies numbers; both shapes are accepted.
+ *
+ * The result is marked `offerUnconfirmed` so the dashboard still confirms in the background
+ * and can drop a snapshot the server later reports dead.
+ */
+export function rideFromPushData(
+  data: Record<string, unknown>,
+  rideId: string,
+): Ride | null {
+  const pickupLat = readNumber(data.pickup_lat);
+  const pickupLon = readNumber(data.pickup_lon);
+  const dropoffLat = readNumber(data.dropoff_lat);
+  const dropoffLon = readNumber(data.dropoff_lon);
+  if (
+    pickupLat === null ||
+    pickupLon === null ||
+    dropoffLat === null ||
+    dropoffLon === null
+  ) {
+    return null;
+  }
+
+  const pickupTime = readString(data.pickup_time);
+  const matchingDeadlineAt = readString(data.matching_deadline_at);
+  const matchingPausedAt = readString(data.matching_paused_at);
+  const status = readString(data.status) ?? 'pending';
+  if (
+    !isRideStillOfferable({
+      pickup_time: pickupTime,
+      matching_deadline_at: matchingDeadlineAt,
+      matching_paused_at: matchingPausedAt,
+      status,
+    })
+  ) {
+    return null;
+  }
+
+  const nowIso = new Date().toISOString();
+  const estimatedPrice = readNumber(data.estimated_price);
+  const distance = readNumber(data.distance);
+  const duration = readNumber(data.duration);
+  const clientIncentive = readNumber(data.client_incentive);
+
+  return {
+    id: rideId,
+    user_id: readString(data.user_id) ?? '',
+    status,
+    pickup_address: readString(data.pickup_address) ?? '',
+    pickup_lat: pickupLat,
+    pickup_lon: pickupLon,
+    dropoff_address: readString(data.dropoff_address) ?? '',
+    dropoff_lat: dropoffLat,
+    dropoff_lon: dropoffLon,
+    pickup_time: pickupTime ?? nowIso,
+    distance,
+    duration,
+    vehicle_type: readString(data.vehicle_type) ?? '',
+    options: readStringArray(data.options),
+    estimated_price: estimatedPrice,
+    final_price: null,
+    created_at: readString(data.created_at) ?? nowIso,
+    updated_at: nowIso,
+    pickup_notes: readString(data.pickup_notes) ?? undefined,
+    client_incentive: clientIncentive,
+    matching_deadline_at: matchingDeadlineAt,
+    matching_paused_at: matchingPausedAt,
+    offerUnconfirmed: true,
+  };
 }

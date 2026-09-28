@@ -36,5 +36,6 @@ export function toAppRide(row: Partial<RideRow> & Pick<RideRow, 'id'>): Ride {
     client_incentive: row.client_incentive ?? null,
     matching_deadline_at: row.matching_deadline_at ?? null,
     matching_paused_at: row.matching_paused_at ?? null,
+    offerUnconfirmed: false,
   };
 }

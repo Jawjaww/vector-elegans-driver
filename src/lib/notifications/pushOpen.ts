@@ -1,8 +1,10 @@
 import {
+  canPresentRideOffer,
   useDriverStore,
   type OfferNotificationAction,
   type PendingOfferOpen,
   type ProvisionalOffer,
+  type Ride,
 } from '../stores/driverStore';
 import { logOfferStage } from './offerPipelineDiag';
 import { arrivalSourceFromStage, type OfferOpenStageName } from './offerRing';
@@ -69,6 +71,7 @@ export function queueOfferOpen(
   action: OfferNotificationAction | null,
   preview: ProvisionalOffer | null = null,
   stage: OfferOpenStageName = 'tap_received',
+  snapshot: Ride | null = null,
 ): void {
   const state = useDriverStore.getState();
   state.setPendingOfferOpen({ rideId, action });
@@ -79,19 +82,38 @@ export function queueOfferOpen(
   // tell them apart: both end in the same queued open. The ring depends on it — only the wake
   // has no sound of its own.
   state.setOfferArrivalSource(arrivalSourceFromStage(stage));
-  // Set even when the ride is already tracked. "Already tracked" only means a copy exists
-  // somewhere in the store; it says nothing about whether the dashboard can paint it yet, and
-  // the case that matters here is precisely the one where it cannot — the app was in the
-  // background, the offer arrived through Realtime, and the boot, the hydration gate and the
-  // display gate still stand between that copy and the screen. The provisional card needs none
-  // of them, and the overlay drops it the moment the real deck holds the same ride.
-  state.setProvisionalOffer(preview);
+
+  const existing = state.availableRides.find((ride) => ride.id === rideId);
+  const canHydrateSnapshot =
+    snapshot !== null &&
+    !state.activeRide &&
+    (existing !== undefined || canPresentRideOffer(rideId, state));
+
+  if (canHydrateSnapshot && snapshot) {
+    // Confirmed cards stay as they are: a later wake must not mark them unconfirmed again.
+    if (existing?.offerUnconfirmed !== false) {
+      state.promoteTrackedRideToFront(snapshot);
+      logOfferStage('promoted', { source: 'push_snapshot' }, rideId);
+    }
+    state.setProvisionalOffer(null);
+  } else {
+    // Set even when the ride is already tracked. "Already tracked" only means a copy exists
+    // somewhere in the store; it says nothing about whether the dashboard can paint it yet.
+    // The placeholder needs none of the display gates, and the overlay drops it the moment
+    // the real deck holds the same ride.
+    state.setProvisionalOffer(preview);
+  }
+
   // Logged here rather than at the call site so the stage cannot drift from the write it
   // describes. Usually the very first row of a timeline, and usually buffered: a cold start
   // from the tap has no `drivers.id` yet.
   logOfferStage(
     'pending_queued',
-    { action: action ?? 'open', provisional: preview !== null },
+    {
+      action: action ?? 'open',
+      provisional: preview !== null && !canHydrateSnapshot,
+      snapshot: snapshot !== null,
+    },
     rideId,
   );
 }

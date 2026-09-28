@@ -81,7 +81,6 @@ import type { MapControllerRef, NavManeuverInfo } from "../../src/map/types";
 import { rideService } from "../../src/services/rideService";
 import { setDriverOffline } from "../../src/lib/services/locationService";
 import {
-  consumePendingOfferOpen,
   registerAndUpsertPushToken,
   type PushRegisterResult,
 } from "../../src/lib/notifications/pushRegistration";
@@ -92,6 +91,7 @@ import {
 import {
   isNotificationArrival,
   PROVISIONAL_OFFER_TTL_MS,
+  rideFromPushData,
 } from "../../src/lib/notifications/offerPreview";
 import { pushRegisterFailureI18n } from "../../src/lib/notifications/pushStatusCopy";
 import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
@@ -133,12 +133,11 @@ import { OfferNoticeCard } from "../../src/components/OfferNoticeCard";
 import {
   canDisplayOffers,
   canReceiveOffers,
-  resolveOfferOpenOutcome,
   shouldBypassBootGate,
-  takeReadyOfferOpen,
   type OfferNotice,
 } from "../../src/lib/utils/offerOpenOutcome";
 import { acceptTrackedRide } from "../../src/lib/utils/acceptTrackedRide";
+import { runPendingNotificationOfferOpen } from "../../src/lib/utils/notificationOfferOpen";
 import { useDashboardNavProgress } from "../../src/hooks/useDashboardNavProgress";
 import { useDashboardOfferMap } from "../../src/hooks/useDashboardOfferMap";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -414,14 +413,25 @@ function usePendingRideChannel({
     const handleOfferRow = (row: RideOfferRealtimeRow) => {
       if (isOpenRideOffer(row)) {
         void (async () => {
-          // Same read as a notification open: the offer may already be dead by
-          // the time the realtime event lands, and only the RPC can say so.
+          const fromSnapshot = rideFromPushData(row.snapshot ?? {}, row.ride_id);
+          if (fromSnapshot) {
+            await presentOffer(fromSnapshot);
+            return;
+          }
+          // Snapshot missing on older rows: a live SELECT is enough to paint. The RPC is
+          // reserved for explaining a ride the policy already hides.
+          const live = await rideService.fetchRideById(row.ride_id);
+          if (cancelled) return;
+          if (live) {
+            await presentOffer({ ...live, offerUnconfirmed: false });
+            return;
+          }
           const fetched = await rideService.fetchDriverOfferRide(row.ride_id);
           if (cancelled || !fetched.ok) return;
           if (!fetched.offer.alive || !isRideStillOfferable(fetched.ride)) {
             return;
           }
-          await presentOffer(fetched.ride);
+          await presentOffer({ ...fetched.ride, offerUnconfirmed: false });
         })();
         return;
       }
@@ -1016,7 +1026,9 @@ function DashboardOfferOverlay({
   onAcceptRide: (rideId: string) => void;
   onDeclineRide: (rideId: string, reason?: "declined" | "timeout") => void;
 }>) {
-  const deckRides = canShowOffers ? rides : [];
+  const deckRides = canShowOffers
+    ? rides
+    : rides.filter((ride) => ride.offerUnconfirmed);
   // `provisional` arrives already resolved against the deck: the parent applies
   // `visibleProvisionalOffer` once, and the sheet rule reads the same answer. Re-deriving it here
   // is what would let the two drift apart.
@@ -1024,6 +1036,7 @@ function DashboardOfferOverlay({
     booting,
     hasProvisionalOffer: provisional !== null,
     canShowOffers,
+    hasUnconfirmedOffer: deckRides.some((ride) => ride.offerUnconfirmed),
   });
   if (!visible) return null;
 
@@ -1289,11 +1302,17 @@ export default function DashboardScreen() {
       if (!canReceive) return;
       if (!isRideStillOfferable(ride)) return;
       const gate = getOfferGateState();
+      const alreadyStacked = gate.availableRides.some((row) => row.id === ride.id);
+      if (alreadyStacked) {
+        patchTrackedRide(ride);
+        logOfferStage("promoted", { source: "realtime" }, ride.id);
+        return;
+      }
       if (!canPresentRideOffer(ride.id, gate)) return;
       addAvailableRide(ride);
       logOfferStage("promoted", { source: "realtime" }, ride.id);
     },
-    [addAvailableRide, canReceive, getOfferGateState],
+    [addAvailableRide, canReceive, getOfferGateState, patchTrackedRide],
   );
 
   const notifyRideUnavailable = useCallback(() => {
@@ -1308,147 +1327,21 @@ export default function DashboardScreen() {
   // The tray's Accept / Decline buttons ride along in the same payload, so they
   // can never be applied to a ride the driver has not actually been shown.
   useEffect(() => {
-    // Gated on the identity the decision actually needs, never on `loading`. The boot keeps
-    // refreshing dossier metadata and the assigned ride long after these two are known, and
-    // waiting for all of it is what froze an offer behind the entire startup sequence — a
-    // fresh offer must not queue behind the driver's paperwork.
-    const readyOpen = takeReadyOfferOpen({
+    void runPendingNotificationOfferOpen({
       pendingOfferOpen,
       driverStatus,
       driverId,
       storeHydrated,
+      deferredRides,
+      availableRides,
+      isOnline,
+      activeRideId: activeRide?.id ?? null,
+      acceptingRideIds: acceptingRideIdsRef.current,
+      promoteDeferredRide,
+      promoteTrackedRideToFront,
+      onUnavailable: notifyRideUnavailable,
+      setOfferNotice,
     });
-    if (!readyOpen) return;
-
-    const { rideId, action } = readyOpen;
-    consumePendingOfferOpen();
-    logOfferStage("boot_ready", { action: action ?? "open" }, rideId);
-
-    // Fresh store state: promoting is synchronous, so the ride is addressable.
-    const takeAction = async () => {
-      const store = useDriverStore.getState();
-      // The tray entry is what brought the driver here, and the answer retires it. Done for both
-      // actions and before either is sent, for the same reason the card path stops the ring
-      // first: the driver has replied, and the alert has nothing left to say.
-      void dismissOfferNotification(rideId);
-      if (action === "accept") {
-        logOfferStage("accept_tapped", { source: "notification_action" }, rideId);
-        await acceptTrackedRide({
-          rideId,
-          driverStatus,
-          isOnline: store.isOnline,
-          setIsOnline: store.setIsOnline,
-          availableRides: store.availableRides,
-          deferredRides: store.deferredRides,
-          availableRide: store.availableRide,
-          setActiveRide: store.setActiveRide,
-          removeAvailableRide: store.removeAvailableRide,
-          suppressRide: store.suppressRide,
-          promoteTrackedRideToFront: store.promoteTrackedRideToFront,
-          onUnavailable: notifyRideUnavailable,
-          acceptingRideIds: acceptingRideIdsRef.current,
-        });
-        return;
-      }
-      if (action === "decline") {
-        store.deferAvailableRide(rideId);
-        await rideService.respondOffer(rideId, "declined");
-      }
-    };
-
-    const deferred = deferredRides.find((ride) => ride.id === rideId);
-    if (deferred) {
-      if (isRideStillOfferable(deferred)) {
-        // The placeholder is deliberately left in place: the deck only takes over once the
-        // display gate has passed, and until then it is the only card describing this ride.
-        promoteDeferredRide(rideId);
-        logOfferStage("promoted", { source: "deferred" }, rideId);
-        void takeAction();
-      } else {
-        // A dead offer: the placeholder must go, or it would keep offering an Accept for
-        // something the notice right below says is gone.
-        useDriverStore.getState().clearProvisionalOffer(rideId);
-        const refused = (
-          useDriverStore.getState().declinedOfferIds ?? []
-        ).includes(rideId);
-        logOfferStage(
-          "notice",
-          {
-            reason: refused ? "offer_declined" : "matching_closed",
-            source: "deferred",
-          },
-          rideId,
-        );
-        setOfferNotice({
-          reason: refused ? "offer_declined" : "matching_closed",
-          ride: deferred,
-        });
-      }
-      return;
-    }
-
-    const stacked = availableRides.find((ride) => ride.id === rideId);
-    if (stacked) {
-      if (isRideStillOfferable(stacked)) {
-        // Already tracked with full data, but "tracked" is not "painted": the deck still has
-        // to pass the display gate, and the placeholder is the only card until it does.
-        promoteTrackedRideToFront(stacked);
-        logOfferStage("promoted", { source: "stack" }, rideId);
-        void takeAction();
-      } else {
-        useDriverStore.getState().clearProvisionalOffer(rideId);
-        logOfferStage(
-          "notice",
-          { reason: "matching_closed", source: "stack" },
-          rideId,
-        );
-        setOfferNotice({ reason: "matching_closed", ride: stacked });
-      }
-      return;
-    }
-
-    void (async () => {
-      logOfferStage("fetch_started", {}, rideId);
-      const fetchStartedAt = Date.now();
-      const fetched = await rideService.fetchDriverOfferRide(rideId);
-      const outcome = resolveOfferOpenOutcome(fetched, {
-        driverStatus,
-        activeRideId: activeRide?.id ?? null,
-        isOnline,
-        myDriverId: driverId,
-      });
-      // The single most useful line when an offer does not appear: it separates "the read
-      // was slow" from "the read said the offer was dead" from "the read never landed".
-      logOfferStage(
-        "fetch_result",
-        {
-          duration_ms: Date.now() - fetchStartedAt,
-          kind: outcome.kind,
-          ...(fetched.ok
-            ? { offer_status: fetched.offer.status, alive: fetched.offer.alive }
-            : { fetch_reason: fetched.reason }),
-        },
-        rideId,
-      );
-      if (outcome.kind === "overlay" && isRideStillOfferable(outcome.ride)) {
-        // Promotion, not clearing: the placeholder holds the screen until the deck can paint,
-        // and the overlay drops it the moment that ride is in the deck.
-        setOfferNotice(null);
-        promoteTrackedRideToFront(outcome.ride);
-        logOfferStage("promoted", { source: "fetch" }, rideId);
-        await takeAction();
-        return;
-      }
-      // The server has spoken and the offer is not presentable: stop showing anything it did
-      // not confirm.
-      useDriverStore.getState().clearProvisionalOffer(rideId);
-      const notice =
-        outcome.kind === "notice"
-          ? outcome.notice
-          : { reason: "matching_closed" as const, ride: outcome.ride };
-      logOfferStage("notice", { reason: notice.reason, source: "fetch" }, rideId);
-      setOfferNotice(notice);
-    })();
   }, [
     driverStatus,
     driverId,
@@ -1665,7 +1558,10 @@ export default function DashboardScreen() {
   // The offered rides, and the provisional card once it has yielded to the real one. Both the
   // sheet rule and the overlay read these, so "a card is on screen" has a single meaning.
   const deckOfferIds = useMemo(
-    () => (showOfferCarousel ? availableRides.map((r) => r.id) : []),
+    () =>
+      showOfferCarousel
+        ? availableRides.map((r) => r.id)
+        : availableRides.filter((r) => r.offerUnconfirmed).map((r) => r.id),
     [showOfferCarousel, availableRides],
   );
 
@@ -1683,8 +1579,9 @@ export default function DashboardScreen() {
         booting: loading,
         hasProvisionalOffer: visibleProvisional !== null,
         canShowOffers: showOfferCarousel,
+        hasUnconfirmedOffer: availableRides.some((ride) => ride.offerUnconfirmed),
       }),
-    [loading, visibleProvisional, showOfferCarousel],
+    [loading, visibleProvisional, showOfferCarousel, availableRides],
   );
 
   /**
