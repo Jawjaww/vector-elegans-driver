@@ -11,6 +11,8 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { Feather } from "@expo/vector-icons";
+import { FeatherGlyph } from "./FeatherGlyph";
+import { VE_BLUE } from "../lib/theme";
 
 function parseYmd(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -49,7 +51,7 @@ type NativeDateFieldProps = Readonly<{
   editable?: boolean;
   minimumDate?: Date;
   maximumDate?: Date;
-  /** Optional accent for the calendar icon */
+  /** Optional flat colour for the calendar glyph. Omit it to keep the accent gradient. */
   iconColor?: string;
   className?: string;
 }>;
@@ -65,7 +67,7 @@ export function NativeDateField({
   editable = true,
   minimumDate,
   maximumDate,
-  iconColor = "#10b981",
+  iconColor,
 }: NativeDateFieldProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Date>(() => parseYmd(value) ?? new Date());
@@ -102,7 +104,7 @@ export function NativeDateField({
             : "bg-white/5 border-white/10 opacity-60"
         }`}
       >
-        <Feather name="calendar" size={18} color={iconColor} />
+        <FeatherGlyph name="calendar" size={18} color={iconColor} />
         <Text
           className={`flex-1 ml-3 text-base ${
             value ? "text-white" : "text-slate-500"
@@ -180,5 +182,5 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.12)",
   },
   cancel: { color: "#94a3b8", fontSize: 16 },
-  done: { color: "#34d399", fontSize: 16, fontWeight: "700" },
+  done: { color: VE_BLUE.glyphGradient[0], fontSize: 16, fontWeight: "700" },
 });

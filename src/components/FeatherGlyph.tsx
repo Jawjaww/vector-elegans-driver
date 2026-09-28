@@ -35,7 +35,7 @@ function glyphShapeKey(shape: GlyphShape): string {
     case 'circle':
       return `circle:${shape.cx},${shape.cy},${shape.r}`;
     case 'rect':
-      return `rect:${shape.x},${shape.y},${shape.width},${shape.height}`;
+      return `rect:${shape.x},${shape.y},${shape.width},${shape.height},${shape.rx ?? 0},${shape.ry ?? 0}`;
     case 'line':
       return `line:${shape.x1},${shape.y1},${shape.x2},${shape.y2}`;
     case 'polyline':
@@ -55,7 +55,15 @@ function GlyphShapeView({ shape, stroke }: GlyphShapeViewProps) {
       return <Polygon {...props} points={shape.points} />;
     case 'rect':
       return (
-        <Rect {...props} x={shape.x} y={shape.y} width={shape.width} height={shape.height} />
+        <Rect
+          {...props}
+          x={shape.x}
+          y={shape.y}
+          width={shape.width}
+          height={shape.height}
+          rx={shape.rx}
+          ry={shape.ry}
+        />
       );
     case 'line':
       return (

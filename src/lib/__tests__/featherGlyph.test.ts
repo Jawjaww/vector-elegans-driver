@@ -128,15 +128,43 @@ describe('the glyphs that are vendored', () => {
   it('is exactly the set its callers ask for, both ways round', () => {
     // A name in the map that no caller uses is dead data, and a caller asking for a name that is
     // not in the map is a blank chip. The second is a type error; the first is not, and only a
-    // test catches it. Both callers are read rather than a list being copied here.
-    const tabs = [...tabLayout.matchAll(/<DriverTabBarIcon\s+name="([^"]+)"/g)].map(
-      (match) => match[1],
-    );
-    const rows = [...profile.matchAll(/icon: '([^']+)'/g)].map((match) => match[1]);
+    // test catches it. Call sites are read rather than a list being copied here.
+    const callers = [
+      tabLayout,
+      profile,
+      stripComments(readSource(RIDES)),
+      stripComments(readSource('src/components/DriverProfileSetup.tsx')),
+      stripComments(readSource('src/components/DriverDocumentUploader.tsx')),
+      stripComments(readSource('src/components/DriverVehicleSection.tsx')),
+      stripComments(readSource('src/components/DriverAvatar.tsx')),
+      stripComments(readSource('src/components/NativeDateField.tsx')),
+      stripComments(readSource('src/components/dossier/DossierProfilSection.tsx')),
+      stripComments(readSource('src/components/dossier/DossierProfessionnelSection.tsx')),
+    ].join('\n');
 
-    expect(tabs.length).toBeGreaterThan(0);
-    expect(rows.length).toBeGreaterThan(0);
-    expect([...tabs, ...rows].sort((a, b) => a.localeCompare(b))).toEqual(
+    const used = new Set<string>();
+    for (const match of callers.matchAll(/<DriverTabBarIcon\s+name="([^"]+)"/g)) {
+      used.add(match[1]);
+    }
+    for (const match of callers.matchAll(/<FeatherGlyph\s+name="([^"]+)"/g)) {
+      used.add(match[1]);
+    }
+    for (const match of profile.matchAll(/icon: '([^']+)'/g)) {
+      used.add(match[1]);
+    }
+    for (const match of callers.matchAll(/\bicon: "([^"]+)"/g)) {
+      used.add(match[1]);
+    }
+    for (const match of callers.matchAll(/\bicon="([^"]+)"/g)) {
+      used.add(match[1]);
+    }
+    // Status icons are chosen by a helper; they never appear as a `name="…"` literal.
+    for (const match of callers.matchAll(/return "(upload-cloud|alert-circle)"/g)) {
+      used.add(match[1]);
+    }
+
+    expect(used.size).toBeGreaterThan(0);
+    expect([...used].sort((a, b) => a.localeCompare(b))).toEqual(
       Object.keys(FEATHER_GLYPHS).sort((a, b) => a.localeCompare(b)),
     );
   });
@@ -203,6 +231,13 @@ describe('the glyphs that are vendored', () => {
     // Non-vacuity: the enumerable shapes have to be a real subset, not all of them — otherwise the
     // paths, which are the majority, would be silently skipped by a `return null` that never runs.
     expect(checked.sort((a, b) => a.localeCompare(b))).toEqual([
+      'alert-circle',
+      'award',
+      'calendar',
+      'credit-card',
+      'hash',
+      'info',
+      'map',
       'navigation',
       'trending-up',
       'truck',
