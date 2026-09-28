@@ -1,10 +1,9 @@
 import { View, Text } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useDriverStore } from '../../src/lib/stores/driverStore';
 import { ActiveTripSheet } from '../../src/components/ActiveTripSheet';
 import { useActiveTripActions } from '../../src/hooks/useActiveTripActions';
-import { VE_BLUE } from '../../src/lib/theme';
+import { FeatherGlyph } from '../../src/components/FeatherGlyph';
 
 export default function RidesScreen() {
   const { stats } = useDriverStore();
@@ -56,7 +55,7 @@ export default function RidesScreen() {
           <View className="w-full overflow-hidden rounded-2xl">
             <View className="p-8 items-center">
               <View className="w-24 h-24 rounded-full items-center justify-center border border-white/10 mb-6 bg-white/5">
-                <Feather name="navigation" size={40} color={VE_BLUE.base} />
+                <FeatherGlyph name="navigation" size={40} />
               </View>
               <Text className="text-2xl font-black text-white tracking-tighter uppercase mb-2 text-center">
                 {t('ridesScreen.noActiveTitle')}

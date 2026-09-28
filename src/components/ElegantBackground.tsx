@@ -18,7 +18,7 @@ export function ElegantBackground({
   return (
     <View
       className={`flex-1 ${className}`}
-      style={{ backgroundColor: APP_CHROME.fallback }}
+      style={{ backgroundColor: APP_CHROME.surface }}
       {...props}
     >
       <AppChromeBackground />

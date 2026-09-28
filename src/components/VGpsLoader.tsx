@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
     elevation: 30,
-    backgroundColor: APP_CHROME.fallback,
+    backgroundColor: APP_CHROME.surface,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
