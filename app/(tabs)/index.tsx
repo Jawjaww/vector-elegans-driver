@@ -13,6 +13,7 @@ import {
   Switch,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -54,6 +55,8 @@ import {
   INITIAL_GUIDANCE_PEEK,
 } from "../../src/lib/utils/tripGuidancePeek";
 import { CONTROL_BASE_OFFSET } from "../../src/lib/utils/overlayLane";
+import { VE_BLUE } from "../../src/lib/theme";
+import { MAP_PALETTE } from "../../src/lib/mapPalette";
 import { useDriverFolderStore } from "../../src/lib/stores/driverFolderStore";
 import { normalizeFolderStatus } from "../../src/lib/folderStatus";
 import { useDriverLocation } from "../../src/hooks/useDriverLocation";
@@ -2082,14 +2085,21 @@ function OnlineStatusRow({
           </Text>
         ) : null}
       </View>
+      {/* The one control on the sheet, so it is allowed to be the app's blue outright.
+
+          Both halves are blue, which is the part the platform does not do for you: its switch is
+          a white grip on a coloured track, and a white disc reads as a piece the paint never
+          reached. So the track takes the accent at the weight an edge is drawn with and the grip
+          takes the accent itself — the same "a tint behind, the accent in front" rule the option
+          chips follow, which is what keeps the grip visible against its own track (3.7:1). */}
       <Switch
         value={isOnline}
         onValueChange={onToggle}
         trackColor={{
           false: "rgba(255,255,255,0.18)",
-          true: "rgba(16,185,129,0.55)",
+          true: `${VE_BLUE.base}${VE_BLUE.strongAlpha}`,
         }}
-        thumbColor={isOnline ? "#10b981" : "#f4f4f5"}
+        thumbColor={isOnline ? VE_BLUE.base : "#f4f4f5"}
         ios_backgroundColor="rgba(255,255,255,0.18)"
         accessibilityLabel={
           isOnline ? t("dashboard.goOffline") : t("dashboard.goOnline")
@@ -2248,30 +2258,45 @@ function DeferredRideCard({
           borderRadius: 14,
           backgroundColor: "rgba(255,255,255,0.04)",
           borderWidth: 1,
-          borderColor: "rgba(251, 191, 36, 0.22)",
+          borderColor: `${VE_BLUE.base}${VE_BLUE.strongAlpha}`,
         }}
       >
         <View className="flex-row justify-between items-start mb-3">
           <Pressable onPress={() => onPromote(ride.id)} className="flex-1">
-            <View
-              className="px-2 py-0.5 rounded self-start"
-              style={{
-                backgroundColor: isOverdue
-                  ? "rgba(251, 113, 133, 0.2)"
-                  : "rgba(251, 191, 36, 0.2)",
-              }}
-            >
+            {/* The one element on this card that is *filled* with the accent. It takes the pair the
+                portal's buttons are built from, because that is the pair measured to carry white
+                text (5.17:1 and 8.79:1) — the lifted glyph pair is legible as a stroke on the
+                chrome and not as a background under type.
+
+                The overdue state keeps its rose: a status the driver has missed is the one thing
+                here that is a warning, and a warning in the app's own colour stops being one. */}
+            <View className="px-2 py-0.5 rounded self-start overflow-hidden">
+              {isOverdue ? (
+                <View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { backgroundColor: "rgba(251, 113, 133, 0.2)" },
+                  ]}
+                />
+              ) : (
+                <LinearGradient
+                  colors={VE_BLUE.gradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
               {showMatchingFlame ? (
                 <MaterialCommunityIcons
                   name="fire"
                   size={12}
-                  color={isOverdue ? "#fb7185" : "#fbbf24"}
+                  color={isOverdue ? "#fb7185" : "#ffffff"}
                   accessibilityLabel="En recherche"
                 />
               ) : (
                 <Text
                   className="text-[10px] font-bold tracking-wide"
-                  style={{ color: isOverdue ? "#fb7185" : "#fbbf24" }}
+                  style={{ color: isOverdue ? "#fb7185" : "#ffffff" }}
                 >
                   {statusLabel}
                 </Text>
@@ -2315,19 +2340,22 @@ function DeferredRideCard({
             className="flex-row items-center mb-2.5"
             style={{ gap: 6 }}
           >
-            <Feather name="clock" size={13} color="#fbbf24" />
-            <Text className="text-amber-200 text-xs font-semibold">
+            <Feather name="clock" size={13} color={VE_BLUE.base} />
+            <Text className="text-blue-200 text-xs font-semibold">
               {pickupWhen}
             </Text>
           </View>
         ) : null}
 
         <View style={{ gap: 8, marginBottom: 10 }}>
+          {/* Each place is named with the colour the map draws it in, not one of its own: the
+              departure pin is `MAP_PALETTE.departure` here because it is that marker, and the
+              full-screen offer card behind this one has always said so. */}
           <View className="flex-row items-start" style={{ gap: 8 }}>
             <Feather
               name="map-pin"
               size={14}
-              color="#f59e0b"
+              color={MAP_PALETTE.departure}
               style={{ marginTop: 2 }}
             />
             <Text className="text-white text-sm font-medium flex-1" numberOfLines={2}>
@@ -2338,7 +2366,7 @@ function DeferredRideCard({
             <Feather
               name="flag"
               size={14}
-              color="#34d399"
+              color={MAP_PALETTE.arrival}
               style={{ marginTop: 2 }}
             />
             <Text className="text-neutral-300 text-sm flex-1" numberOfLines={2}>
@@ -2348,7 +2376,6 @@ function DeferredRideCard({
         </View>
 
         <RideOfferExtras
-          variant="dark"
           compact
           interactive={false}
           selectedOnly
@@ -2361,7 +2388,7 @@ function DeferredRideCard({
           <Text className="text-neutral-500 text-xs">
             {distanceLabel} · {durationLabel}
           </Text>
-          <Text className="text-emerald-400 text-xs font-semibold">
+          <Text className="text-blue-400 text-xs font-semibold">
             Voir l’offre
           </Text>
         </View>
@@ -2418,8 +2445,8 @@ function DashboardRidePreview({
               className="flex-row items-center mb-2.5"
               style={{ gap: 6 }}
             >
-              <Feather name="clock" size={13} color="#6ee7b7" />
-              <Text className="text-emerald-200 text-xs font-semibold">
+              <Feather name="clock" size={13} color={VE_BLUE.base} />
+              <Text className="text-blue-200 text-xs font-semibold">
                 {formatPickupDateTime(activeRide.pickup_time)}
               </Text>
             </View>
@@ -2429,7 +2456,7 @@ function DashboardRidePreview({
               <Feather
                 name="map-pin"
                 size={14}
-                color="#f59e0b"
+                color={MAP_PALETTE.departure}
                 style={{ marginTop: 2 }}
               />
               <Text
@@ -2443,7 +2470,7 @@ function DashboardRidePreview({
               <Feather
                 name="flag"
                 size={14}
-                color="#34d399"
+                color={MAP_PALETTE.arrival}
                 style={{ marginTop: 2 }}
               />
               <Text className="text-neutral-300 text-sm flex-1" numberOfLines={2}>
@@ -2452,7 +2479,6 @@ function DashboardRidePreview({
             </View>
           </View>
           <RideOfferExtras
-            variant="dark"
             compact
             interactive={false}
             selectedOnly
@@ -2466,10 +2492,10 @@ function DashboardRidePreview({
               {formatRideDurationMin(activeRide.duration, activeRide.distance)}
             </Text>
             <View className="flex-row items-center">
-              <Text className="text-emerald-400 text-xs font-semibold mr-1">
+              <Text className="text-blue-400 text-xs font-semibold mr-1">
                 Détails
               </Text>
-              <Feather name="chevron-right" size={14} color="#34d399" />
+              <Feather name="chevron-right" size={14} color={VE_BLUE.base} />
             </View>
           </View>
         </View>

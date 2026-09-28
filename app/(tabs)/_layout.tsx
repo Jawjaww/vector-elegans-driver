@@ -3,7 +3,6 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
 import { DriverTabBar } from '../../src/components/DriverTabBar';
 import { DriverTabBarIcon } from '../../src/components/DriverTabBarIcon';
-import { VE_BLUE } from '../../src/lib/theme';
 
 type TabBarIconProps = Readonly<{ focused: boolean; color: string; size?: number }>;
 
@@ -40,15 +39,10 @@ export default function TabsLayout() {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           height: 80,
-          paddingBottom: 20,
-          paddingTop: 10,
+          elevation: 0,
         },
-        tabBarActiveTintColor: VE_BLUE.base,
-        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.42)',
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
-        },
+        tabBarActiveTintColor: '#ffffff',
+        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.48)',
       }}
     >
       <Tabs.Screen

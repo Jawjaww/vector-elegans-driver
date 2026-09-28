@@ -20,7 +20,7 @@ export const theme = {
     error: '#ef4444',
     info: '#3b82f6',
     
-    // Dark theme — charcoal chrome (tabs, sheet, loader)
+    // Dark theme — matte grey chrome (sheet, tabs, loader)
     background: '#161616',
     backgroundMid: '#1c1c1c',
     surface: 'rgba(255, 255, 255, 0.02)',
@@ -84,14 +84,18 @@ export const theme = {
   },
 };
 
-/** Shared charcoal wash for tabs, loader, and bottomsheet (expo-linear-gradient). */
+/**
+ * Shared chrome tone for the home sheet, the tab floor, and the app wash.
+ *
+ * One flat tone with a single hairline seam, and deliberately not a ramp: a
+ * light-to-dark gradient on a large surface reads as a glossy finish, which is
+ * exactly the piano-lacquer look the near-black `#0a0a0a` was rejected for.
+ */
 export const APP_CHROME = {
-  base: ['#161616', '#1c1c1c'] as const,
-  veil: ['rgba(255,255,255,0.028)', 'rgba(255,255,255,0.07)'] as const,
-  start: { x: 0.5, y: 0 } as const,
-  end: { x: 0.5, y: 1 } as const,
-  fallback: '#161616',
-};
+  surface: '#161616',
+  /** The joint between the sheet and the tab floor. A seam, not a highlight. */
+  edge: 'rgba(255, 255, 255, 0.07)',
+} as const;
 
 export const glassStyle = {
   backgroundColor: theme.colors.surface,
@@ -125,6 +129,27 @@ export const VE_BLUE = {
   /** blue-500 — the route, the pickup marker, the primary accent. */
   base: '#3b82f6',
   /**
+   * The portal's button gradient, blue-600 → blue-800.
+   *
+   * `.btn-gradient` and `LANDING_CTA` on the web app (`from-blue-600 to-blue-800`), left to right,
+   * and the same pair its launcher icons are painted with. A driver control that carries it is
+   * literally the gradient of the button it mirrors, which is the point of naming it here.
+   */
+  gradient: ['#2563eb', '#1e40af'],
+  /**
+   * The button pair lifted one step along the same ramp — blue-400 → blue-600, same direction.
+   *
+   * A gradient is composed against the surface it is read on, and the button pair is composed
+   * against a light page: there, blue-800 is the end that *carries* the contrast. On
+   * `APP_CHROME.surface` it is the end that disappears — 2.07:1, under the 3:1 a 2 px glyph needs.
+   * Lifting both stops keeps the left-to-right read of the portal's gradient (blue-600, its dark
+   * end, becomes this pair's light one) and puts every stop above the floor: 7.12:1 and 3.50:1.
+   *
+   * Not a second blue — the same family, one step up, because the floor moved.
+   * `tabIconGradient.test.ts` measures both pairs, so the shift cannot be undone by taste.
+   */
+  glyphGradient: ['#60a5fa', '#2563eb'],
+  /**
    * blue-700 — a glyph drawn straight on the face.
    *
    * Darker than the accent rather than lighter, and the inversion follows the face: on a dark
@@ -141,9 +166,45 @@ export const VE_BLUE = {
    * tint that reads as a tone on a dark face reads as a stain on a light one.
    */
   tintAlpha: '1f',
+  /**
+   * blue-500 at 22 %, as a bare alpha for `${accent}${alpha}`.
+   *
+   * The stronger of the two accent alphas, for every place the accent has to read as a *bounded
+   * shape* rather than as a wash: the border of a chip, the outline of a ride card, the track of
+   * the online switch. Kept low on purpose — an edge is what bounds a dark surface on a dark
+   * floor, and a stronger one reads as a highlight drawn around it.
+   *
+   * Deliberately not `MAP_PALETTE.departureGlow` (40 %), which is a bleed meant to sit under a
+   * 2 px rim on the map — the same value is a glow there and a highlight here.
+   */
+  strongAlpha: '38',
+  /**
+   * The **opaque**, near-neutral face the outlined button is given.
+   *
+   * Not a blue, and that is the point: an outlined control is a well in the card, so its face is
+   * the card. Measured rather than guessed — the chrome (`APP_CHROME.surface`, 22) under the
+   * card's 3 % white frost (29), under roughly 6 % of the accent wash at the height the button
+   * sits (31, 35, 42).
+   *
+   * It is opaque by choice, not by necessity. It was a necessity when the hairline was made by
+   * insetting a face over a gradient; the hairline is now stroked *over* the face by
+   * `AccentOutline`, so a translucent face would work — it would simply read as a hole rather than
+   * a well. Left opaque: it is what keeps the control from competing with the card's blue wash.
+   */
+  outlineFill: '#1f232a',
   /** slate-950 — what the portal's cards cast, and what reads as shade under glass. */
   shadow: '#020617',
 } as const;
+
+/**
+ * The thickness of an accent hairline, in points.
+ *
+ * One number rather than a literal at the call site, because it is the weight that decides whether
+ * a contour reads as an edge or as a frame, and it is easy to tune by accident. Thin on purpose:
+ * this is a boundary, not a badge. Small controls take less still — `AccentOutline` is given a
+ * hairline on the 22-point chips — so this is the upper of the two, for the tallest control.
+ */
+export const ACCENT_OUTLINE_WIDTH = 1.25;
 
 /**
  * The glass the panels above the live map are made of — one material, described layer by layer.

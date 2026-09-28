@@ -125,7 +125,7 @@ function OfferCardApproach({
       style={styles.approachContainer}
     >
       <View style={styles.approachContent}>
-        <Feather name="map-pin" size={13} color="#fb923c" />
+        <Feather name="map-pin" size={13} color={MAP_PALETTE.approach} />
         <Text style={styles.approachLabel}>{label}</Text>
         <Text style={styles.approachText} numberOfLines={1}>
           {approachText}
@@ -226,14 +226,13 @@ function OfferCardTripDetails({
       <RideOfferExtras
         options={ride.options}
         vehicleType={ride.vehicle_type}
-        variant="dark"
         compact
         selectedOnly
         interactive={false}
       />
       {pickupWhen ? (
         <View style={styles.metaRow}>
-          <Feather name="clock" size={13} color="#fdba74" />
+          <Feather name="clock" size={13} color={MAP_PALETTE.departure} />
           <Text style={styles.metaText} numberOfLines={1}>
             {pickupWhen}
           </Text>
