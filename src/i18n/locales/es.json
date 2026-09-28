@@ -137,6 +137,7 @@
   },
   "profile": {
     "title": "Perfil",
+    "screenSubtitle": "Cuenta del conductor",
     "updates": {
       "menu": "Actualizaciones",
       "menuReady": "Actualización lista — reiniciar",
@@ -250,6 +251,24 @@
     "notAuthenticated": "No autenticado",
     "error": "Error",
     "failedToUpload": "Error al subir documento"
+  },
+  "earningsScreen": {
+    "title": "Ganancias",
+    "subtitle": "Rendimiento",
+    "today": "Hoy",
+    "ridesChip": "+{{count}} VIAJES",
+    "completedToday": "completados hoy",
+    "weekEst": "Esta semana (est.)",
+    "monthEst": "Este mes (est.)"
+  },
+  "ridesScreen": {
+    "title": "Viajes",
+    "subtitle": "En curso e historial",
+    "noActiveTitle": "Sin viajes activos",
+    "noActiveBody": "Conéctate para recibir solicitudes. El viaje se controla en el mapa de Inicio.",
+    "todaySummary": "Resumen del día",
+    "rides": "Viajes",
+    "earned": "Ganado"
   },
   "navigation": {
     "home": "Inicio",

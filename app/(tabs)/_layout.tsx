@@ -1,31 +1,26 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useTranslation } from 'react-i18next';
 import { DriverTabBar } from '../../src/components/DriverTabBar';
+import { DriverTabBarIcon } from '../../src/components/DriverTabBarIcon';
+import { VE_BLUE } from '../../src/lib/theme';
 
-type TabBarIconProps = Readonly<{ color: string; focused?: boolean; size?: number }>;
+type TabBarIconProps = Readonly<{ focused: boolean; color: string; size?: number }>;
 
-function TabIcon({
-  icon,
-  color,
-}: Readonly<{ icon: string; color: string }>) {
-  return <Text style={{ fontSize: 20, color }}>{icon}</Text>;
+function HomeTabIcon({ focused }: TabBarIconProps) {
+  return <DriverTabBarIcon name="home" focused={focused} />;
 }
 
-function HomeTabIcon({ color }: TabBarIconProps) {
-  return <TabIcon icon="🏠" color={color} />;
+function RidesTabIcon({ focused }: TabBarIconProps) {
+  return <DriverTabBarIcon name="navigation" focused={focused} />;
 }
 
-function RidesTabIcon({ color }: TabBarIconProps) {
-  return <TabIcon icon="🚗" color={color} />;
+function EarningsTabIcon({ focused }: TabBarIconProps) {
+  return <DriverTabBarIcon name="trending-up" focused={focused} />;
 }
 
-function EarningsTabIcon({ color }: TabBarIconProps) {
-  return <TabIcon icon="💰" color={color} />;
-}
-
-function ProfileTabIcon({ color }: TabBarIconProps) {
-  return <TabIcon icon="👤" color={color} />;
+function ProfileTabIcon({ focused }: TabBarIconProps) {
+  return <DriverTabBarIcon name="user" focused={focused} />;
 }
 
 function TabsTabBar(props: Readonly<BottomTabBarProps>) {
@@ -33,6 +28,8 @@ function TabsTabBar(props: Readonly<BottomTabBarProps>) {
 }
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
+
   return (
     <Tabs
       tabBar={TabsTabBar}
@@ -46,39 +43,39 @@ export default function TabsLayout() {
           paddingBottom: 20,
           paddingTop: 10,
         },
-        tabBarActiveTintColor: '#10b981',
-        tabBarInactiveTintColor: '#666',
+        tabBarActiveTintColor: VE_BLUE.base,
+        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.42)',
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '500',
+          fontWeight: '600',
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t('navigation.home'),
           tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="rides"
         options={{
-          title: 'Rides',
+          title: t('navigation.rides'),
           tabBarIcon: RidesTabIcon,
         }}
       />
       <Tabs.Screen
         name="earnings"
         options={{
-          title: 'Earnings',
+          title: t('navigation.earnings'),
           tabBarIcon: EarningsTabIcon,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: t('navigation.profile'),
           tabBarIcon: ProfileTabIcon,
         }}
       />
