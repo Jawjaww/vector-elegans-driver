@@ -7,9 +7,6 @@ export const RIDE_OFFER_CATEGORY_ID = 'ride_offer';
 export const RIDE_OFFER_ACCEPT_ACTION = 'accept';
 export const RIDE_OFFER_DECLINE_ACTION = 'decline';
 
-/** Pin + arrival-flag prefixes — mirrors the notification body lines. */
-const PICKUP_PREFIX = '📍 ';
-const DROPOFF_PREFIX = '🏁 ';
 const DEFAULT_CTA = 'Appuyez pour accepter';
 
 export type RideOfferRemoteCopy = {
@@ -30,9 +27,11 @@ export function isRideOfferPush(data: Record<string, unknown>): boolean {
 }
 
 export function readString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
 }
 
 export function formatPriceLabel(data: Record<string, unknown>): string | null {
@@ -52,26 +51,45 @@ export function formatPriceLabel(data: Record<string, unknown>): string | null {
   return null;
 }
 
-function shortenAddress(value: string, maxLen = 56): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= maxLen) return trimmed;
-  return `${trimmed.slice(0, maxLen - 1)}…`;
+function formatDistanceLabel(data: Record<string, unknown>): string | null {
+  const fromLabel = readString(data.distance_label);
+  if (fromLabel) return fromLabel;
+  const raw = data.distance;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return `${raw.toFixed(1)} km`;
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) {
+      return `${parsed.toFixed(1)} km`;
+    }
+  }
+  return null;
 }
 
-function buildBodyLines(data: Record<string, unknown>): string[] {
-  const pickup = readString(data.pickup_address);
-  const dropoff = readString(data.dropoff_address);
-  const price = formatPriceLabel(data);
-  const lines: string[] = [];
-
-  if (pickup) lines.push(`${PICKUP_PREFIX}${shortenAddress(pickup)}`);
-  if (dropoff) lines.push(`${DROPOFF_PREFIX}${shortenAddress(dropoff)}`);
-  if (price) {
-    lines.push(`💶 ${price} · ${DEFAULT_CTA}`);
-  } else {
-    lines.push(DEFAULT_CTA);
+function formatDurationLabel(data: Record<string, unknown>): string | null {
+  const fromLabel = readString(data.duration_label);
+  if (fromLabel) return fromLabel;
+  const raw = data.duration;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return `${Math.round(raw)} min`;
   }
-  return lines;
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) {
+      return `${Math.round(parsed)} min`;
+    }
+  }
+  return null;
+}
+
+function buildMetricsBody(data: Record<string, unknown>): string | null {
+  const parts = [
+    formatPriceLabel(data),
+    formatDistanceLabel(data),
+    formatDurationLabel(data),
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 export function rideOfferNotificationId(
@@ -82,26 +100,25 @@ export function rideOfferNotificationId(
 }
 
 /**
- * Builds tray copy for ride_offer pushes (A/B pin colors + price).
- * Falls back to the remote FCM title/body when structured data is missing.
+ * Tray copy for ride_offer: price, trip distance and estimated duration.
+ * Falls back to the remote FCM title/body when those fields are missing.
  */
 export function buildRideOfferPushContent(
   data: Record<string, unknown>,
   remote: RideOfferRemoteCopy,
   options?: { includeSubtitle?: boolean },
 ): RideOfferPushContent {
-  const pickup = readString(data.pickup_address);
-  const dropoff = readString(data.dropoff_address);
   const price = formatPriceLabel(data);
+  const metrics = buildMetricsBody(data);
   const subtitle = readString(data.subtitle) ?? price;
-  const hasStructured = Boolean(pickup || dropoff || price);
+  const hasStructured = metrics !== null;
 
   const title = hasStructured
     ? 'Nouvelle course'
     : readString(remote.title) ?? 'Nouvelle course';
 
   const body = hasStructured
-    ? buildBodyLines(data).join('\n')
+    ? metrics
     : readString(remote.body) ?? DEFAULT_CTA;
 
   return {
