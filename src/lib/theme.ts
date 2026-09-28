@@ -159,12 +159,10 @@ export const VE_BLUE = {
  * white wash (`fillTop` / `fillBottom`) — and nothing else. A highlight painted across that
  * copy reads as a tinted background, which is the opposite of a flat pane. The catch-light
  * (`rimHighlight` / `rimShade`) is a band of `rimWidthPx` drawn *outside* the card, masked so
- * the centre is punched out, and blended with the map under that band only. The light runs
- * corner to opposite corner (top-left and bottom-right catch, the other pair falls off) —
- * a top-to-bottom gradient would light both upper edges at once. `rimMid` is only the tone
- * the ramp passes through at the middle of each edge: highlight and shade peak at the
- * corners, and the band between them is a continuous falloff, not a held plateau. It is static:
- * the blur of the face is the only per-frame cost.
+ * the centre is punched out, and blended with the map under that band only. Catch-light is
+ * four radial spots at the corners, not a conic from the card centre: a degree-based sweep
+ * on a wide rectangle lights the middle of the long edges. `rimMid` is the band between
+ * those spots. It is static: the blur of the face is the only per-frame cost.
  *
  * `text`, `textDim`, `accent`, `accentStrong` and `chipTintAlpha` live here too, and that is what
  * makes these overlays one material rather than several panels that happen to share a background.
@@ -173,11 +171,11 @@ export const VE_BLUE = {
 export type GlassMaterial = {
   /** Top of the frosted face. A thin white wash over the blur, not a plate. */
   fillTop: string;
-  /** Bottom of the frosted face. Slightly more map bleed-through than `fillTop`. */
+  /** Bottom of the frosted face. A second stop of the same white wash. */
   fillBottom: string;
   /**
-   * Catch-light on one pair of opposite corners of the exterior band (top-left and
-   * bottom-right). Blended with the map under that band, never with the face.
+   * Catch-light on one pair of opposite corners (top-left and bottom-right).
+   * Blended with the map under that band, never with the face.
    */
   rimHighlight: string;
   /**
@@ -186,8 +184,8 @@ export type GlassMaterial = {
    */
   rimShade: string;
   /**
-   * Halfway tone. The rim crosses it at the middle of each edge and does not stay there:
-   * a plateau would read as a third stripe.
+   * Tone of the rim between the corner spots. The long edges stay here so a
+   * highlight cannot travel toward the middle of a wide card.
    */
   rimMid: string;
   /**
@@ -219,11 +217,11 @@ export type GlassMaterial = {
 };
 
 export const GLASS_MATERIAL: GlassMaterial = {
-  fillTop: 'rgba(255, 255, 255, 0.22)',
-  fillBottom: 'rgba(255, 255, 255, 0.06)',
-  backdropBlurPx: 4,
-  rimHighlight: 'rgba(255, 255, 255, 0.38)',
-  rimShade: 'rgba(0, 0, 0, 0.20)',
+  fillTop: 'rgba(255, 255, 255, 0.12)',
+  fillBottom: 'rgba(255, 255, 255, 0.40)',
+  backdropBlurPx: 3,
+  rimHighlight: 'rgba(255, 255, 255, 0.98)',
+  rimShade: 'rgba(158, 158, 158, 0.20)',
   rimMid: 'rgba(255, 255, 255, 0.14)',
   rimWidthPx: 1,
   shadow: { offsetY: 6, radius: 28, opacity: 0.24, color: '#000000' },
@@ -235,25 +233,31 @@ export const GLASS_MATERIAL: GlassMaterial = {
 };
 
 /**
- * Exterior rim as one conic, sampled once.
- *
- * Highlight peaks at 315° and 135° (top-left, bottom-right), shade at 45° and 225°.
- * A cosine between those peaks passes through `rimMid` at each edge centre and does not
- * sit on it: two identical stops in a row were the plateau that read as a stripe.
- * The face colours are not in this gradient.
+ * How far a corner catch-light travels along the rim, as a fraction of the
+ * shorter side. Independent of the long side, so a wide offer card does not
+ * smear highlight toward the middle of the top edge.
  */
-export function frostRimConic(material: GlassMaterial = GLASS_MATERIAL): string {
-  const stops: string[] = [];
-  for (let deg = 0; deg <= 360; deg += 15) {
-    const wave = Math.cos(((deg - 315) * 2 * Math.PI) / 180);
-    const towardHighlight = (wave + 1) / 2;
-    const pct = Math.round(Math.abs(towardHighlight - 0.5) * 200);
-    let color = material.rimMid;
-    if (pct > 0) {
-      const end = towardHighlight > 0.5 ? material.rimHighlight : material.rimShade;
-      color = `color-mix(in srgb, ${end} ${pct}%, ${material.rimMid})`;
-    }
-    stops.push(`${color} ${deg}deg`);
-  }
-  return `conic-gradient(from 0deg, ${stops.join(', ')})`;
+export const FROST_RIM_CORNER_SPAN = 0.45;
+
+/**
+ * Exterior rim: mid-tone band plus four radials pinned to the corners.
+ *
+ * A conic from the rectangle centre cannot hit a corner of a wide card: 315°
+ * lands on the middle of the top edge. `radiusPx` is a fraction of the shorter
+ * side, so the spot dies before the long-edge centre. Face colours stay out.
+ */
+export function frostRimConic(
+  material: GlassMaterial = GLASS_MATERIAL,
+  radiusPx: number = 24,
+): string {
+  const r = `${Math.max(1, Math.round(radiusPx))}px`;
+  const at = (x: string, y: string, color: string) =>
+    `radial-gradient(${r} ${r} at ${x} ${y}, ${color} 0%, transparent 100%)`;
+  return [
+    at('0%', '0%', material.rimHighlight),
+    at('100%', '0%', material.rimShade),
+    at('100%', '100%', material.rimHighlight),
+    at('0%', '100%', material.rimShade),
+    material.rimMid,
+  ].join(', ');
 }

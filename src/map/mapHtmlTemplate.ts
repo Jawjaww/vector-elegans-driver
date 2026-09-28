@@ -2,7 +2,7 @@ import type { LatLng } from "./types";
 import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
-import { frostRimConic, GLASS_MATERIAL } from "../lib/theme";
+import { FROST_RIM_CORNER_SPAN, GLASS_MATERIAL } from "../lib/theme";
 import { snapToNavLine } from "../lib/utils/routeSnap";
 import {
   deviceBearing,
@@ -546,10 +546,25 @@ export function buildMapHtmlTemplate(
     // blurred copy of the canvas plus a thin white wash. The RN panel stays clear.
     const FROST_BLUR_PX = ${GLASS_MATERIAL.backdropBlurPx};
     const FROST_RIM_PX = ${GLASS_MATERIAL.rimWidthPx};
+    const FROST_RIM_CORNER_SPAN = ${FROST_RIM_CORNER_SPAN};
+    const FROST_RIM_HIGHLIGHT = ${JSON.stringify(GLASS_MATERIAL.rimHighlight)};
+    const FROST_RIM_SHADE = ${JSON.stringify(GLASS_MATERIAL.rimShade)};
+    const FROST_RIM_MID = ${JSON.stringify(GLASS_MATERIAL.rimMid)};
     const FROST_VEIL = "linear-gradient(to bottom, ${GLASS_MATERIAL.fillTop}, ${GLASS_MATERIAL.fillBottom})";
-    // Face is the veil alone. The rim is a cosine sampled once at build time: peaks only at
-    // opposite corners, a pass through the mid tone, no plateau. paintFrost does not touch it.
-    const FROST_RIM = ${JSON.stringify(frostRimConic())};
+    function frostRimPaint(w, h) {
+      var radiusPx = Math.max(8, Math.round(Math.min(w, h) * FROST_RIM_CORNER_SPAN));
+      var r = radiusPx + "px";
+      function at(x, y, color) {
+        return "radial-gradient(" + r + " " + r + " at " + x + " " + y + ", " + color + " 0%, transparent 100%)";
+      }
+      return [
+        at("0%", "0%", FROST_RIM_HIGHLIGHT),
+        at("100%", "0%", FROST_RIM_SHADE),
+        at("100%", "100%", FROST_RIM_HIGHLIGHT),
+        at("0%", "100%", FROST_RIM_SHADE),
+        FROST_RIM_MID,
+      ].join(", ");
+    }
 
     function frostCard(root, id) {
       const nodes = root.children;
@@ -607,7 +622,7 @@ export function buildMapHtmlTemplate(
           rim.style.boxSizing = "border-box";
           rim.style.pointerEvents = "none";
           rim.style.padding = FROST_RIM_PX + "px";
-          rim.style.background = FROST_RIM;
+          rim.style.background = FROST_RIM_MID;
           rim.style.mixBlendMode = "overlay";
           const punch = "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)";
           rim.style.webkitMask = punch;
@@ -633,6 +648,7 @@ export function buildMapHtmlTemplate(
         const rimNode = card.querySelector("[data-frost-rim]");
         if (rimNode) {
           rimNode.style.borderRadius = ((r.radius || 0) + rimPx) + "px";
+          rimNode.style.background = frostRimPaint(r.w + rimPx * 2, r.h + rimPx * 2);
         }
       }
       const cards = root.querySelectorAll("[data-frost]");

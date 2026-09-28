@@ -7,7 +7,7 @@ const { readFileSync } = require('fs') as {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { join } = require('path') as { join: (...parts: string[]) => string };
 
-import { frostRimConic, GLASS_MATERIAL, VE_BLUE, theme } from '../theme';
+import { frostRimConic, FROST_RIM_CORNER_SPAN, GLASS_MATERIAL, VE_BLUE, theme } from '../theme';
 import { MAP_PALETTE } from '../mapPalette';
 import { tripGuidanceAccent } from '../utils/tripGuidance';
 import {
@@ -138,16 +138,25 @@ describe('the edge of a panel', () => {
     expect(map).toContain('data-frost-rim');
     expect(map).toContain('r.x - rimPx');
     expect(map).toContain('GLASS_MATERIAL.rimWidthPx');
-    expect(map).toContain('frostRimConic()');
+    expect(map).toContain('frostRimPaint');
+    expect(map).toContain('FROST_RIM_CORNER_SPAN');
+    expect(map).toContain('radial-gradient');
+    expect(map).not.toContain('frostRimConic()');
     expect(map).toContain('FROST_VEIL');
     expect(map).toContain('GLASS_MATERIAL.fillTop');
     expect(map).not.toContain('18deg');
-    const rim = frostRimConic();
-    expect(rim).toContain('conic-gradient');
-    expect(rim).toContain('color-mix');
-    expect(rim).toContain(`${GLASS_MATERIAL.rimHighlight} 100%`);
-    expect(rim).toContain('315deg');
-    expect(rim).toContain('135deg');
+    const rim = frostRimConic(GLASS_MATERIAL, 24);
+    expect(rim).toContain('radial-gradient(24px 24px at 0% 0%');
+    expect(rim).toContain('radial-gradient(24px 24px at 100% 0%');
+    expect(rim).toContain('radial-gradient(24px 24px at 100% 100%');
+    expect(rim).toContain('radial-gradient(24px 24px at 0% 100%');
+    expect(rim).toContain(GLASS_MATERIAL.rimHighlight);
+    expect(rim).toContain(GLASS_MATERIAL.rimShade);
+    expect(rim.endsWith(GLASS_MATERIAL.rimMid)).toBe(true);
+    expect(rim).not.toContain('conic-gradient');
+    expect(rim).not.toContain('315deg');
+    expect(FROST_RIM_CORNER_SPAN).toBeLessThan(0.5);
+    expect(FROST_RIM_CORNER_SPAN).toBeGreaterThan(0.2);
     expect(rim).not.toContain(GLASS_MATERIAL.fillTop);
     expect(rim).not.toContain(GLASS_MATERIAL.fillBottom);
     expect(map).toContain('maskComposite = "exclude"');
@@ -171,7 +180,7 @@ describe('the face of a panel', () => {
     }
     const top = rgbOf(GLASS_MATERIAL.fillTop);
     const bottom = rgbOf(GLASS_MATERIAL.fillBottom);
-    expect(top.a).toBeGreaterThan(bottom.a);
+    expect(top.a).not.toBe(bottom.a);
     const panel = stripComments(readSource(GLASS_PANEL));
     const map = stripComments(readSource(MAP_TEMPLATE));
     expect(panel).toContain('elevation: 0');
