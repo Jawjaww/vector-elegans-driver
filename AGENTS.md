@@ -47,7 +47,7 @@ Smoke test local (phone Safari, même Wi‑Fi) : `http://<LAN_IP>:54329/auth/v1/
 
 - Clés anon : `EXPO_PUBLIC_SUPABASE_ANON_KEY` dans `.env`
 - Carte : **MapLibre WebView** (`src/map/VTCMap` → `WebViewMap`) — pas Google Maps
-- Offres : card compacte bas + map live en haut — voir `vector-elegans-docs/mobile/OFFER_MAP.md`
+- Offres : card compacte bas + map live en haut — voir `vector-elegans-docs/mobile/OFFER_MAP.md`. FCM offre (réveil silencieux vs bannière hors ligne) : `vector-elegans-docs/mobile/OFFER_PUSH_PIPELINE.md`.
 - Code mort : ne pas laisser de composants/hooks sans import ; même nom ≠ même app (voir `.cursor/rules/no-dead-code.mdc`). Swipe pile Expo : `useOfferDismissGesture` sur la card avant → `cycleAvailableRideToBack`. Refuser → `deferAvailableRide`.
 - `extra.eas.projectId` dans `app.config.js` : requis pour `eas build` et EAS Update OTA
 
@@ -93,6 +93,8 @@ Dashboard updates : https://expo.dev/accounts/jawjaww/projects/vector-elegans-dr
 
 But : amener l'app au premier plan avec la course **sans passer par la notification**, quand le chauffeur est en ligne. Android bloque les lancements d'Activity depuis l'arrière-plan (BAL, API 29+) ; détenir `SYSTEM_ALERT_WINDOW` **et** afficher une fenêtre overlay visible est une des exemptions documentées. La pastille *est* cette fenêtre — sans elle, le lancement est refusé.
 
+**Deux pipelines, ne pas les fusionner.** En ligne = réveil silencieux (aucun heads-up). Hors ligne à l’insert de l’offre = bannière tapable, pas de `startActivity`. Contrat et critères : `vector-elegans-docs/mobile/OFFER_PUSH_PIPELINE.md`. `is_online` est l’interrupteur, pas « app fermée ».
+
 - **Module natif local** : `modules/ve-overlay/` (Kotlin + `expo-module.config.json`), autolinké depuis `./modules` (défaut Expo). `android/` et `ios/` restent gitignorés : on committe la **source** du module, jamais le projet généré.
   - ⚠️ Les motifs du [`.gitignore`](.gitignore) sont **ancrés à la racine** (`/android/`, `/ios/`) pour cette raison : un `android/` non ancré matche aussi `modules/*/android/` et supprimerait silencieusement le Kotlin de tout module local du commit. Vérifier après ajout d'un module : `for f in $(find modules -type f); do git check-ignore -v "$f"; done` ne doit rien afficher.
 - **Permission** : `android.permission.SYSTEM_ALERT_WINDOW` dans [`app.config.js`](app.config.js) — accès spécial, accordé par l'utilisateur depuis Settings. L'app affiche d'abord une explication in-app (`src/hooks/useOverlayPermissionPrompt.ts`) ; un refus est honoré et la notification reste le chemin de secours.
@@ -130,15 +132,15 @@ Le JS reparse cette chaîne (`mapNotificationResponse.ts` : `mappedContent.data 
 
 **Et la règle d'acceptation doit être celle du JS, pas une plus stricte.** `isRideOfferPush` (`src/lib/notifications/rideOfferPushContent.ts`) accepte `type === 'ride_offer'` **ou** un `ride_id` non vide ; le natif, lui, exigeait `type` seul. Un payload ne portant que `ride_id` était donc **ouvert par un tap et ignoré par le réveil** : les deux moitiés d'un même pipeline ne s'accordaient pas sur ce qu'est une offre, la notification restait le seul chemin, et rien ne disait pourquoi. Toute évolution de cette règle doit être faite **des deux côtés** — le test `fcmServiceResolution.test.ts` compare les deux gardes.
 
-### La notification est le recours, pas le point d'entrée
+### La notification est le recours du réveil en ligne, pas le point d’entrée
 
-Objectif produit : sur le chemin où le réveil réussit, **aucune notification ne doit apparaître**. Une bannière qui double une course déjà à l'écran ne fait pas qu'être inutile, elle détourne l'attention au pire moment — et elle est le premier signe visible d'un réveil qui ne marche pas.
+Objectif produit **en ligne** : si le réveil réussit, **aucune notification ne doit apparaître**. Hors ligne, c’est l’inverse : la bannière **est** le point d’entrée, et le tap ouvre l’app. Les deux partagent un message FCM data-only ; le natif tranche avec `OfferPushDisposition` (`WAKE` / `EXPO` / `HANDLED`), pas un booléen. Détail et pièges (prefs `commit()`, parcel `RemoteMessage`, `router.push` trop tôt) : `vector-elegans-docs/mobile/OFFER_PUSH_PIPELINE.md`.
 
-Le service décide donc en trois temps :
+Sur le chemin **WAKE** seulement :
 
-1. `onRideOfferPush` renvoie `true` **seulement** s'il y a un lancement à tenter : chauffeur en ligne **et** app hors premier plan. Sinon `false`, et `super` est appelé immédiatement — la notification est alors le seul porteur de l'offre et elle ne doit pas attendre.
-2. Si `true`, le service ne présente rien : il confie le `RemoteMessage` à `holdOfferPresentation`, qui arme un `Runnable` de 2 s (`OFFER_PRESENTATION_FALLBACK_MS`).
-3. Sur `ON_START` / `ON_RESUME`, `onAppForegrounded` annule ce `Runnable`. Si l'app n'est jamais revenue, le `Runnable` **rejoue le message par le délégué d'Expo** — `FirebaseMessagingDelegate(context).onMessageReceived(remoteMessage)` — donc le même payload, le même canal, la même action de tiroir que le chemin d'origine.
+1. `onRideOfferPush` renvoie `WAKE` si chauffeur en ligne **et** app hors premier plan. Hors ligne + away → `OfflineOfferNotifier` puis `HANDLED` (pas de `super`). Déjà au premier plan → `EXPO` et `super` tout de suite.
+2. Si `WAKE`, le service ne présente rien : il confie le `RemoteMessage` à `holdOfferPresentation` (2 s).
+3. Sur `ON_START` / `ON_RESUME`, `onAppForegrounded` annule ce `Runnable`. Si l'app n'est jamais revenue, le `Runnable` **rejoue le message par le délégué d'Expo**.
 
 Le délégué est instancié avec le **contexte d'application**, jamais le service : `onMessageReceived` qui rend la main est ce qui **arrête** ce service, et présenter depuis un composant qu'Android a déjà détruit serait présenter depuis un mort. `NotificationsService.receive` passe par `sendBroadcast`, légal depuis n'importe quel contexte.
 

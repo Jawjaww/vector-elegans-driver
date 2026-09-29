@@ -1,0 +1,19 @@
+---
+description: Two FCM pipelines for ride offers — never merge online silent wake with offline tap heads-up
+alwaysApply: true
+---
+
+# Offer push — two pipelines
+
+Canonical contract: `vector-elegans-docs/mobile/OFFER_PUSH_PIPELINE.md`.
+
+`driver_locations.is_online` is the availability switch, not “app closed”.
+
+- **Online + app away:** silent data-only FCM → native wake (`WAKE`). No heads-up. Do not add a FCM `notification` block (`title`/`body` at payload root, or `data.visible=true` on the first send).
+- **Offline at offer insert:** still data-only (`wake=tap`). Native `OfflineOfferNotifier` posts a tappable heads-up. No `attemptForeground`. Do not mark these rows `visible=true` (Android will not start our service on a killed app).
+- Do not change the online wake (`sync` + `attemptForeground`, overlay before `startActivity`) while working on the offline banner.
+- Diagnostic prefs: `apply()`, never `commit()`, on `ve_overlay_prefs` (same file as `driver_online`).
+- Offline tap parcel: `NotificationContent` + `ChannelAwareTrigger`, never a synthetic `RemoteMessage`.
+- After tap/wake: `queueOfferOpen` immediately; `router.push` only when `navigationRef.isReady()` (not `useRootNavigationState().key`).
+- Offline display does not require `isOnline` (`canDisplayOffers`).
+- Kotlin change → new APK. Offline drivers enter dispatch at wave 3, not wave 1.
