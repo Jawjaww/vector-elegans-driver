@@ -230,6 +230,7 @@ export const BottomSheet = ({
 
   const applySnapLevel = useCallback(
     (level: SheetSnapLevel, report = false) => {
+      prevSnap.current = level;
       const atStats = level === 'stats';
       setScrollEnabled(atStats);
       if (!atStats) {
@@ -335,12 +336,15 @@ export const BottomSheet = ({
   );
 
   const sheetPan = useMemo(() => buildPanGesture(false), [buildPanGesture]);
-  const pullUpPan = useMemo(() => buildPanGesture(true), [buildPanGesture]);
+  // Two instances: RNGH ties a gesture to one GestureDetector. Reusing the same Pan on the scene
+  // strip and the tab bar corrupts activation (sheet stops opening until the tab bar remounts).
+  const pullUpPanScene = useMemo(() => buildPanGesture(true), [buildPanGesture]);
+  const pullUpPanTabBar = useMemo(() => buildPanGesture(true), [buildPanGesture]);
 
   useEffect(() => {
-    setBottomSheetTabBarPanGesture(pullUpPan);
+    setBottomSheetTabBarPanGesture(pullUpPanTabBar);
     return () => setBottomSheetTabBarPanGesture(null);
-  }, [pullUpPan]);
+  }, [pullUpPanTabBar]);
 
   const rBottomSheetStyle = useAnimatedStyle(() => ({
     top: translateY.value,
@@ -348,7 +352,7 @@ export const BottomSheet = ({
 
   return (
     <View style={styles.sceneFill} pointerEvents="box-none" onLayout={onLayout}>
-      <GestureDetector gesture={pullUpPan}>
+      <GestureDetector gesture={pullUpPanScene}>
         <View style={styles.sceneBottomDragZone} />
       </GestureDetector>
       <GestureDetector gesture={sheetPan}>

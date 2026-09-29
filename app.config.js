@@ -34,6 +34,13 @@ module.exports = {
       bundleIdentifier: 'com.vectorelegans.driver',
       infoPlist: {
         UIBackgroundModes: ['location'],
+        LSApplicationQueriesSchemes: [
+          'waze',
+          'comgooglemaps',
+          'googlechromes',
+          'http',
+          'https',
+        ],
       },
     },
     android: {
@@ -50,6 +57,13 @@ module.exports = {
       // the build under test. It is also what Android compares to allow an in-place update,
       // so it must only ever increase.
       versionCode: 10009,
+      intentQueries: [
+        { scheme: 'waze' },
+        { scheme: 'google.navigation' },
+        { scheme: 'comgooglemaps' },
+        { scheme: 'https', host: 'waze.com' },
+        { scheme: 'https', host: 'www.google.com' },
+      ],
       permissions: [
         'android.permission.INTERNET',
         'android.permission.ACCESS_COARSE_LOCATION',

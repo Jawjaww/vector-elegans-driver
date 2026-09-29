@@ -1,7 +1,7 @@
 import React, { useSyncExternalStore } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { GestureDetector } from 'react-native-gesture-handler';
+import { GestureDetector, Pressable } from 'react-native-gesture-handler';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import {
   getBottomSheetTabBarPanGesture,
@@ -75,7 +75,12 @@ export function DriverTabBar(props: Readonly<BottomTabBarProps>) {
   );
 
   if (!pullGesture) return content;
-  return <GestureDetector gesture={pullGesture}>{content}</GestureDetector>;
+  // RNGH Pressable so upward pan and tab taps are not fighting the RN touch responder.
+  return (
+    <GestureDetector gesture={pullGesture}>
+      <View collapsable={false}>{content}</View>
+    </GestureDetector>
+  );
 }
 
 const styles = StyleSheet.create({

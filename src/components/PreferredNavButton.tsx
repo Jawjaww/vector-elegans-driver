@@ -49,10 +49,10 @@ export function PreferredNavButton({ destination }: PreferredNavButtonProps) {
 
   const onLongPress = useCallback(() => {
     void (async () => {
-      await changePreferredNavApp();
+      await changePreferredNavApp(destination);
       await refresh();
     })();
-  }, [refresh]);
+  }, [destination, refresh]);
 
   const icon = app ? NAV_ICONS[app] : 'navigation';
   const label = app ? SHORT_LABELS[app] : 'GPS';
