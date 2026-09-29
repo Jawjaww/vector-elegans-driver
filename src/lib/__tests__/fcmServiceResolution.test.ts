@@ -280,7 +280,7 @@ describe('the notification is the fallback, not the entry point', () => {
   it('posts the offline heads-up on this thread, not through Expo receive', () => {
     const notifier = stripKotlinComments(readSource(OFFLINE_NOTIFIER));
     const start = notifier.indexOf('fun present(');
-    const end = notifier.indexOf('private fun remoteMessageWithHeadsUpData(');
+    const end = notifier.indexOf('private fun offerBody(');
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const headsUp = notifier.slice(start, end);
@@ -288,7 +288,14 @@ describe('the notification is the fallback, not the entry point', () => {
     // Broadcast + IO coroutine is what died with the FCM service. notify() here is the banner.
     expect(headsUp).toContain('manager.notify(identifier, 0, builder.build())');
     expect(headsUp).toContain('createNotificationResponseIntent');
+    expect(headsUp).toContain('NotificationContent.Builder()');
+    expect(headsUp).toContain('ChannelAwareTrigger(');
     expect(headsUp).not.toContain('FirebaseMessagingDelegate');
+    // A Builder-made RemoteMessage cannot be unparcelled after the FCM process
+    // dies, and NotificationForwarderActivity crashes in onCreate.
+    expect(notifier).not.toContain('RemoteNotificationContent');
+    expect(notifier).not.toContain('FirebaseNotificationTrigger');
+    expect(notifier).not.toContain('RemoteMessage.Builder');
     // The online controller must not reference the banner types. A failure to
     // resolve them has to stay inside this class.
     const controller = stripKotlinComments(readSource(CONTROLLER));

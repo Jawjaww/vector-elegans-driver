@@ -5,24 +5,19 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Bundle
-import android.os.Parcel
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.notifications.model.Notification as ExpoNotification
 import expo.modules.notifications.notifications.model.NotificationAction
+import expo.modules.notifications.notifications.model.NotificationContent
 import expo.modules.notifications.notifications.model.NotificationRequest
 import expo.modules.notifications.notifications.model.NotificationResponse
-import expo.modules.notifications.notifications.model.RemoteNotificationContent
-import expo.modules.notifications.notifications.model.triggers.FirebaseNotificationTrigger
 import expo.modules.notifications.notifications.presentation.builders.ExpoNotificationBuilder
+import expo.modules.notifications.notifications.triggers.ChannelAwareTrigger
 import expo.modules.notifications.service.NotificationsService
 import org.json.JSONObject
 import java.util.Date
 import java.util.UUID
-
-private const val TAG = "VeOverlay"
 
 /** Same id as `RIDES_PUSH_CHANNEL_ID` in `pushRegistration.ts` (importance MAX / heads-up). */
 private const val RIDES_PUSH_CHANNEL_ID = "rides"
@@ -37,6 +32,11 @@ private const val RIDES_PUSH_CHANNEL_NAME = "Offres de course"
  * `onMessageReceived` returning stops the service and Android kills the process — the
  * banner never posts. `NotificationManager.notify` on this thread is the tray entry;
  * the Expo PendingIntent is how a tap still opens the offer card.
+ *
+ * The intent carries a [NotificationContent], strings only. A synthetic [RemoteMessage]
+ * inside [expo.modules.notifications.notifications.model.RemoteNotificationContent]
+ * cannot be unparcelled once the process that built it is dead, and
+ * `NotificationForwarderActivity` then dies in `onCreate`.
  */
 object OfflineOfferNotifier {
   fun present(
@@ -45,20 +45,25 @@ object OfflineOfferNotifier {
     offer: Map<String, String>,
   ) {
     ensureRidesChannel(context)
-    val headsUp = remoteMessageWithHeadsUpData(remoteMessage, offer)
     val rideId = offer["ride_id"]
-    val identifier = headsUp.data["tag"]
+    val title = offer["title"]?.takeIf { it.isNotBlank() } ?: "Nouvelle course"
+    val text = offer["message"]?.takeIf { it.isNotBlank() }
+      ?: offer["body"]?.takeIf { it.isNotBlank() && !it.trimStart().startsWith("{") }
+      ?: "Appuyez pour accepter"
+    val channelId = offer["channelId"]?.takeIf { it.isNotBlank() } ?: RIDES_PUSH_CHANNEL_ID
+    val identifier = remoteMessage.data["tag"]?.takeIf { it.isNotBlank() }
+      ?: offer["tag"]?.takeIf { it.isNotBlank() }
       ?: rideId?.takeIf { it.isNotBlank() }?.let { "ride-offer-$it" }
       ?: UUID.randomUUID().toString()
-    val content = RemoteNotificationContent(headsUp)
-    val request = NotificationRequest(
-      identifier,
-      content,
-      FirebaseNotificationTrigger(headsUp),
-    )
+    val body = offerBody(remoteMessage, offer, title, text, channelId)
+    val content = NotificationContent.Builder()
+      .setTitle(title)
+      .setText(text)
+      .setBody(body)
+      .setAutoDismiss(true)
+      .build()
+    val request = NotificationRequest(identifier, content, ChannelAwareTrigger(channelId))
     val expoNotification = ExpoNotification(request, Date())
-    val title = content.title?.takeIf { it.isNotBlank() } ?: "Nouvelle course"
-    val text = content.text?.takeIf { it.isNotBlank() } ?: "Appuyez pour accepter"
     val builder = NotificationCompat.Builder(context, RIDES_PUSH_CHANNEL_ID)
       .setSmallIcon(notificationSmallIcon(context))
       .setContentTitle(title)
@@ -68,21 +73,9 @@ object OfflineOfferNotifier {
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-    content.body?.let { json ->
-      val extras = builder.extras
-      extras.putString(ExpoNotificationBuilder.EXTRAS_BODY_KEY, json.toString())
-      builder.setExtras(extras)
-    }
-    marshallNotificationRequest(request)?.let { bytes ->
-      builder.addExtras(
-        Bundle().apply {
-          putByteArray(
-            ExpoNotificationBuilder.EXTRAS_MARSHALLED_NOTIFICATION_REQUEST_KEY,
-            bytes,
-          )
-        },
-      )
-    }
+    val extras = builder.extras
+    extras.putString(ExpoNotificationBuilder.EXTRAS_BODY_KEY, body.toString())
+    builder.setExtras(extras)
     val defaultAction = NotificationAction(
       NotificationResponse.DEFAULT_ACTION_IDENTIFIER,
       null,
@@ -101,22 +94,19 @@ object OfflineOfferNotifier {
   }
 
   /**
-   * Copy of [remoteMessage] with tray fields on the flat data map and inside `body` JSON.
+   * Offer fields JS reads back from `content.data` after the tap.
+   *
+   * Starts from the Expo `data.body` JSON when that string parses, then overlays the
+   * already-resolved offer map. No [RemoteMessage] is stored: the tap intent only
+   * parcels this object as a string.
    */
-  private fun remoteMessageWithHeadsUpData(
+  private fun offerBody(
     remoteMessage: RemoteMessage,
     offer: Map<String, String>,
-  ): RemoteMessage {
-    val builder = RemoteMessage.Builder(remoteMessage.from ?: "ve-overlay")
-    for ((key, value) in remoteMessage.data) {
-      builder.addData(key, value)
-    }
-    val title = offer["title"]?.takeIf { it.isNotBlank() } ?: "Nouvelle course"
-    val message = offer["message"]?.takeIf { it.isNotBlank() }
-      ?: offer["body"]?.takeIf { it.isNotBlank() }
-      ?: "Appuyez pour accepter"
-    val channelId = offer["channelId"]?.takeIf { it.isNotBlank() } ?: RIDES_PUSH_CHANNEL_ID
-    val rideId = offer["ride_id"]
+    title: String,
+    message: String,
+    channelId: String,
+  ): JSONObject {
     val bodyJson = try {
       remoteMessage.data["body"]?.let { JSONObject(it) } ?: JSONObject()
     } catch (_: Exception) {
@@ -128,31 +118,12 @@ object OfflineOfferNotifier {
     bodyJson.put("title", title)
     bodyJson.put("message", message)
     bodyJson.put("channelId", channelId)
+    val rideId = offer["ride_id"]
     if (!rideId.isNullOrBlank()) {
       bodyJson.put("ride_id", rideId)
       bodyJson.put("type", offer["type"]?.takeIf { it.isNotBlank() } ?: "ride_offer")
     }
-    builder.addData("title", title)
-    builder.addData("message", message)
-    builder.addData("channelId", channelId)
-    builder.addData("body", bodyJson.toString())
-    if (!rideId.isNullOrBlank() && remoteMessage.data["tag"].isNullOrBlank()) {
-      builder.addData("tag", "ride-offer-$rideId")
-    }
-    return builder.build()
-  }
-
-  private fun marshallNotificationRequest(request: NotificationRequest): ByteArray? {
-    return try {
-      val parcel = Parcel.obtain()
-      request.writeToParcel(parcel, 0)
-      val bytes = parcel.marshall()
-      parcel.recycle()
-      bytes
-    } catch (e: Exception) {
-      Log.w(TAG, "could not marshall offer notification request", e)
-      null
-    }
+    return bodyJson
   }
 
   private fun notificationSmallIcon(context: Context): Int {

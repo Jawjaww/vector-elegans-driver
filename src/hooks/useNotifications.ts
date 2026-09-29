@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRootNavigationState, useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { readNotificationData } from '../lib/notifications/notificationPayload';
 import {
@@ -136,6 +136,26 @@ export function useNotifications() {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastHandledEventKey = useRef<string | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
+  // Cold start from a killed app: the tap response is already there on the first
+  // effect, before `navigationRef.isReady()`. `router.push` then throws and the
+  // release runtime turns that into the fatal "force close".
+  const rootNavigationState = useRootNavigationState();
+  const navigatorReady = rootNavigationState?.key != null;
+  const pendingHomeOpen = useRef(false);
+
+  const openHome = useCallback(() => {
+    if (navigatorReady) {
+      router.push('/(tabs)/');
+      return;
+    }
+    pendingHomeOpen.current = true;
+  }, [navigatorReady, router]);
+
+  useEffect(() => {
+    if (!navigatorReady || !pendingHomeOpen.current) return;
+    pendingHomeOpen.current = false;
+    router.push('/(tabs)/');
+  }, [navigatorReady, router]);
 
   /**
    * Ride ids queued in this session, with the instant, so one push cannot be queued twice.
@@ -181,9 +201,9 @@ export function useNotifications() {
       // what makes it the right place to report receipt: beyond this point the server could no
       // longer tell "woken" from "never started".
       acknowledgeOfferPush(data);
-      router.push('/(tabs)/');
+      openHome();
     },
-    [router],
+    [openHome],
   );
 
   const openFromResponse = useCallback(
