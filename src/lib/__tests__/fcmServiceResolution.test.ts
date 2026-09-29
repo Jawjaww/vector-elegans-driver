@@ -37,6 +37,8 @@ const BUILD_SCRIPT = 'scripts/build-local-apk.sh';
 const MODULE_MANIFEST = 'modules/ve-overlay/android/src/main/AndroidManifest.xml';
 const CONTROLLER =
   'modules/ve-overlay/android/src/main/java/expo/modules/veoverlay/VeOverlayController.kt';
+const OFFLINE_NOTIFIER =
+  'modules/ve-overlay/android/src/main/java/expo/modules/veoverlay/OfflineOfferNotifier.kt';
 const SERVICE =
   'modules/ve-overlay/android/src/main/java/expo/modules/veoverlay/VeFirebaseMessagingService.kt';
 const NOTIFICATIONS_HOOK = 'src/hooks/useNotifications.ts';
@@ -223,6 +225,11 @@ describe('the notification is the fallback, not the entry point', () => {
     expect(service).toContain('OfferPushDisposition.WAKE');
     expect(service).toContain('OfferPushDisposition.EXPO');
     expect(service).toContain('OfferPushDisposition.HANDLED');
+    // A throw from the offline notifier must not replace a silent wake with silence.
+    expect(service).toContain('VeOverlayController.wakeIfDriverOnline(');
+    expect(service).toMatch(
+      /catch \(t: Throwable\) \{[\s\S]*?wakeIfDriverOnline\(this\)[\s\S]*?OfferPushDisposition\.WAKE/,
+    );
     expect(service).toMatch(
       /OfferPushDisposition\.WAKE -> \{[\s\S]*?holdOfferPresentation/,
     );
@@ -262,11 +269,31 @@ describe('the notification is the fallback, not the entry point', () => {
     // Offline: never launch. Away from the app, post a heads-up on the rides
     // channel and wait for a tap. Already on screen, Expo/JS already restyles.
     expect(controller).toMatch(
-      /if \(!isDriverOnline\(\)\) \{[\s\S]*?"no_launch", "driver_offline"[\s\S]*?presentOfflineHeadsUp/,
+      /if \(!isDriverOnline\(\)\) \{[\s\S]*?"no_launch", "driver_offline"[\s\S]*?OfflineOfferNotifier\.present/,
     );
     expect(controller).toContain('OfferPushDisposition.HANDLED');
-    expect(controller).toContain('channelId');
-    expect(controller).toContain('rides');
+    const notifier = stripKotlinComments(readSource(OFFLINE_NOTIFIER));
+    expect(notifier).toContain('channelId');
+    expect(notifier).toContain('rides');
+  });
+
+  it('posts the offline heads-up on this thread, not through Expo receive', () => {
+    const notifier = stripKotlinComments(readSource(OFFLINE_NOTIFIER));
+    const start = notifier.indexOf('fun present(');
+    const end = notifier.indexOf('private fun remoteMessageWithHeadsUpData(');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const headsUp = notifier.slice(start, end);
+
+    // Broadcast + IO coroutine is what died with the FCM service. notify() here is the banner.
+    expect(headsUp).toContain('manager.notify(identifier, 0, builder.build())');
+    expect(headsUp).toContain('createNotificationResponseIntent');
+    expect(headsUp).not.toContain('FirebaseMessagingDelegate');
+    // The online controller must not reference the banner types. A failure to
+    // resolve them has to stay inside this class.
+    const controller = stripKotlinComments(readSource(CONTROLLER));
+    expect(controller).not.toContain('NotificationCompat');
+    expect(controller).not.toContain('RemoteNotificationContent');
   });
 });
 
@@ -352,6 +379,20 @@ describe('the build identifies itself', () => {
     expect(controller).toContain('"process_start"');
     expect(controller).toContain('buildIdentity(');
     expect(controller).toContain('longVersionCode');
+  });
+
+  it('does not commit the decision log over the online flag', () => {
+    const controller = stripKotlinComments(readSource(CONTROLLER));
+    const start = controller.indexOf('fun recordDiagnostic(');
+    const end = controller.indexOf('fun drainDiagnostics(');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = controller.slice(start, end);
+    // commit() writes the whole SharedPreferences snapshot. That file also
+    // stores driver_online, so a diagnostic commit can put the flag back to
+    // false and the next silent push takes the offline branch.
+    expect(body).toContain('.apply()');
+    expect(body).not.toContain('.commit()');
   });
 
   it('records which JS bundle is running', () => {
