@@ -55,22 +55,32 @@ class VeFirebaseMessagingService : ExpoFirebaseMessagingService() {
       return
     }
 
-    val wakeRequested = try {
-      VeOverlayController.onRideOfferPush(this, offer, remoteMessage.messageId)
+    val disposition = try {
+      VeOverlayController.onRideOfferPush(
+        this,
+        offer,
+        remoteMessage.messageId,
+        remoteMessage,
+      )
     } catch (e: Exception) {
       // Never let an overlay failure swallow the notification itself.
       Log.w(TAG, "ride offer handling failed", e)
-      false
+      OfferPushDisposition.EXPO
     }
 
-    if (wakeRequested) {
-      // Held back, not presented: the wake is in flight and the controller replays this very
-      // message through Expo's own delegate if the app does not come forward.
-      VeOverlayController.holdOfferPresentation(remoteMessage, offer["ride_id"])
-    } else {
-      // Nothing was attempted — offline, or the app is already on screen — so this
-      // notification is the only thing carrying the offer and it must not wait.
-      super.onMessageReceived(remoteMessage)
+    when (disposition) {
+      OfferPushDisposition.WAKE -> {
+        // Held back, not presented: the wake is in flight and the controller replays this
+        // very message through Expo's own delegate if the app does not come forward.
+        VeOverlayController.holdOfferPresentation(remoteMessage, offer["ride_id"])
+      }
+      OfferPushDisposition.EXPO -> {
+        super.onMessageReceived(remoteMessage)
+      }
+      OfferPushDisposition.HANDLED -> {
+        // Offline heads-up already posted on the rides channel. super would present the
+        // original data-only envelope a second time, without title or channel.
+      }
     }
   }
 
