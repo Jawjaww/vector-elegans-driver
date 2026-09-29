@@ -27,7 +27,10 @@ import {
 } from './frostRects';
 import { buildOfferRouteUpdateKey } from '../lib/utils/offerRouteUpdateKey';
 import { fetchRoute, RoutingError, type RouteStep } from '../services/routing';
-import { logOfferStage } from '../lib/notifications/offerPipelineDiag';
+import {
+  logOfferStage,
+  type OfferPipelineStage,
+} from '../lib/notifications/offerPipelineDiag';
 import { nextManeuverAlongTrack } from '../lib/utils/navProgress';
 import {
   gpsFixAcceptable,
@@ -188,7 +191,7 @@ type WebViewMapMessageContext = {
   activeRideId?: string;
 };
 
-function navDiagLogStage(detail: Record<string, unknown>): string {
+function navDiagLogStage(detail: Record<string, unknown>): OfferPipelineStage {
   if (!detail.error) return 'nav_tick';
   if (detail.source === 'handleNativeMessage') return 'nav_message_error';
   return 'nav_tick_error';
