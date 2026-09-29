@@ -116,18 +116,24 @@ describe('the acknowledgement is wired into the shared offer path', () => {
     expect(body).not.toContain('await acknowledgeOfferPush');
   });
 
-  it('does not push the home route before the root navigator exists', () => {
+  it('does not push the home route before the navigation container is ready', () => {
     const source = readSource(NOTIFICATIONS_HOOK);
-    // A cold start from the killed-app tap runs this hook's effect before
-    // navigationRef.isReady(). router.push then throws and the release
-    // runtime force-closes the process.
-    expect(source).toContain('useRootNavigationState');
-    expect(source).toContain('pendingHomeOpen');
+    // A state key is not enough: it exists while `isReady()` is still false,
+    // and `router.push` throws on that check. The release runtime force-closes.
+    expect(source).toContain('useNavigationContainerRef');
+    expect(source).not.toContain('useRootNavigationState');
     const open = source.indexOf('const openHome = useCallback(');
-    const push = source.indexOf("router.push('/(tabs)/')", open);
+    const end = source.indexOf('useEffect(() => {', open);
     expect(open).toBeGreaterThan(-1);
-    expect(push).toBeGreaterThan(open);
-    expect(source.slice(open, push)).toContain('if (navigatorReady)');
+    expect(end).toBeGreaterThan(open);
+    const body = source.slice(open, end);
+    expect(body).toContain('navigationRef.isReady()');
+    expect(body).toContain("addListener('ready'");
+    // The only push sits in a helper. Both call sites are behind isReady().
+    const helper = body.indexOf('const pushHome');
+    const ready = body.indexOf('if (navigationRef.isReady())');
+    expect(helper).toBeGreaterThan(-1);
+    expect(ready).toBeGreaterThan(helper);
   });
 });
 
