@@ -116,7 +116,12 @@ function buildNativeNavigationUrl(
   }
 }
 
-/** Native app deep link first, then the universal URL the store / browser understands. */
+/**
+ * URLs to try in order. Google Maps / Apple use native schemes first.
+ *
+ * Waze is the exception: `waze://` often opens the preview without starting navigation
+ * (navigate=yes ignored on recent Android). The documented handoff is `https://waze.com/ul`.
+ */
 export function buildNavigationUrlCandidates(
   app: NavApp,
   dest: NavDestination,
@@ -124,8 +129,11 @@ export function buildNavigationUrlCandidates(
 ): string[] {
   const universal = buildNavigationUrl(app, dest);
   const native = buildNativeNavigationUrl(app, dest, platform);
-  if (native && native !== universal) {
-    return [native, universal];
+  if (!native || native === universal) {
+    return [universal];
   }
-  return [universal];
+  if (app === 'waze') {
+    return [universal, native];
+  }
+  return [native, universal];
 }

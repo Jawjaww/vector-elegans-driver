@@ -36,12 +36,12 @@ describe('buildNavigationUrl', () => {
 describe('buildNavigationUrlCandidates', () => {
   const dest = { lat: 48.8566, lng: 2.3522, address: 'Paris' };
 
-  it('opens Waze with a native deep link before the HTTPS fallback', () => {
+  it('opens Waze with the HTTPS ul link before the waze:// fallback', () => {
     const urls = buildNavigationUrlCandidates('waze', dest, 'android');
-    expect(urls[0]).toBe('waze://?ll=48.8566,2.3522&navigate=yes');
-    expect(urls[1]).toBe(
+    expect(urls[0]).toBe(
       'https://waze.com/ul?ll=48.8566,2.3522&navigate=yes',
     );
+    expect(urls[1]).toBe('waze://?ll=48.8566,2.3522&navigate=yes');
   });
 
   it('uses google.navigation on Android', () => {

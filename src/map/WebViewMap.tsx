@@ -188,6 +188,12 @@ type WebViewMapMessageContext = {
   activeRideId?: string;
 };
 
+function navDiagLogStage(detail: Record<string, unknown>): string {
+  if (!detail.error) return 'nav_tick';
+  if (detail.source === 'handleNativeMessage') return 'nav_message_error';
+  return 'nav_tick_error';
+}
+
 function dispatchWebViewMapMessage(
   msg: MapMessage,
   ctx: WebViewMapMessageContext,
@@ -235,12 +241,7 @@ function dispatchWebViewMapMessage(
       // only observers. Three stages out of one message: a swallowed message and a broken tick
       // look the same on the map and want different fixes.
       const detail = (msg.detail as Record<string, unknown>) ?? {};
-      const stage = !detail.error
-        ? 'nav_tick'
-        : detail.source === 'handleNativeMessage'
-          ? 'nav_message_error'
-          : 'nav_tick_error';
-      logOfferStage(stage, detail, ctx.activeRideId ?? null);
+      logOfferStage(navDiagLogStage(detail), detail, ctx.activeRideId ?? null);
       break;
     }
     default:
