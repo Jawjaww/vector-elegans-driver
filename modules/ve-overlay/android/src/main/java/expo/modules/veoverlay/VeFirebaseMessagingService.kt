@@ -62,10 +62,16 @@ class VeFirebaseMessagingService : ExpoFirebaseMessagingService() {
         remoteMessage.messageId,
         remoteMessage,
       )
-    } catch (e: Exception) {
-      // Never let an overlay failure swallow the notification itself.
-      Log.w(TAG, "ride offer handling failed", e)
-      OfferPushDisposition.EXPO
+    } catch (t: Throwable) {
+      // Never let an overlay failure swallow the notification itself. A throw
+      // from the offline notifier must not replace a silent wake with silence
+      // when the driver is actually online.
+      Log.w(TAG, "ride offer handling failed", t)
+      if (VeOverlayController.wakeIfDriverOnline(this)) {
+        OfferPushDisposition.WAKE
+      } else {
+        OfferPushDisposition.EXPO
+      }
     }
 
     when (disposition) {

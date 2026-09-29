@@ -1,8 +1,6 @@
 package expo.modules.veoverlay
 
 import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -35,10 +33,6 @@ import kotlin.math.abs
 
 private const val BUBBLE_WIDTH_DP = 52f
 private const val BUBBLE_HEIGHT_DP = 32f
-
-/** Same id as `RIDES_PUSH_CHANNEL_ID` in `pushRegistration.ts` (importance MAX / heads-up). */
-private const val RIDES_PUSH_CHANNEL_ID = "rides"
-private const val RIDES_PUSH_CHANNEL_NAME = "Offres de course"
 
 /**
  * What the FCM service should do after [VeOverlayController.onRideOfferPush].
@@ -348,7 +342,12 @@ object VeOverlayController {
       if (isAppForeground()) {
         return OfferPushDisposition.EXPO
       }
-      presentOfflineHeadsUp(application, remoteMessage, data)
+      try {
+        OfflineOfferNotifier.present(application, remoteMessage, data)
+      } catch (t: Throwable) {
+        recordDiagnostic("offline_heads_up_failed", t.message ?: "unknown")
+        throw t
+      }
       return OfferPushDisposition.HANDLED
     }
 
@@ -374,6 +373,26 @@ object VeOverlayController {
       attemptForeground(application, LAUNCH_ORIGIN_PUSH)
     }
     return OfferPushDisposition.WAKE
+  }
+
+  /**
+   * Same launch as the online branch of [onRideOfferPush], used only when that call threw.
+   *
+   * The offline notifier lives in another class so a missing type there cannot take this
+   * one down with it. If handling still throws while the driver is online, the FCM service
+   * asks for this wake instead of dropping the push.
+   *
+   * @return true when a wake was posted (driver online, app not already in front).
+   */
+  fun wakeIfDriverOnline(context: Context): Boolean {
+    start(context)
+    if (!isDriverOnline() || isAppForeground()) return false
+    val application = context.applicationContext
+    mainHandler.post {
+      sync()
+      attemptForeground(application, LAUNCH_ORIGIN_PUSH)
+    }
+    return true
   }
 
   /**
@@ -411,77 +430,6 @@ object VeOverlayController {
     } catch (e: Exception) {
       recordDiagnostic("fallback_failed", e.message ?: "unknown")
     }
-  }
-
-  /**
-   * Offline pipeline: heads-up on the rides channel, no activity launch.
-   *
-   * Expo's delegate reads `title` / `message` / `channelId` from the *flat* FCM data map
-   * (or from a `notification` block we deliberately omit so the service can start). The
-   * Expo Push API puts those keys inside `data.body` JSON, so presenting the original
-   * RemoteMessage posts a banner without copy and without the MAX channel — silent in
-   * the shade, never a heads-up. Flattening those keys is what makes the tap target.
-   */
-  private fun presentOfflineHeadsUp(
-    context: Context,
-    remoteMessage: RemoteMessage,
-    offer: Map<String, String>,
-  ) {
-    ensureRidesChannel(context)
-    val headsUp = remoteMessageWithHeadsUpData(remoteMessage, offer)
-    val rideId = offer["ride_id"]
-    try {
-      FirebaseMessagingDelegate(context).onMessageReceived(headsUp)
-      recordDiagnostic("offline_heads_up", "ride_id=$rideId")
-    } catch (e: Exception) {
-      recordDiagnostic("offline_heads_up_failed", e.message ?: "unknown")
-    }
-  }
-
-  /**
-   * Copy of [remoteMessage] with tray fields on the flat data map Expo's delegate reads.
-   */
-  private fun remoteMessageWithHeadsUpData(
-    remoteMessage: RemoteMessage,
-    offer: Map<String, String>,
-  ): RemoteMessage {
-    val builder = RemoteMessage.Builder(remoteMessage.from ?: "ve-overlay")
-    for ((key, value) in remoteMessage.data) {
-      builder.addData(key, value)
-    }
-    val title = offer["title"]?.takeIf { it.isNotBlank() } ?: "Nouvelle course"
-    val message = offer["message"]?.takeIf { it.isNotBlank() }
-      ?: offer["body"]?.takeIf { it.isNotBlank() }
-      ?: "Appuyez pour accepter"
-    val channelId = offer["channelId"]?.takeIf { it.isNotBlank() } ?: RIDES_PUSH_CHANNEL_ID
-    builder.addData("title", title)
-    builder.addData("message", message)
-    builder.addData("channelId", channelId)
-    val rideId = offer["ride_id"]
-    if (!rideId.isNullOrBlank() && remoteMessage.data["tag"].isNullOrBlank()) {
-      builder.addData("tag", "ride-offer-$rideId")
-    }
-    return builder.build()
-  }
-
-  /**
-   * Create the rides channel only when JS has never done it (fresh process, killed app).
-   * Do not recreate: deleting a channel resets the driver's per-channel sound and
-   * importance, which is how a heads-up silently became a shade entry.
-   */
-  private fun ensureRidesChannel(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-      ?: return
-    if (manager.getNotificationChannel(RIDES_PUSH_CHANNEL_ID) != null) return
-    val channel = NotificationChannel(
-      RIDES_PUSH_CHANNEL_ID,
-      RIDES_PUSH_CHANNEL_NAME,
-      NotificationManager.IMPORTANCE_HIGH,
-    )
-    channel.description = "Nouvelles courses à accepter sur Vector Elegans"
-    channel.enableVibration(true)
-    manager.createNotificationChannel(channel)
   }
 
   /**
@@ -985,6 +933,10 @@ object VeOverlayController {
         ?.filter { it.isNotBlank() }
         ?: emptyList()
       val kept = previous.takeLast(MAX_DIAGNOSTIC_EVENTS - 1) + line
+      // apply(), never commit(). This file also stores driver_online. commit() writes
+      // its whole in-memory snapshot, so a diagnostic recorded while setDriverOnline
+      // is in flight can put the flag back to false and the next push takes the
+      // offline branch instead of the silent wake.
       prefs.edit().putString(KEY_DIAGNOSTICS, kept.joinToString("\n")).apply()
     } catch (e: Exception) {
       Log.w(TAG, "could not record diagnostic", e)
