@@ -36,6 +36,37 @@ function resolveNavTarget(dest: NavDestination): ResolvedNavTarget {
   return { coordTarget, addressTarget, encodedQuery };
 }
 
+/**
+ * Waze's documented "start navigation" URL.
+ *
+ * Official example: `https://www.waze.com/ul?ll=40.75889500%2C-73.98513100&navigate=yes&zoom=17`.
+ * An unencoded comma in `ll`, the `waze.com` host (no www), and `waze://` all open the app
+ * on recent Android without pressing Go.
+ */
+const WAZE_UTM_SOURCE = 'com.vectorelegans.driver';
+
+function wazeUlQuery(target: ResolvedNavTarget): string {
+  const params: string[] = [];
+  if (target.addressTarget) {
+    params.push(`q=${encodeURIComponent(target.addressTarget)}`);
+  }
+  if (target.coordTarget) {
+    params.push(`ll=${encodeURIComponent(target.coordTarget)}`);
+  }
+  params.push('navigate=yes', 'zoom=17', `utm_source=${WAZE_UTM_SOURCE}`);
+  return params.join('&');
+}
+
+function buildWazeHttpsUrl(dest: NavDestination): string {
+  return `https://www.waze.com/ul?${wazeUlQuery(resolveNavTarget(dest))}`;
+}
+
+/** Force `com.waze` to receive the full URI — App Links often launch Waze without the query. */
+function buildWazeAndroidIntentUrl(dest: NavDestination): string {
+  const query = wazeUlQuery(resolveNavTarget(dest));
+  return `intent://www.waze.com/ul?${query}#Intent;scheme=https;package=com.waze;end`;
+}
+
 /** Universal HTTPS / Apple Maps web URLs (stable for tests and as fallbacks). */
 export function buildNavigationUrl(app: NavApp, dest: NavDestination): string {
   const { coordTarget, encodedQuery } = resolveNavTarget(dest);
@@ -47,10 +78,7 @@ export function buildNavigationUrl(app: NavApp, dest: NavDestination): string {
       }
       return `https://www.google.com/maps/dir/?api=1&destination=${encodedQuery}`;
     case 'waze':
-      if (coordTarget) {
-        return `https://waze.com/ul?ll=${coordTarget}&navigate=yes`;
-      }
-      return `https://waze.com/ul?q=${encodedQuery}&navigate=yes`;
+      return buildWazeHttpsUrl(dest);
     case 'apple_maps':
       if (coordTarget) {
         return `http://maps.apple.com/?daddr=${encodeURIComponent(coordTarget)}`;
@@ -59,13 +87,6 @@ export function buildNavigationUrl(app: NavApp, dest: NavDestination): string {
     default:
       return `https://www.google.com/maps/dir/?api=1&destination=${encodedQuery}`;
   }
-}
-
-function wazeNativeUrl(coordTarget: string | null, encodedQuery: string): string {
-  if (coordTarget) {
-    return `waze://?ll=${coordTarget}&navigate=yes`;
-  }
-  return `waze://?q=${encodedQuery}&navigate=yes`;
 }
 
 function googleMapsNativeUrl(
@@ -101,7 +122,7 @@ function buildNativeNavigationUrl(
 
   switch (app) {
     case 'waze':
-      return wazeNativeUrl(coordTarget, encodedQuery);
+      return platform === 'android' ? buildWazeAndroidIntentUrl(dest) : null;
     case 'google_maps':
       return googleMapsNativeUrl(
         platform,
@@ -117,10 +138,11 @@ function buildNativeNavigationUrl(
 }
 
 /**
- * URLs to try in order. Google Maps / Apple use native schemes first.
+ * URLs to try in order. Google Maps uses the native scheme first.
  *
- * Waze is the exception: `waze://` often opens the preview without starting navigation
- * (navigate=yes ignored on recent Android). The documented handoff is `https://waze.com/ul`.
+ * Waze on Android is the reverse of Maps: `Linking.openURL(https://waze.com/ul)` is accepted
+ * (the app opens) even when the query never reaches Waze, so we never get to a second URL.
+ * The `intent://` form names `com.waze` so the full `ul` URI is the data, not a cold start.
  */
 export function buildNavigationUrlCandidates(
   app: NavApp,
@@ -131,9 +153,6 @@ export function buildNavigationUrlCandidates(
   const native = buildNativeNavigationUrl(app, dest, platform);
   if (!native || native === universal) {
     return [universal];
-  }
-  if (app === 'waze') {
-    return [universal, native];
   }
   return [native, universal];
 }

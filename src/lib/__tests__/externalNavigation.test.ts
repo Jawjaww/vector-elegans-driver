@@ -12,9 +12,9 @@ describe('buildNavigationUrl', () => {
     );
   });
 
-  it('builds Waze URL with coordinates', () => {
+  it('builds Waze URL with encoded coordinates, zoom, and the official host', () => {
     expect(buildNavigationUrl('waze', dest)).toBe(
-      'https://waze.com/ul?ll=48.8566,2.3522&navigate=yes',
+      'https://www.waze.com/ul?q=Paris&ll=48.8566%2C2.3522&navigate=yes&zoom=17&utm_source=com.vectorelegans.driver',
     );
   });
 
@@ -36,12 +36,20 @@ describe('buildNavigationUrl', () => {
 describe('buildNavigationUrlCandidates', () => {
   const dest = { lat: 48.8566, lng: 2.3522, address: 'Paris' };
 
-  it('opens Waze with the HTTPS ul link before the waze:// fallback', () => {
+  it('hands Android Waze the ul URI via an explicit package intent', () => {
     const urls = buildNavigationUrlCandidates('waze', dest, 'android');
     expect(urls[0]).toBe(
-      'https://waze.com/ul?ll=48.8566,2.3522&navigate=yes',
+      'intent://www.waze.com/ul?q=Paris&ll=48.8566%2C2.3522&navigate=yes&zoom=17&utm_source=com.vectorelegans.driver#Intent;scheme=https;package=com.waze;end',
     );
-    expect(urls[1]).toBe('waze://?ll=48.8566,2.3522&navigate=yes');
+    expect(urls[1]).toBe(
+      'https://www.waze.com/ul?q=Paris&ll=48.8566%2C2.3522&navigate=yes&zoom=17&utm_source=com.vectorelegans.driver',
+    );
+  });
+
+  it('keeps iOS on the documented HTTPS ul link', () => {
+    expect(buildNavigationUrlCandidates('waze', dest, 'ios')).toEqual([
+      'https://www.waze.com/ul?q=Paris&ll=48.8566%2C2.3522&navigate=yes&zoom=17&utm_source=com.vectorelegans.driver',
+    ]);
   });
 
   it('uses google.navigation on Android', () => {
