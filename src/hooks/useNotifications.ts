@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
-import { useRootNavigationState, useRouter } from 'expo-router';
+import { useNavigationContainerRef, useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { readNotificationData } from '../lib/notifications/notificationPayload';
 import {
@@ -136,26 +136,45 @@ export function useNotifications() {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastHandledEventKey = useRef<string | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
-  // Cold start from a killed app: the tap response is already there on the first
-  // effect, before `navigationRef.isReady()`. `router.push` then throws and the
-  // release runtime turns that into the fatal "force close".
-  const rootNavigationState = useRootNavigationState();
-  const navigatorReady = rootNavigationState?.key != null;
-  const pendingHomeOpen = useRef(false);
+  // The root state key is already set on this first effect: the bootstrap sits
+  // inside the navigator, so `getState()` answers. `router.push`
+  // checks `navigationRef.isReady()` instead, and that stays false until the
+  // container's own effect — which runs after this one, because child effects
+  // run first. Pushing on the key is what force-closed the release build.
+  const navigationRef = useNavigationContainerRef();
+  const homeOpenUnsub = useRef<(() => void) | null>(null);
 
   const openHome = useCallback(() => {
-    if (navigatorReady) {
+    const pushHome = () => {
       router.push('/(tabs)/');
+    };
+    if (navigationRef.isReady()) {
+      homeOpenUnsub.current?.();
+      homeOpenUnsub.current = null;
+      pushHome();
       return;
     }
-    pendingHomeOpen.current = true;
-  }, [navigatorReady, router]);
+    if (homeOpenUnsub.current) return;
+    const unsubscribe = navigationRef.addListener('ready', () => {
+      homeOpenUnsub.current = null;
+      unsubscribe();
+      pushHome();
+    });
+    homeOpenUnsub.current = unsubscribe;
+    // `ready` is not replayed. If it flipped while we subscribed, push now.
+    if (navigationRef.isReady()) {
+      unsubscribe();
+      homeOpenUnsub.current = null;
+      pushHome();
+    }
+  }, [navigationRef, router]);
 
   useEffect(() => {
-    if (!navigatorReady || !pendingHomeOpen.current) return;
-    pendingHomeOpen.current = false;
-    router.push('/(tabs)/');
-  }, [navigatorReady, router]);
+    return () => {
+      homeOpenUnsub.current?.();
+      homeOpenUnsub.current = null;
+    };
+  }, []);
 
   /**
    * Ride ids queued in this session, with the instant, so one push cannot be queued twice.
