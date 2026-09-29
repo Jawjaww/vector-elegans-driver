@@ -1,6 +1,8 @@
 package expo.modules.veoverlay
 
 import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -33,6 +35,27 @@ import kotlin.math.abs
 
 private const val BUBBLE_WIDTH_DP = 52f
 private const val BUBBLE_HEIGHT_DP = 32f
+
+/** Same id as `RIDES_PUSH_CHANNEL_ID` in `pushRegistration.ts` (importance MAX / heads-up). */
+private const val RIDES_PUSH_CHANNEL_ID = "rides"
+private const val RIDES_PUSH_CHANNEL_NAME = "Offres de course"
+
+/**
+ * What the FCM service should do after [VeOverlayController.onRideOfferPush].
+ *
+ * Two pipelines share one data-only message: online asks for a silent wake, offline posts
+ * a heads-up and waits for a tap. Returning a boolean collapsed those into "call super or
+ * not", which is how the offline killed-app path either launched the activity or handed
+ * Expo a payload with the title buried in `data.body` — no channel, no banner.
+ */
+enum class OfferPushDisposition {
+  /** Request a background activity launch; hold the tray until resume or timeout. */
+  WAKE,
+  /** Let Expo present the original RemoteMessage (app already in the foreground). */
+  EXPO,
+  /** The controller already posted the heads-up; do not call super, do not launch. */
+  HANDLED,
+}
 
 /**
  * Owns the online pill and the return to the foreground.
@@ -294,14 +317,15 @@ object VeOverlayController {
    *   uses as the notification identifier when present.
    * @param fallbackIdentifier `RemoteMessage.messageId`, used when no tag is sent
    *   (the current server payload sends none, so this is the normal path).
-   * @return true when a wake was requested, so the caller must hold the tray entry back
-   *   until this controller either cancels it (the app resumed) or replays it (it did not).
+   * @return how the FCM service should finish: wake and hold, hand to Expo, or do nothing
+   *   because the heads-up was already posted.
    */
   fun onRideOfferPush(
     context: Context,
     data: Map<String, String>,
-    fallbackIdentifier: String?
-  ): Boolean {
+    fallbackIdentifier: String?,
+    remoteMessage: RemoteMessage,
+  ): OfferPushDisposition {
     start(context)
     val application = context.applicationContext
 
@@ -319,7 +343,13 @@ object VeOverlayController {
 
     if (!isDriverOnline()) {
       recordDiagnostic("no_launch", "driver_offline")
-      return false
+      // Already on screen: JS restyles the incoming push. Posting a second heads-up here
+      // would duplicate the branded local notification `useNotifications` schedules.
+      if (isAppForeground()) {
+        return OfferPushDisposition.EXPO
+      }
+      presentOfflineHeadsUp(application, remoteMessage, data)
+      return OfferPushDisposition.HANDLED
     }
 
     // Nothing to wake: Expo's own path is already the shortest one here, and holding the
@@ -327,7 +357,7 @@ object VeOverlayController {
     // driver is looking at it.
     if (isAppForeground()) {
       recordDiagnostic("no_launch", "app_foreground")
-      return false
+      return OfferPushDisposition.EXPO
     }
 
     // The permission is recorded, not used as a veto. Refusing to even try is what made this
@@ -343,7 +373,7 @@ object VeOverlayController {
       sync()
       attemptForeground(application, LAUNCH_ORIGIN_PUSH)
     }
-    return true
+    return OfferPushDisposition.WAKE
   }
 
   /**
@@ -352,7 +382,7 @@ object VeOverlayController {
    * The notification is Expo's fallback, not its entry point: it is replayed through the same
    * delegate Expo would have used, so the payload, the channel and the tray action are
    * byte-for-byte the ones that path produces. Called by the FCM service only when
-   * [onRideOfferPush] answered true.
+   * [onRideOfferPush] answered [OfferPushDisposition.WAKE].
    */
   fun holdOfferPresentation(remoteMessage: RemoteMessage, rideId: String?) {
     cancelPendingPresentation("superseded", quiet = true)
@@ -381,6 +411,77 @@ object VeOverlayController {
     } catch (e: Exception) {
       recordDiagnostic("fallback_failed", e.message ?: "unknown")
     }
+  }
+
+  /**
+   * Offline pipeline: heads-up on the rides channel, no activity launch.
+   *
+   * Expo's delegate reads `title` / `message` / `channelId` from the *flat* FCM data map
+   * (or from a `notification` block we deliberately omit so the service can start). The
+   * Expo Push API puts those keys inside `data.body` JSON, so presenting the original
+   * RemoteMessage posts a banner without copy and without the MAX channel — silent in
+   * the shade, never a heads-up. Flattening those keys is what makes the tap target.
+   */
+  private fun presentOfflineHeadsUp(
+    context: Context,
+    remoteMessage: RemoteMessage,
+    offer: Map<String, String>,
+  ) {
+    ensureRidesChannel(context)
+    val headsUp = remoteMessageWithHeadsUpData(remoteMessage, offer)
+    val rideId = offer["ride_id"]
+    try {
+      FirebaseMessagingDelegate(context).onMessageReceived(headsUp)
+      recordDiagnostic("offline_heads_up", "ride_id=$rideId")
+    } catch (e: Exception) {
+      recordDiagnostic("offline_heads_up_failed", e.message ?: "unknown")
+    }
+  }
+
+  /**
+   * Copy of [remoteMessage] with tray fields on the flat data map Expo's delegate reads.
+   */
+  private fun remoteMessageWithHeadsUpData(
+    remoteMessage: RemoteMessage,
+    offer: Map<String, String>,
+  ): RemoteMessage {
+    val builder = RemoteMessage.Builder(remoteMessage.from ?: "ve-overlay")
+    for ((key, value) in remoteMessage.data) {
+      builder.addData(key, value)
+    }
+    val title = offer["title"]?.takeIf { it.isNotBlank() } ?: "Nouvelle course"
+    val message = offer["message"]?.takeIf { it.isNotBlank() }
+      ?: offer["body"]?.takeIf { it.isNotBlank() }
+      ?: "Appuyez pour accepter"
+    val channelId = offer["channelId"]?.takeIf { it.isNotBlank() } ?: RIDES_PUSH_CHANNEL_ID
+    builder.addData("title", title)
+    builder.addData("message", message)
+    builder.addData("channelId", channelId)
+    val rideId = offer["ride_id"]
+    if (!rideId.isNullOrBlank() && remoteMessage.data["tag"].isNullOrBlank()) {
+      builder.addData("tag", "ride-offer-$rideId")
+    }
+    return builder.build()
+  }
+
+  /**
+   * Create the rides channel only when JS has never done it (fresh process, killed app).
+   * Do not recreate: deleting a channel resets the driver's per-channel sound and
+   * importance, which is how a heads-up silently became a shade entry.
+   */
+  private fun ensureRidesChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+      ?: return
+    if (manager.getNotificationChannel(RIDES_PUSH_CHANNEL_ID) != null) return
+    val channel = NotificationChannel(
+      RIDES_PUSH_CHANNEL_ID,
+      RIDES_PUSH_CHANNEL_NAME,
+      NotificationManager.IMPORTANCE_HIGH,
+    )
+    channel.description = "Nouvelles courses à accepter sur Vector Elegans"
+    channel.enableVibration(true)
+    manager.createNotificationChannel(channel)
   }
 
   /**

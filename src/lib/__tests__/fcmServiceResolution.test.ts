@@ -220,10 +220,14 @@ describe('the notification is the fallback, not the entry point', () => {
     const service = stripKotlinComments(readSource(SERVICE));
 
     expect(service).toContain('VeOverlayController.holdOfferPresentation(');
-    // Conditional on the wake, and `super` only on the other branch: presenting
-    // unconditionally is precisely the behaviour being removed.
+    expect(service).toContain('OfferPushDisposition.WAKE');
+    expect(service).toContain('OfferPushDisposition.EXPO');
+    expect(service).toContain('OfferPushDisposition.HANDLED');
     expect(service).toMatch(
-      /if \(wakeRequested\) \{[\s\S]*?holdOfferPresentation\([\s\S]*?\} else \{[\s\S]*?super\.onMessageReceived\(remoteMessage\)/,
+      /OfferPushDisposition\.WAKE -> \{[\s\S]*?holdOfferPresentation/,
+    );
+    expect(service).toMatch(
+      /OfferPushDisposition\.EXPO -> \{[\s\S]*?super\.onMessageReceived\(remoteMessage\)/,
     );
   });
 
@@ -253,12 +257,16 @@ describe('the notification is the fallback, not the entry point', () => {
     // Already on screen: Expo's own path is the shortest one and holding the banner back
     // would only delay the notification the app shows itself.
     expect(controller).toMatch(
-      /if \(isAppForeground\(\)\) \{[\s\S]*?"no_launch", "app_foreground"[\s\S]*?return false/,
+      /if \(isAppForeground\(\)\) \{[\s\S]*?"no_launch", "app_foreground"[\s\S]*?OfferPushDisposition\.EXPO/,
     );
-    // Offline: the notification is all the driver gets, so it must not wait either.
+    // Offline: never launch. Away from the app, post a heads-up on the rides
+    // channel and wait for a tap. Already on screen, Expo/JS already restyles.
     expect(controller).toMatch(
-      /if \(!isDriverOnline\(\)\) \{[\s\S]*?"no_launch", "driver_offline"[\s\S]*?return false/,
+      /if \(!isDriverOnline\(\)\) \{[\s\S]*?"no_launch", "driver_offline"[\s\S]*?presentOfflineHeadsUp/,
     );
+    expect(controller).toContain('OfferPushDisposition.HANDLED');
+    expect(controller).toContain('channelId');
+    expect(controller).toContain('rides');
   });
 });
 
