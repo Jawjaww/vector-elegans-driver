@@ -247,12 +247,29 @@ describe('BottomSheet re-settles when the token changes, not when the palier doe
 
   it('is the decision the component actually applies', () => {
     const sheet = readSource(join('src', 'components', 'BottomSheet.tsx'));
+    expect(sheet).toContain('pullUpPanScene');
+    expect(sheet).toContain('pullUpPanTabBar');
+    expect(sheet).toContain('setBottomSheetTabBarPanGesture(pullUpPanTabBar)');
+    expect(sheet).not.toContain('setBottomSheetTabBarPanGesture(pullUpPanScene)');
     expect(sheet).toContain('if (!shouldResettleSheet(previous, next)) return;');
     // The three triggers are read into one comparable state, so no single one of them can be
     // quietly dropped from the decision.
     expect(sheet).toContain('token: collapseToken,');
     expect(sheet).toContain("snapsKey: allowedOrder.join(','),");
     expect(sheet).toContain('snap: effectiveSnap,');
+  });
+});
+
+describe('the home tab bar pull gesture', () => {
+  it('uses RNGH pressables so pan and tab taps do not deadlock', () => {
+    const tabBar = readSource(join('src', 'components', 'DriverTabBar.tsx'));
+    expect(tabBar).toContain("from 'react-native-gesture-handler'");
+    expect(tabBar).toMatch(
+      /import\s*\{[^}]*Pressable[^}]*\}\s*from\s*'react-native-gesture-handler'/,
+    );
+    expect(tabBar).not.toMatch(
+      /import\s*\{[^}]*Pressable[^}]*\}\s*from\s*'react-native'/,
+    );
   });
 });
 

@@ -1,4 +1,7 @@
-import { buildNavigationUrl } from '../utils/navigationUrls';
+import {
+  buildNavigationUrl,
+  buildNavigationUrlCandidates,
+} from '../utils/navigationUrls';
 
 describe('buildNavigationUrl', () => {
   const dest = { lat: 48.8566, lng: 2.3522, address: 'Paris' };
@@ -27,6 +30,23 @@ describe('buildNavigationUrl', () => {
     ).toBe(
       'https://www.google.com/maps/dir/?api=1&destination=10%20rue%20de%20Rivoli%2C%20Paris',
     );
+  });
+});
+
+describe('buildNavigationUrlCandidates', () => {
+  const dest = { lat: 48.8566, lng: 2.3522, address: 'Paris' };
+
+  it('opens Waze with a native deep link before the HTTPS fallback', () => {
+    const urls = buildNavigationUrlCandidates('waze', dest, 'android');
+    expect(urls[0]).toBe('waze://?ll=48.8566,2.3522&navigate=yes');
+    expect(urls[1]).toBe(
+      'https://waze.com/ul?ll=48.8566,2.3522&navigate=yes',
+    );
+  });
+
+  it('uses google.navigation on Android', () => {
+    const urls = buildNavigationUrlCandidates('google_maps', dest, 'android');
+    expect(urls[0]).toBe('google.navigation:q=48.8566,2.3522');
   });
 });
 

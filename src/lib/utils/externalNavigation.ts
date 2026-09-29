@@ -1,4 +1,4 @@
-import { Linking, Alert, Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 import {
   getPreferredNavApp,
   setPreferredNavApp,
@@ -6,12 +6,57 @@ import {
   type NavApp,
 } from './navAppPreference';
 import {
-  buildNavigationUrl,
+  buildNavigationUrlCandidates,
   type NavDestination,
 } from './navigationUrls';
 
 export type { NavApp, NavDestination };
-export { buildNavigationUrl };
+export { buildNavigationUrl } from './navigationUrls';
+
+/** Alert dismissal on Android must finish before `Linking.openURL` or the intent is dropped. */
+function afterPickerDismiss(): Promise<void> {
+  const delay = Platform.OS === 'android' ? 80 : 0;
+  return new Promise((resolve) => {
+    setTimeout(resolve, delay);
+  });
+}
+
+async function tryOpenNavigationUrl(url: string): Promise<boolean> {
+  try {
+    if (Platform.OS === 'ios') {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen && !url.startsWith('http')) {
+        return false;
+      }
+    }
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openNavigationForApp(
+  app: NavApp,
+  dest: NavDestination,
+): Promise<boolean> {
+  let candidates: string[];
+  try {
+    candidates = buildNavigationUrlCandidates(app, dest, Platform.OS);
+  } catch {
+    Alert.alert(
+      'Erreur',
+      'Coordonnées ou adresse de destination manquantes.',
+    );
+    return false;
+  }
+  for (const url of candidates) {
+    if (await tryOpenNavigationUrl(url)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function pickNavApp(): Promise<NavApp | null> {
   const options: NavApp[] =
@@ -43,25 +88,38 @@ export async function openExternalNavigation(
     options?.app ??
     (options?.forcePicker ? null : await getPreferredNavApp());
 
+  const pickedFromDialog = !app;
   if (!app) {
     app = await pickNavApp();
     if (!app) return false;
     await setPreferredNavApp(app);
   }
 
-  const url = buildNavigationUrl(app, dest);
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) {
+  if (pickedFromDialog) {
+    await afterPickerDismiss();
+  }
+
+  const opened = await openNavigationForApp(app, dest);
+  if (!opened) {
     Alert.alert('Erreur', "Impossible d'ouvrir l'application de navigation.");
     return false;
   }
 
-  await Linking.openURL(url);
   return true;
 }
 
-export async function changePreferredNavApp(): Promise<NavApp | null> {
+export async function changePreferredNavApp(
+  dest?: NavDestination,
+): Promise<NavApp | null> {
   const app = await pickNavApp();
-  if (app) await setPreferredNavApp(app);
+  if (!app) return null;
+  await setPreferredNavApp(app);
+  await afterPickerDismiss();
+  if (dest) {
+    const opened = await openNavigationForApp(app, dest);
+    if (!opened) {
+      Alert.alert('Erreur', "Impossible d'ouvrir l'application de navigation.");
+    }
+  }
   return app;
 }
