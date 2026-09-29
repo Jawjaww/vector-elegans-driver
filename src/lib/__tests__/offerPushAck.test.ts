@@ -115,6 +115,20 @@ describe('the acknowledgement is wired into the shared offer path', () => {
     const body = handleNotificationOpenBody();
     expect(body).not.toContain('await acknowledgeOfferPush');
   });
+
+  it('does not push the home route before the root navigator exists', () => {
+    const source = readSource(NOTIFICATIONS_HOOK);
+    // A cold start from the killed-app tap runs this hook's effect before
+    // navigationRef.isReady(). router.push then throws and the release
+    // runtime force-closes the process.
+    expect(source).toContain('useRootNavigationState');
+    expect(source).toContain('pendingHomeOpen');
+    const open = source.indexOf('const openHome = useCallback(');
+    const push = source.indexOf("router.push('/(tabs)/')", open);
+    expect(open).toBeGreaterThan(-1);
+    expect(push).toBeGreaterThan(open);
+    expect(source.slice(open, push)).toContain('if (navigatorReady)');
+  });
 });
 
 describe('the pipeline log can show a channel that never acknowledges', () => {
