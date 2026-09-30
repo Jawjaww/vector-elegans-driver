@@ -116,6 +116,34 @@ describe('the announcement the guidance bar is', () => {
     expect(shown(moved)).toBe(false);
   });
 
+  it('measures the new line after a reroute, so a driving car never reads as stopped', () => {
+    // A reroute restarts the polyline at the driver. Measured against the origin of the line it
+    // replaced, the new one puts the car hundreds of metres *back*, and the along-track advance
+    // then stays at zero for as long as the driver drives the new line. `advancedNow` is false
+    // throughout, which is the same signal as standing still — so a recall would fall due and put
+    // the instruction back on the windscreen of a car doing 50 km/h. Everything below after the
+    // reroute is driven inside the recall window, and none of it may bring the bar back.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000, 900);
+    clock.set(T0 + 6_000);
+    state = clock.observe(state, 'to_pickup', 2988, 912);
+    expect(shown(state)).toBe(false);
+
+    // The reroute: the replacement line measures the driver from near its own start.
+    clock.set(T0 + 30_000);
+    state = clock.observe(state, 'to_pickup', 2988, 6);
+
+    clock.set(T0 + 36_000);
+    state = clock.observe(state, 'to_pickup', 2968, 26);
+    expect(shown(state)).toBe(false);
+
+    // Past the deadline a frozen progress clock would have fired on.
+    clock.set(T0 + 36_000 + GUIDANCE_RECALL_MS);
+    state = clock.observe(state, 'to_pickup', 2948, 46);
+    expect(shown(state)).toBe(false);
+    expect(state.recallSpent).toBe(false);
+  });
+
   it('comes back after the driver has been stopped long enough, and not a moment before', () => {
     const clock = makeClock();
     let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
@@ -265,21 +293,74 @@ describe('the announcement the guidance bar is', () => {
     expect(shown(state)).toBe(false);
   });
 
-  it('hands over to the trip sheet rather than doubling it, and charges nothing for it', () => {
-    // The sheet settled on its trip body already carries the stage, the two addresses and the
-    // action button. Suppressing the bar there is not the driver having read it, so the budget
-    // must survive: a stage suppressed for a whole leg would otherwise have no recall left.
+  it('holds an arrival stage through a route the parked car never drove', () => {
+    // The failure this pins is the one that was reported: "arriving at the pickup, nothing tells
+    // me to wait". A arrival stage is the one stage where the remaining distance moves under a
+    // parked vehicle — the leg's destination switches the moment the driver arrives, and a
+    // recomputed line lands shorter than the one it replaced. Read as ground covered, that
+    // withdraws the announcement the driver has just stopped to read.
     const clock = makeClock();
     let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
-    expect(guidancePeekVisible(state, true, 'at_pickup')).toBe(false);
+    expect(shown(state)).toBe(true);
+
+    clock.set(T0 + 2_000);
+    state = clock.observe(state, 'at_pickup', 4200, 0);
+    expect(shown(state)).toBe(true);
+
+    clock.set(T0 + 60_000);
+    state = clock.observe(state, 'at_pickup', 4150, 40);
+    expect(shown(state)).toBe(true);
+    // Nothing was withdrawn, so nothing was spent: the stage holds, it is not an announcement
+    // that gets one lapse of attention.
+    expect(state.recallSpent).toBe(false);
+  });
+
+  it('re-renders nothing while an arrival stage is held', () => {
+    // The dashboard re-runs this every `GUIDANCE_TICK_MS` for the whole stage, and a parked stage
+    // is held for as long as the driver waits. A fresh object per tick would repaint the bar, the
+    // sheet and the map frost at that cadence for a state that has not changed.
+    const clock = makeClock();
+    const armed = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
+    clock.set(T0 + GUIDANCE_TICK_MS);
+    expect(clock.observe(armed, 'at_pickup', null)).toBe(armed);
+    clock.set(T0 + 10 * GUIDANCE_TICK_MS);
+    expect(clock.observe(armed, 'at_pickup', 4200, 0)).toBe(armed);
+  });
+
+  it('announces the wait over the raised sheet, which is where it used to be lost', () => {
+    // The sheet is forced to its `trip` palier for the whole wait (`resolveDriverHomeSnapLevel`
+    // returns `trip` once `driver_arrived_at` is set), so any suppression rule that covers
+    // `at_pickup` suppresses the sentence on every frame of the stage. The sheet does not say it:
+    // it shows a status tag, an elapsed timer and a swipe. The bar carries the instruction and
+    // nothing else carries it, so the bar is what must be shown.
+    const clock = makeClock();
+    const state = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_pickup', null);
+    expect(guidancePeekVisible(state, true, 'at_pickup')).toBe(true);
+  });
+
+  it('announces the drop-off arrival over the raised sheet too', () => {
+    // Same reasoning, and the same palier: the driver may still have the sheet expanded from the
+    // pickup wait when the vehicle stops at the destination.
+    const clock = makeClock();
+    const state = clock.observe(INITIAL_GUIDANCE_PEEK, 'at_dropoff', null);
+    expect(guidancePeekVisible(state, true, 'at_dropoff')).toBe(true);
+  });
+
+  it('still hands the drive to the pickup over to the raised sheet', () => {
+    // The one stage that has a stand-in up there: with the sheet pulled up while driving to the
+    // customer, it names the pickup, the fare and the customer, so the bar repeats what is
+    // already on screen. Charging nothing for the suppression is what keeps the recall available:
+    // a stage suppressed for a whole leg would otherwise have no budget left when it ends.
+    const clock = makeClock();
+    let state = clock.observe(INITIAL_GUIDANCE_PEEK, 'to_pickup', 3000);
+    expect(guidancePeekVisible(state, true, 'to_pickup')).toBe(false);
 
     clock.set(T0 + 10 * GUIDANCE_RECALL_MS);
-    state = clock.observe(state, 'at_pickup', null);
+    state = clock.observe(state, 'to_pickup', 3000);
     expect(state.recallSpent).toBe(false);
-    expect(state.visible).toBe(true);
 
     // And the moment the driver lowers the sheet, the instruction is there again.
-    expect(guidancePeekVisible(state, false, 'at_pickup')).toBe(true);
+    expect(guidancePeekVisible(state, false, 'to_pickup')).toBe(true);
   });
 
   it('still announces to_dropoff when the trip sheet stayed raised after pickup', () => {
@@ -430,6 +511,36 @@ describe('the wiring that feeds the announcement', () => {
   });
 });
 
+describe('what an arrival stage must not draw, and who decides it', () => {
+  it('asks one question — is this stage a drive? — in every gate that needs it', () => {
+    // Two gates hid overlays at the pickup wait and both answered the question themselves, from
+    // `status` and `driver_arrived_at`: the next-turn card ("only two stages are routed") and the
+    // arrival chip ("not the pickup wait"). When a third parked stage appeared, the first gate
+    // happened to reject it and the second happened to accept it, so the driver at the drop-off
+    // was shown a `0 m` chip and no sentence. Neither gate may re-derive the answer now.
+    const dashboard = readSource(DASHBOARD);
+    for (const gate of ['tripManeuverProgress', 'shouldShowTripNavigationHud']) {
+      const source = dashboard.slice(dashboard.indexOf(`function ${gate}(`));
+      const body = source.slice(0, source.indexOf('\n}'));
+      expect(body).toContain('isParkedStage(');
+      expect(body).not.toContain('driver_arrived_at');
+    }
+    // And both are handed the resolved stage, not the ride the stage was resolved from.
+    expect(dashboard).toContain('tripManeuverProgress(tripStage, navProgress)');
+    expect(dashboard).toContain('shouldShowTripNavigationHud(tripStage, navProgress)');
+  });
+
+  it('resolves the drop-off arrival from the fix, not from the ride', () => {
+    // `mark_driver_arrived` writes the pickup only, so no column can say the drop-off was
+    // reached. The stage is the one place that fact is folded in, and it is fed the straight-line
+    // distance so a routing failure cannot take the instruction away with it.
+    const dashboard = readSource(DASHBOARD);
+    expect(dashboard).toContain('isWithinDropoffRadius(metersToDropoff)');
+    expect(dashboard).toContain('haversineMeters(currentLocation, { lat, lng: lon })');
+    expect(dashboard).toContain('activeRide?.dropoff_lat');
+  });
+});
+
 describe('the arrival chip, and the sheet that passes over it', () => {
   it('holds its place instead of following the sheet', () => {
     // The chip was anchored to the *live* sheet height, so a drag moved it — and with it the
@@ -452,8 +563,10 @@ describe('the arrival chip, and the sheet that passes over it', () => {
     // "5,8 km · 14h25" was read as two labels for one thing. The caption is the fix, and it has
     // to stay attached to the number it explains.
     const hud = readSource(ARRIVAL_HUD);
-    expect(hud).toContain('ARRIVAL_CHIP_DISTANCE_CAPTION');
-    expect(hud).toContain('ARRIVAL_CHIP_ETA_CAPTION');
+    // The caption is a key the chip translates through its own `t`, so the label and the number
+    // it explains are rendered in the phone's language and re-render when that changes.
+    expect(hud).toContain('t(ARRIVAL_CHIP_DISTANCE_CAPTION_KEY)');
+    expect(hud).toContain('t(ARRIVAL_CHIP_ETA_CAPTION_KEY)');
     expect(hud).toContain('formatRemainingDistance(');
     expect(hud).toContain('formatArrivalClock(');
   });

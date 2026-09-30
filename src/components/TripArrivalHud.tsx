@@ -1,9 +1,10 @@
 import { View, Text, Animated, Easing } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  ARRIVAL_CHIP_DISTANCE_CAPTION,
-  ARRIVAL_CHIP_ETA_CAPTION,
+  ARRIVAL_CHIP_DISTANCE_CAPTION_KEY,
+  ARRIVAL_CHIP_ETA_CAPTION_KEY,
   formatArrivalClock,
   formatRemainingDistance,
   optimisticEtaMinutes,
@@ -103,6 +104,7 @@ export function TripArrivalHud({
   progress,
   aboveGuidanceBar = false,
 }: TripArrivalHudProps) {
+  const { t } = useTranslation();
   const material = GLASS_MATERIAL;
   const eta = optimisticEtaMinutes(
     progress.durationSeconds,
@@ -149,7 +151,7 @@ export function TripArrivalHud({
         >
           <Feather name="navigation" size={18} color={material.accentStrong} />
           <ChipStat
-            caption={ARRIVAL_CHIP_DISTANCE_CAPTION}
+            caption={t(ARRIVAL_CHIP_DISTANCE_CAPTION_KEY)}
             value={formatRemainingDistance(progress.distanceMeters)}
           />
           <View
@@ -161,7 +163,7 @@ export function TripArrivalHud({
             }}
           />
           <ChipStat
-            caption={ARRIVAL_CHIP_ETA_CAPTION}
+            caption={t(ARRIVAL_CHIP_ETA_CAPTION_KEY)}
             value={clock}
             strong
           />

@@ -9,7 +9,7 @@ const { join } = require('path') as { join: (...parts: string[]) => string };
 
 import { frostRimConic, FROST_RIM_CORNER_SPAN, GLASS_MATERIAL, VE_BLUE, theme } from '../theme';
 import { MAP_PALETTE } from '../mapPalette';
-import { tripGuidanceAccent } from '../utils/tripGuidance';
+import { tripGuidanceAccent, type TripStage } from '../utils/tripGuidance';
 import {
   CONTROL_BASE_OFFSET,
   LANE_BASE_OFFSET,
@@ -52,6 +52,14 @@ const GLASS_CONSUMERS = [
   ARRIVAL_HUD,
   MANEUVER_HUD,
   RECENTER_BUTTON,
+];
+
+/** Every stage the guidance bar can be drawn for, so a new one cannot skip the look rules. */
+const GUIDANCE_STAGES: TripStage[] = [
+  'to_pickup',
+  'at_pickup',
+  'to_dropoff',
+  'at_dropoff',
 ];
 
 function readSource(relativePath: string): string {
@@ -431,8 +439,11 @@ describe('what the instruction bar says', () => {
 describe('the accent each stage of the trip is drawn in', () => {
   it('matches the colour of the map marker it names', () => {
     // The instruction and the pin it points at must agree at a glance: a blue bar naming the
-    // blue departure marker, a green one naming the green arrival flag.
+    // blue departure marker, a green one naming the green arrival flag — and the green again for
+    // the moment of dropping off at that same flag, because the driver stopping there has to
+    // recognise the destination, not a fourth colour invented for the same place.
     expect(tripGuidanceAccent('to_dropoff').color).toBe(MAP_PALETTE.arrival);
+    expect(tripGuidanceAccent('at_dropoff').color).toBe(MAP_PALETTE.arrival);
     // Waiting is the one stage with no marker to drive to, so it takes the warning amber.
     expect(tripGuidanceAccent('at_pickup').color).toBe(theme.colors.warning);
     expect(tripGuidanceAccent('at_pickup').color).not.toBe(
@@ -442,8 +453,8 @@ describe('the accent each stage of the trip is drawn in', () => {
 
   it('gives each stage a deeper ink for the glyph it draws', () => {
     // The marker colour is right for a marker and too light for a glyph on a pale pane. Every
-    // stage carries the step down, which is why the bar reads at a glance in all three.
-    for (const stage of ['to_pickup', 'at_pickup', 'to_dropoff'] as const) {
+    // stage carries the step down, which is why the bar reads at a glance in all four.
+    for (const stage of GUIDANCE_STAGES) {
       const { color, ink } = tripGuidanceAccent(stage);
       expect(ink).not.toBe(color);
       expect(lightness(ink)).toBeLessThan(lightness(color));
@@ -451,11 +462,10 @@ describe('the accent each stage of the trip is drawn in', () => {
   });
 
   it('gives each stage its own glyph, so the bar is readable without being read', () => {
-    const icons = [
-      tripGuidanceAccent('to_pickup').icon,
-      tripGuidanceAccent('at_pickup').icon,
-      tripGuidanceAccent('to_dropoff').icon,
-    ];
+    // Four stages, four glyphs, including the two that share a colour: the drive to the
+    // destination is a flag and the arrival at it is a pin, which is the whole difference the
+    // driver has to spot between "keep going" and "stop here".
+    const icons = GUIDANCE_STAGES.map((stage) => tripGuidanceAccent(stage).icon);
     expect(new Set(icons).size).toBe(icons.length);
   });
 });

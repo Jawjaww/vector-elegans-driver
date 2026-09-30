@@ -168,7 +168,7 @@ export function formatArrivalClock(
 }
 
 /**
- * What each number in the arrival chip is, said in one word.
+ * What each number in the arrival chip is, said in one word — as keys, rendered by the chip.
  *
  * The chip read `5,8 km · 14h25` and the report was blunt: "you cannot tell that it means 5.8 km
  * from the arrival point and that you get there at 14:25". Two bare figures with a dot between
@@ -177,44 +177,70 @@ export function formatArrivalClock(
  * The caption is the entire fix, which is why it is copy rather than a styling pass: it is kept
  * beside the rest of the driver-facing map lines so the wording can be asserted.
  */
-export const ARRIVAL_CHIP_DISTANCE_CAPTION = 'restant';
-export const ARRIVAL_CHIP_ETA_CAPTION = 'arrivée';
+export const ARRIVAL_CHIP_DISTANCE_CAPTION_KEY = 'nav.arrival.remaining';
+export const ARRIVAL_CHIP_ETA_CAPTION_KEY = 'nav.arrival.eta';
 
-/** French ordinal for a roundabout exit: 1re, 2e, 3e. */
-export function frenchExitOrdinal(exit: number): string {
-  if (exit === 1) return '1re';
-  return `${exit}e`;
-}
+/**
+ * A driver-facing sentence before it is translated: an i18n key and its values.
+ *
+ * The module holds no locale, the same way `tripGuidance` holds none for its stage titles: the
+ * sentence the driver reads is French, English or Spanish depending on the phone, so a string
+ * built here would be one language chosen at build time. Callers render it with `navCopyText`
+ * from the component that already owns a `t`.
+ *
+ * It also removes a trap. The banner used to decide whether to hide the distance by comparing the
+ * action against the French words for "you have arrived" — so rewording or translating that
+ * sentence would have quietly brought back a "in 12 m" beside an arrival. Control flow reads the
+ * key now.
+ */
+export type NavCopy = {
+  key: string;
+  params?: Record<string, string | number | boolean>;
+};
+
+/** The arrival action, named so the distance rule can read it without reading the copy. */
+const ARRIVAL_ACTION_KEY = 'nav.maneuver.arrive';
 
 /**
  * The action the driver reads first, without distance or street name.
  * Slight and sharp modifiers are checked before a bare left/right.
+ *
+ * A roundabout with a known exit interpolates it as an **ordinal**, and the suffix is left to
+ * i18next on purpose: `count` plus `ordinal: true` picks the plural category from
+ * `Intl.PluralRules(locale, { type: 'ordinal' })`, which gives "1re" in French, "1st / 2nd / 3rd"
+ * in English and "1ª" in Spanish — including "21st" and "21e", which a suffix table living in this
+ * module would have got wrong.
  */
 export function maneuverActionPhrase(
   type: string,
   modifier?: string,
   exit?: number,
-): string {
+): NavCopy {
   const mod = (modifier || '').toLowerCase();
   const t = (type || '').toLowerCase();
-  if (t === 'arrive' || t === 'destination') return 'Vous êtes arrivé';
-  if (t === 'depart') return 'Départ';
+  if (t === 'arrive' || t === 'destination') return { key: ARRIVAL_ACTION_KEY };
+  if (t === 'depart') return { key: 'nav.maneuver.depart' };
   if (t === 'roundabout' || t === 'rotary') {
     if (typeof exit === 'number' && exit >= 1) {
-      return `Prendre la ${frenchExitOrdinal(exit)} sortie`;
+      return {
+        key: 'nav.maneuver.roundaboutExit',
+        params: { count: exit, ordinal: true },
+      };
     }
-    return 'Rond-point';
+    return { key: 'nav.maneuver.roundabout' };
   }
-  if (mod.includes('uturn') || mod.includes('u-turn')) return 'Faire demi-tour';
-  if (mod.includes('slight left')) return 'Tourner légèrement à gauche';
-  if (mod.includes('slight right')) return 'Tourner légèrement à droite';
-  if (mod.includes('sharp left')) return 'Tourner franchement à gauche';
-  if (mod.includes('sharp right')) return 'Tourner franchement à droite';
-  if (mod.includes('left')) return 'Tourner à gauche';
-  if (mod.includes('right')) return 'Tourner à droite';
-  if (t === 'merge') return "S'insérer";
-  if (t === 'fork') return 'Prendre la bifurcation';
-  return 'Continuer tout droit';
+  if (mod.includes('uturn') || mod.includes('u-turn')) {
+    return { key: 'nav.maneuver.uturn' };
+  }
+  if (mod.includes('slight left')) return { key: 'nav.maneuver.slightLeft' };
+  if (mod.includes('slight right')) return { key: 'nav.maneuver.slightRight' };
+  if (mod.includes('sharp left')) return { key: 'nav.maneuver.sharpLeft' };
+  if (mod.includes('sharp right')) return { key: 'nav.maneuver.sharpRight' };
+  if (mod.includes('left')) return { key: 'nav.maneuver.left' };
+  if (mod.includes('right')) return { key: 'nav.maneuver.right' };
+  if (t === 'merge') return { key: 'nav.maneuver.merge' };
+  if (t === 'fork') return { key: 'nav.maneuver.fork' };
+  return { key: 'nav.maneuver.straight' };
 }
 
 /**
@@ -226,17 +252,36 @@ export function maneuverActionPhrase(
  * in one place — the two halves cannot drift apart, and a translator has one string per half.
  */
 export type ManeuverBannerParts = {
-  /** The action on its own: "Tourner à droite". Never empty. */
-  action: string;
-  /** "dans 60 m", or null when the distance is spent or the router never gave one. */
-  distance: string | null;
+  /** The action on its own: "Tourner à droite" / "Turn right". Never null. */
+  action: NavCopy;
+  /** `nav.distance.in` — "dans 60 m" — or null when spent or never given. */
+  distance: NavCopy | null;
 };
+
+/**
+ * A stepped distance as copy, in one of the two forms the card uses.
+ *
+ * `in` is the maneuver's ("dans 60 m") and `bare` is the stage fallback's ("1.2 km"). Two keys
+ * rather than one plus a concatenation, so a locale can say "à 60 m" — or drop the preposition
+ * entirely — without touching this module.
+ */
+function distanceCopy(
+  meters: number | null | undefined,
+  form: 'in' | 'bare',
+): NavCopy | null {
+  const distance = steppedManeuverDistance(meters);
+  if (distance === null || distance <= 0) return null;
+  return {
+    key: form === 'in' ? 'nav.distance.in' : 'nav.distance.bare',
+    params: { distance: formatRemainingDistance(distance) },
+  };
+}
 
 /**
  * The instruction, when a maneuver exists.
  *
- * `maneuverActionPhrase` says what to do, `steppedManeuverDistance` says how far, and the street
- * name is a third line the HUD draws on its own.
+ * `maneuverActionPhrase` says what to do, `distanceCopy` says how far, and the street name is a
+ * third line the HUD draws on its own.
  */
 export function maneuverBannerParts(
   type: string,
@@ -245,16 +290,10 @@ export function maneuverBannerParts(
   exit?: number,
 ): ManeuverBannerParts {
   const action = maneuverActionPhrase(type, modifier, exit);
-  // Arrival is not something to be "in 12 m": the action is the whole sentence.
-  if (action === 'Vous êtes arrivé') return { action, distance: null };
-  const distance = steppedManeuverDistance(distanceMeters);
-  return {
-    action,
-    distance:
-      distance !== null && distance > 0
-        ? `dans ${formatRemainingDistance(distance)}`
-        : null,
-  };
+  // Arrival is not something to be "in 12 m": the action is the whole sentence. Read off the key
+  // rather than off the rendered words, so translating or rewording it cannot turn this back on.
+  if (action.key === ARRIVAL_ACTION_KEY) return { action, distance: null };
+  return { action, distance: distanceCopy(distanceMeters, 'in') };
 }
 
 /**
@@ -269,16 +308,11 @@ export function tripStageBannerParts(
   stage: string | null,
   distanceMeters: number | null | undefined,
 ): ManeuverBannerParts {
-  const action =
-    stage === 'to_dropoff'
-      ? 'Rejoindre la destination'
-      : 'Rejoindre le point de prise en charge';
-  const distance = steppedManeuverDistance(distanceMeters);
   return {
-    action,
-    distance:
-      distance !== null && distance > 0
-        ? formatRemainingDistance(distance)
-        : null,
+    action: {
+      key:
+        stage === 'to_dropoff' ? 'nav.stage.toDropoff' : 'nav.stage.toPickup',
+    },
+    distance: distanceCopy(distanceMeters, 'bare'),
   };
 }

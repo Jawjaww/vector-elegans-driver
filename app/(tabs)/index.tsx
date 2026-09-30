@@ -102,7 +102,13 @@ import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
 import { TripGuidanceBar } from "../../src/components/TripGuidanceBar";
-import { resolveTripStage } from "../../src/lib/utils/tripGuidance";
+import {
+  isParkedStage,
+  isWithinDropoffRadius,
+  resolveTripStage,
+  type TripStage,
+} from "../../src/lib/utils/tripGuidance";
+import { haversineMeters } from "../../src/lib/utils/gpsThrottle";
 import { VGpsLoader } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
@@ -563,14 +569,21 @@ function usePendingRideChannel({
   ]);
 }
 
+/**
+ * Bottom arrival chip, only while the leg still has ground to cover.
+ *
+ * The gate is the *stage*, not the ride's status, and that is the correction: `scheduled` with
+ * `driver_arrived_at` set used to be the only parked case anyone thought of, so the chip stayed
+ * up at the drop-off and told a stopped driver that their destination was `0 m` away and that
+ * they would arrive at the current minute. A parked stage now covers both arrivals, and both of
+ * them have nothing left to count down.
+ */
 function shouldShowTripNavigationHud(
-  ride: Ride | null,
+  stage: TripStage | null,
   progress: NavProgress | null,
 ): boolean {
-  if (!ride || !progress) return false;
-  const waitingAtPickup =
-    ride.status === "scheduled" && Boolean(ride.driver_arrived_at);
-  return !waitingAtPickup;
+  if (stage === null || !progress) return false;
+  return !isParkedStage(stage);
 }
 
 /**
@@ -578,12 +591,19 @@ function shouldShowTripNavigationHud(
  *
  * It is no longer gated on a resolved next instruction: the card carries the stage phrase when no
  * step has arrived, so a routing failure can no longer take the whole banner away with it.
+ *
+ * It *is* gated on the trip still being a drive, which is what `isParkedStage` answers. The card
+ * names a waypoint and the distance to it, and a driver who has arrived has neither: the arrival
+ * stages are announced by the guidance bar, which owns the instruction the moment there is no
+ * route left to describe. Two gates used to re-derive that fact from `status` and
+ * `driver_arrived_at` in two different ways, and the copy that missed the drop-off was the one
+ * that mattered — a `0 m` card drawn over a stopped vehicle.
  */
 function tripManeuverProgress(
-  stage: string | null,
+  stage: TripStage | null,
   progress: NavProgress | null,
 ): NavProgress | null {
-  if (stage !== "to_pickup" && stage !== "to_dropoff") return null;
+  if (stage === null || isParkedStage(stage)) return null;
   return progress;
 }
 
@@ -1679,15 +1699,31 @@ export default function DashboardScreen() {
     [activeRide, noticesHeight, overlaySheetLevel],
   );
 
-  // The instruction the driver is meant to be reading. Read off the same two fields the sheet
-  // uses, so the bar and the sheet can never announce different stages of the same ride.
+  // How far the latest fix is from the drop-off pin, in metres — the only signal that can say the
+  // drop-off has been reached, since the swipe the driver has at that point is the one that *ends*
+  // the ride. Straight line rather than the router's remaining distance, deliberately: the
+  // announcement must survive a routing failure, which is the same reason the maneuver card falls
+  // back to the stage phrase. `currentLocation` only moves once the driver has covered 8 m
+  // (`GPS_STORE_MIN_METERS`), which is the hysteresis the threshold needs; a parked fix cannot
+  // jitter across the radius because a parked fix is never written.
+  const metersToDropoff = useMemo(() => {
+    const lat = activeRide?.dropoff_lat;
+    const lon = activeRide?.dropoff_lon;
+    if (!currentLocation || lat == null || lon == null) return null;
+    return haversineMeters(currentLocation, { lat, lng: lon });
+  }, [currentLocation, activeRide?.dropoff_lat, activeRide?.dropoff_lon]);
+
+  // The instruction the driver is meant to be reading. The first two stages are read off the same
+  // two fields the sheet uses, so the bar and the sheet can never announce different stages of the
+  // same ride; the fourth is the drop-off reached, which no field carries and the fix proves.
   const tripStage = useMemo(
     () =>
       resolveTripStage(
         activeRide?.status,
         Boolean(activeRide?.driver_arrived_at),
+        isWithinDropoffRadius(metersToDropoff),
       ),
-    [activeRide?.status, activeRide?.driver_arrived_at],
+    [activeRide?.status, activeRide?.driver_arrived_at, metersToDropoff],
   );
   const maneuverProgress = tripManeuverProgress(tripStage, navProgress);
 
@@ -1847,7 +1883,7 @@ export default function DashboardScreen() {
             {maneuverProgress ? (
               <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
             ) : null}
-            {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
+            {shouldShowTripNavigationHud(tripStage, navProgress) && navProgress ? (
               <TripArrivalHud
                 progress={navProgress}
                 aboveGuidanceBar={guidanceVisible}
