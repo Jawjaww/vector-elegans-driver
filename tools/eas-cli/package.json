@@ -1,0 +1,9 @@
+{
+  "name": "ve-eas-cli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The EAS CLI the preview OTA pipeline runs, pinned so its dependency tree cannot move on its own. Installed by .github/workflows/eas-update-preview.yml; not part of the app.",
+  "dependencies": {
+    "eas-cli": "24.8.0"
+  }
+}
