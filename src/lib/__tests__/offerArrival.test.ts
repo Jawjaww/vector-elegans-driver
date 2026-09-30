@@ -30,6 +30,14 @@ function readSource(relativePath: string): string {
   return readFileSync(join(REPO_ROOT, relativePath), 'utf8');
 }
 
+/** The `zIndex` declared by one entry of a `StyleSheet.create` block. */
+function zIndexOf(source: string, entry: string): number {
+  const from = source.indexOf(`${entry}: {`);
+  const match = from < 0 ? null : /zIndex: (\d+)/.exec(source.slice(from));
+  if (!match) throw new Error(`no zIndex for ${entry}`);
+  return Number(match[1]);
+}
+
 function makeRide(id: string): Ride {
   return {
     id,
@@ -441,6 +449,27 @@ describe('the boot no longer stands between the tap and the ride', () => {
     const overlayAt = dashboard.indexOf('{offerCarouselElement}');
     expect(bootGate).toBeGreaterThan(-1);
     expect(overlayAt).toBeGreaterThan(bootGate);
+  });
+
+  it('keeps the sheet above the offer stack, wherever the card is rendered', () => {
+    // The card was hoisted out of the map's group and the sheet stayed inside it, so a sheet the
+    // driver pulled up was painted *under* the card. Two things decide this and both are pinned:
+    // siblings paint in document order, and Android sorts siblings by elevation, so the two
+    // numbers have to agree as well as the order.
+    const overlayAt = dashboard.indexOf('{offerCarouselElement}');
+    const sheetAt = dashboard.indexOf('<BottomSheet');
+    expect(overlayAt).toBeGreaterThan(-1);
+    expect(sheetAt).toBeGreaterThan(overlayAt);
+
+    const sheetZ = zIndexOf(
+      readSource(join('src', 'components', 'BottomSheet.tsx')),
+      'sceneFill',
+    );
+    const stackZ = zIndexOf(
+      readSource(join('src', 'components', 'OfferRideCarousel.tsx')),
+      'root',
+    );
+    expect(sheetZ).toBeGreaterThan(stackZ);
   });
 
   it('drops the placeholder as soon as the deck holds the same ride', () => {

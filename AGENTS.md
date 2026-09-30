@@ -256,6 +256,22 @@ Two rules follow:
 - **`instant` assigns the resting position; it never returns.** It is not a mount-time property. A page left at opacity 0 because a prop meant to *skip* movement arrived after the mount is a black screen, not a missing animation. `offerArrival.test.ts` fails on `if (instant) return undefined;` and requires the branch to assign both values.
 - **The boot surface is painted by the wrapper around the fade, never inside it.** The boot placeholder and the card a notification built are the two things the driver must see first; they precede `<AnimatedPage` in the tree, and `offerArrival.test.ts` pins that order. The carousel still has exactly one parent in both branches, so resolving the boot rebuilds nothing.
 
+### The sheet outranks the map, and the chips are anchors
+
+Layer order here is **document order**, and that is a decision rather than an accident: the sheet is rendered after the map group and after the offer stack, and its `zIndex: 40` / `elevation: 40` beat the stack's `30`. The map's own children cannot compete — the host view is a stacking context (`zIndex: -1`), so every chip inside it (maneuver card `50`, arrival chip `15`) is sealed in it whatever number it carries, and a sheet the driver raised covers the whole group. That seal is why the sheet is a **sibling** of the host and not a child of it, and it is what broke once: hoisting the offer card out of the host left the sheet inside, and the sheet was then painted under the card. `offerArrival.test.ts` compares both numbers and the render order.
+
+The arrival chip deliberately **does not follow the sheet**. It is anchored to `NAV_SHEET_VISIBLE_H` — the palier a leg rests on — so a drag moves only the sheet: the chip, its frost rect and its hairline stay put, and a raised sheet simply covers it. Anchoring it to the *live* sheet height made one gesture re-measure three layers and made the sheet unable to cover a chip it was drawn under. The instruction bar keeps following the sheet, for the opposite reason: it is the sentence being read, and it must never be lost under a panel the driver raised.
+
+Its two figures are captioned (`restant` / `arrivée`). `5,8 km · 14h25` read as two labels for one thing — the report was exactly that, that the numbers explained nothing. A caption is copy, so it lives in `navProgress.ts` beside the other driver-facing lines and is asserted there.
+
+### The instruction card is sized for a windscreen
+
+Report: "the guidance overlay at the top, is it not written too small to be read?" It was — 16 pt type and a 22 pt arrow, in the card whose entire job is to be understood without being read. It is now 18/24 with a 30 pt glyph (52 pt for the roundabout, which scales from its 40 pt design box instead of carrying a second set of numbers), and the retired figures are pinned as gone.
+
+It also carries colour, and the colour means something: a strip down the leading edge takes the stage's marker colour — blue for the customer, green for the drop-off, amber while waiting — the action stays in the panel's ink, and the distance takes the deeper `ink`, so the eye lands on the one figure that changes while driving. The stage arrives as a loose `string | null`, so `isTripStage` narrows it rather than casting it; an unknown stage falls back to the material's own accent instead of indexing the palette with a key that is not there.
+
+The instruction is split into two pieces of type by `maneuverBannerParts` / `tripStageBannerParts` rather than by the component. The action and the distance cannot drift apart, and each half is one string for a translator.
+
 ### The overlay glass is built, because there is no blur to be had
 
 `expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.

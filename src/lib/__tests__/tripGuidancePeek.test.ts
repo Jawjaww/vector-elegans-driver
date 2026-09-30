@@ -336,6 +336,8 @@ const DASHBOARD = 'app/(tabs)/index.tsx';
 const BOTTOM_SHEET = 'src/components/BottomSheet.tsx';
 const GUIDANCE_BAR = 'src/components/TripGuidanceBar.tsx';
 const ARRIVAL_HUD = 'src/components/TripArrivalHud.tsx';
+const MANEUVER_HUD = 'src/components/TripManeuverHud.tsx';
+const ROUNDABOUT_GLYPH = 'src/components/RoundaboutExitGlyph.tsx';
 
 function readSource(relativePath: string): string {
   return readFileSync(join(REPO_ROOT, relativePath), 'utf8');
@@ -425,5 +427,74 @@ describe('the wiring that feeds the announcement', () => {
     // number worth reading for the whole leg, so only the bar binds an opacity to its state.
     expect(readSource(GUIDANCE_BAR)).toContain('opacity: shown');
     expect(readSource(ARRIVAL_HUD)).not.toMatch(/opacity:\s*(lift|shown)/);
+  });
+});
+
+describe('the arrival chip, and the sheet that passes over it', () => {
+  it('holds its place instead of following the sheet', () => {
+    // The chip was anchored to the *live* sheet height, so a drag moved it — and with it the
+    // frost rect and the hairline the panel republishes to the map. One gesture, three layers
+    // re-measured, and a chip the sheet could never cover. It is anchored to the resting palier
+    // now: the sheet goes over it when the driver raises the sheet, which is the point.
+    const hud = readSource(ARRIVAL_HUD);
+    expect(hud).not.toContain('sheetVisibleH');
+    expect(hud).toContain('NAV_SHEET_VISIBLE_H + LANE_BASE_OFFSET');
+
+    const dashboard = readSource(DASHBOARD);
+    const usage = dashboard.slice(dashboard.indexOf('<TripArrivalHud'));
+    expect(usage.slice(0, usage.indexOf('/>'))).not.toContain('sheetVisibleH');
+    // The bar keeps following the sheet: the sentence being read is the one thing that must not
+    // be lost under a panel the driver raised.
+    expect(dashboard).toContain('sheetVisibleH={overlaySheetVisibleH}');
+  });
+
+  it('names each of its two figures, so neither is left to guess', () => {
+    // "5,8 km · 14h25" was read as two labels for one thing. The caption is the fix, and it has
+    // to stay attached to the number it explains.
+    const hud = readSource(ARRIVAL_HUD);
+    expect(hud).toContain('ARRIVAL_CHIP_DISTANCE_CAPTION');
+    expect(hud).toContain('ARRIVAL_CHIP_ETA_CAPTION');
+    expect(hud).toContain('formatRemainingDistance(');
+    expect(hud).toContain('formatArrivalClock(');
+  });
+});
+
+describe('the maneuver card, read at a glance from a mounted phone', () => {
+  it('sizes the instruction and the arrow for a windscreen, not a list row', () => {
+    // Report: "the guidance overlay at the top, is it not written too small to be read?" It was:
+    // 16 pt in a card whose whole job is to be understood without being read, with a 22 pt glyph.
+    // Pinned as numbers because "a bit bigger" is not reviewable and would drift back down.
+    const hud = readSource(MANEUVER_HUD);
+    const instruction = /fontSize: INSTRUCTION_SIZE/.test(hud);
+    expect(instruction).toBe(true);
+    expect(hud).toMatch(/const INSTRUCTION_SIZE = 18;/);
+    expect(hud).toMatch(/const INSTRUCTION_LINE = 24;/);
+    expect(hud).toMatch(/const GLYPH_SIZE = 30;/);
+    // And the two retired figures are gone, so the growth cannot be silently undone.
+    expect(hud).not.toContain('fontSize: 16');
+    expect(hud).not.toContain('size={22}');
+  });
+
+  it('carries the colour of the leg it belongs to', () => {
+    // Colour, not decoration: the strip is the marker's own colour and the ink is its deeper step,
+    // so the card says which leg it is before the sentence is read. The stage has to be narrowed
+    // rather than cast — the dashboard hands over a loose string.
+    const hud = readSource(MANEUVER_HUD);
+    expect(hud).toContain('isTripStage(stage)');
+    expect(hud).toContain('tripGuidanceAccent(stage)');
+    expect(hud).toContain('accent?.color');
+    expect(hud).toContain('accent?.ink');
+    // The fallback is the material's own accent — still the deeper step, never the raw accent.
+    expect(hud).toContain('material.accentStrong');
+  });
+
+  it('lets a roundabout glyph grow with the arrow it replaces', () => {
+    // The roundabout was fixed at 40 pt while the arrow beside it grew, which would have left the
+    // two states of the same card at different weights.
+    const glyph = readSource(ROUNDABOUT_GLYPH);
+    expect(glyph).toContain('size?: number');
+    expect(glyph).toContain('DESIGN_SIZE');
+    expect(glyph).toMatch(/const scale = size \/ DESIGN_SIZE;/);
+    expect(readSource(MANEUVER_HUD)).toContain('ROUNDABOUT_SIZE');
   });
 });

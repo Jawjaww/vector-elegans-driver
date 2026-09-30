@@ -2,19 +2,43 @@ import { View, Text } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  maneuverBannerLine,
+  maneuverBannerParts,
   maneuverToFeatherIcon,
-  tripStageBannerLine,
+  tripStageBannerParts,
   type NavProgress,
 } from '../lib/utils/navProgress';
 import { GlassPanel } from './GlassPanel';
 import { RoundaboutExitGlyph } from './RoundaboutExitGlyph';
 import { GLASS_MATERIAL } from '../lib/theme';
 import { OVERLAY_CARD_RADIUS } from '../lib/utils/overlayLane';
+import { isTripStage, tripGuidanceAccent } from '../lib/utils/tripGuidance';
+
+/**
+ * The arrow, and the roundabout that replaces it.
+ *
+ * 22 pt was the size of a glyph inside a list row. This one is read at a glance, from a phone on a
+ * mount, by someone who is driving: it is the largest thing in the card on purpose, and it is what
+ * makes the instruction readable before the sentence is.
+ */
+const GLYPH_SIZE = 30;
+const ROUNDABOUT_SIZE = 52;
+
+/**
+ * Type sizes.
+ *
+ * 16 pt was sized for a notification, not for a windscreen — the report was exactly that, the
+ * instruction being too small to read comfortably. The distance is drawn at the same size as the
+ * action and in the stage's ink colour, because it is the one figure that changes while driving
+ * and the eye should land on it without reading the sentence again.
+ */
+const INSTRUCTION_SIZE = 18;
+const INSTRUCTION_LINE = 24;
+const STREET_SIZE = 15;
+const STREET_LINE = 20;
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
-  /** `to_pickup` | `to_dropoff`; names the target when there is no turn to announce. */
+  /** `to_pickup` | `at_pickup` | `to_dropoff`; names the target when there is no turn to announce. */
   stage: string | null;
 }>;
 
@@ -26,9 +50,13 @@ function isRoundabout(type: string | undefined): boolean {
 /**
  * Top-of-screen next-turn HUD during navigation.
  *
- * Line one is the action and the distance ("Tourner à droite dans 60 m").
- * The street sits underneath, so it is not crushed onto the same line.
- * A roundabout with a known exit shows which arm is taken instead of a generic arrow.
+ * The action and the distance sit on one line — the action in the panel's ink, the distance in the
+ * colour of the leg being driven — with the street underneath, so it is not crushed onto the same
+ * line. A roundabout with a known exit shows which arm is taken instead of a generic arrow.
+ *
+ * A strip of colour runs down the leading edge, taken from the stage: blue for the customer, green
+ * for the drop-off, amber while waiting. It is the same colour as the marker the instruction points
+ * at, so the card and the map agree at a glance without the driver having to read either.
  *
  * With no step — still being computed, or never computed because every endpoint failed — the
  * card stays and names the stage instead of disappearing: no instruction is worse than a rough
@@ -45,10 +73,18 @@ export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
   const icon = man
     ? maneuverToFeatherIcon(man.type, man.modifier)
     : 'navigation';
-  const instruction = man
-    ? maneuverBannerLine(man.type, man.modifier, man.distanceMeters, man.exit)
-    : tripStageBannerLine(stage, progress.distanceMeters);
+  const parts = man
+    ? maneuverBannerParts(man.type, man.modifier, man.distanceMeters, man.exit)
+    : tripStageBannerParts(stage, progress.distanceMeters);
   const street = man?.name?.trim() ? man.name.trim() : null;
+
+  // The stage's own pair: `color` for the strip, `ink` for anything drawn in it. `ink` is the step
+  // that stays legible on the pale face, which is why the glyph and the distance take it and the
+  // strip — a solid shape — takes the marker colour itself. A stage we cannot name gets the
+  // material's own accent, which is the same role for the same reason.
+  const accent = isTripStage(stage) ? tripGuidanceAccent(stage) : null;
+  const stripColor = accent?.color ?? material.accent;
+  const inkColor = accent?.ink ?? material.accentStrong;
 
   return (
     <View
@@ -75,33 +111,64 @@ export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
             paddingVertical: 14,
           }}
         >
+          <View
+            style={{
+              width: 4,
+              alignSelf: 'stretch',
+              borderRadius: 2,
+              backgroundColor: stripColor,
+            }}
+          />
           {roundaboutExit !== null ? (
             <RoundaboutExitGlyph
               exit={roundaboutExit}
-              color={material.accentStrong}
+              color={inkColor}
               trackColor={material.textDim}
+              size={ROUNDABOUT_SIZE}
             />
           ) : (
-            <Feather name={icon} size={22} color={material.accentStrong} />
+            <Feather name={icon} size={GLYPH_SIZE} color={inkColor} />
           )}
           <View style={{ flex: 1, gap: 2 }}>
-            <Text
+            <View
               style={{
-                color: material.text,
-                fontSize: 16,
-                lineHeight: 22,
-                fontWeight: '600',
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                alignItems: 'baseline',
+                columnGap: 8,
               }}
-              numberOfLines={2}
             >
-              {instruction}
-            </Text>
+              <Text
+                style={{
+                  color: material.text,
+                  fontSize: INSTRUCTION_SIZE,
+                  lineHeight: INSTRUCTION_LINE,
+                  fontWeight: '600',
+                }}
+                numberOfLines={2}
+              >
+                {parts.action}
+              </Text>
+              {parts.distance ? (
+                <Text
+                  style={{
+                    color: inkColor,
+                    fontSize: INSTRUCTION_SIZE,
+                    lineHeight: INSTRUCTION_LINE,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {parts.distance}
+                </Text>
+              ) : null}
+            </View>
             {street ? (
               <Text
                 style={{
                   color: material.textDim,
-                  fontSize: 14,
-                  lineHeight: 18,
+                  fontSize: STREET_SIZE,
+                  lineHeight: STREET_LINE,
                   fontWeight: '500',
                 }}
                 numberOfLines={2}

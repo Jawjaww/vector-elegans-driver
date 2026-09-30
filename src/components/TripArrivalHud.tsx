@@ -2,6 +2,8 @@ import { View, Text, Animated, Easing } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import {
+  ARRIVAL_CHIP_DISTANCE_CAPTION,
+  ARRIVAL_CHIP_ETA_CAPTION,
   formatArrivalClock,
   formatRemainingDistance,
   optimisticEtaMinutes,
@@ -13,6 +15,7 @@ import {
   OVERLAY_CARD_RADIUS,
 } from '../lib/utils/overlayLane';
 import { GlassPanel } from './GlassPanel';
+import { NAV_SHEET_VISIBLE_H } from './BottomSheet';
 import {
   GUIDANCE_EMERGE_MS,
   GUIDANCE_RETRACT_MS,
@@ -21,8 +24,6 @@ import { GLASS_MATERIAL } from '../lib/theme';
 
 type TripArrivalHudProps = Readonly<{
   progress: NavProgress;
-  /** Visible height of the bottom sheet the lane must clear. */
-  sheetVisibleH: number;
   /**
    * Ride above the guidance bar while the bar is on screen.
    *
@@ -36,11 +37,53 @@ type TripArrivalHudProps = Readonly<{
 }>;
 
 /**
- * Compact arrival chip (clock · distance), just above the bottom sheet.
+ * One number and the word that says what it is.
  *
- * The clock is the number the driver actually reads, so it keeps the heaviest weight on the
- * panel and the distance is tinted with the arrival green — the same green as the destination
- * marker, which is what the remaining distance is a distance *to*.
+ * The chip used to read `5,8 km · 14h25`: two bare figures and a dot, and neither answered the
+ * question the driver has. The caption is the whole fix — it is what turns a number into the
+ * sentence "5.8 km left, arriving at 14:25" instead of leaving them to guess which countdown the
+ * first one is and what the second one is the time *of*.
+ */
+function ChipStat({
+  caption,
+  value,
+  strong = false,
+}: Readonly<{ caption: string; value: string; strong?: boolean }>) {
+  const material = GLASS_MATERIAL;
+  return (
+    <View style={{ gap: 1 }}>
+      <Text
+        style={{
+          color: material.textDim,
+          fontSize: 10,
+          lineHeight: 12,
+          fontWeight: '600',
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
+        }}
+      >
+        {caption}
+      </Text>
+      <Text
+        style={{
+          color: material.text,
+          fontSize: strong ? 17 : 15,
+          lineHeight: 20,
+          fontWeight: '600',
+          fontVariant: ['tabular-nums'],
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Compact arrival chip (distance left · arrival clock), just above the resting sheet.
+ *
+ * The clock is the number the driver actually reads, so it carries the heavier type, and the
+ * distance is the one they check when the clock moves.
  *
  * Unlike the guidance bar, this one never leaves: it is the answer to "when do I get there",
  * worth reading for the whole leg, where the instruction is only news at the moment it changes.
@@ -48,10 +91,16 @@ type TripArrivalHudProps = Readonly<{
  * through — and this chip is lifted above it. That is why the lift animates instead of jumping:
  * the bar leaves on its own once the driver is moving, and a chip left behind would be floating
  * over an empty slot.
+ *
+ * The anchor, on the other hand, is fixed, and deliberately so. It used to be `laneBottom` on the
+ * *live* sheet height, which meant a drag on the sheet moved the chip — and with it the frost
+ * rect and the hairline the panel has to republish to the map, so one gesture re-measured three
+ * layers. It also made the sheet unable to cover the chip, which is backwards: a panel the driver
+ * pulled up is the one thing on this screen that must win. Anchored to the resting palier, a
+ * raised sheet simply covers the chip, and the chip is there again when the sheet goes back down.
  */
 export function TripArrivalHud({
   progress,
-  sheetVisibleH,
   aboveGuidanceBar = false,
 }: TripArrivalHudProps) {
   const material = GLASS_MATERIAL;
@@ -60,7 +109,7 @@ export function TripArrivalHud({
     progress.distanceMeters,
   );
   const clock = formatArrivalClock(eta);
-  const laneBottom = sheetVisibleH + LANE_BASE_OFFSET;
+  const laneBottom = NAV_SHEET_VISIBLE_H + LANE_BASE_OFFSET;
 
   const lift = useRef(new Animated.Value(aboveGuidanceBar ? 1 : 0)).current;
 
@@ -93,35 +142,29 @@ export function TripArrivalHud({
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 10,
+            gap: 12,
             paddingHorizontal: 16,
-            paddingVertical: 12,
+            paddingVertical: 10,
           }}
         >
           <Feather name="navigation" size={18} color={material.accentStrong} />
-          <Text
+          <ChipStat
+            caption={ARRIVAL_CHIP_DISTANCE_CAPTION}
+            value={formatRemainingDistance(progress.distanceMeters)}
+          />
+          <View
             style={{
-              color: material.text,
-              fontSize: 15,
-              fontWeight: '600',
-              fontVariant: ['tabular-nums'],
+              width: 1,
+              alignSelf: 'stretch',
+              backgroundColor: material.textDim,
+              opacity: 0.4,
             }}
-          >
-            {formatRemainingDistance(progress.distanceMeters)}
-          </Text>
-          <Text style={{ color: material.textDim, fontSize: 15, fontWeight: '500' }}>
-            ·
-          </Text>
-          <Text
-            style={{
-              color: material.text,
-              fontSize: 15,
-              fontWeight: '600',
-              fontVariant: ['tabular-nums'],
-            }}
-          >
-            {clock}
-          </Text>
+          />
+          <ChipStat
+            caption={ARRIVAL_CHIP_ETA_CAPTION}
+            value={clock}
+            strong
+          />
         </View>
       </GlassPanel>
     </Animated.View>
