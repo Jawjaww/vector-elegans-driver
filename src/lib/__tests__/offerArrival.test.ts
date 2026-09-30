@@ -422,7 +422,7 @@ describe('the boot no longer stands between the tap and the ride', () => {
   it('paints a provisional card through the boot gate', () => {
     expect(dashboard).toContain('shouldBypassBootGate({');
     expect(dashboard).toContain('provisional={visibleProvisional}');
-    // One shared element, rendered by the boot branch and by the dashboard tree.
+    // One shared element, rendered below the boot conditional so its parent never changes.
     expect(dashboard).toContain('<DashboardOfferOverlay');
     expect(dashboard).toContain('canShowOffers={showOfferCarousel}');
     expect(dashboard).toContain('booting={loading}');
@@ -430,6 +430,17 @@ describe('the boot no longer stands between the tap and the ride', () => {
     // boot, and it yields only once the deck holds that same ride (pinned separately below).
     expect(dashboard).toContain('const deckRides = canShowOffers');
     expect(dashboard).toContain('rides.filter((ride) => ride.offerUnconfirmed)');
+  });
+
+  it('keeps the overlay in one parent, so resolving the boot does not rebuild it', () => {
+    // The element used to move from the boot branch to the dashboard tree when the boot resolved.
+    // React reconciles by position, so that unmounted and remounted the card: painted over a bare
+    // spinner, then destroyed and painted again over the map. One occurrence, below the gate.
+    expect(dashboard.match(/\{offerCarouselElement\}/g) ?? []).toHaveLength(1);
+    const bootGate = dashboard.indexOf('{loading ? (');
+    const overlayAt = dashboard.indexOf('{offerCarouselElement}');
+    expect(bootGate).toBeGreaterThan(-1);
+    expect(overlayAt).toBeGreaterThan(bootGate);
   });
 
   it('drops the placeholder as soon as the deck holds the same ride', () => {

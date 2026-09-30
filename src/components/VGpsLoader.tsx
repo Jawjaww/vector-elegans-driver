@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
+  cancelAnimation,
+  runOnJS,
   useAnimatedProps,
+  useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -42,12 +45,41 @@ type VGpsLoaderProps = Readonly<{
   hint?: string;
 }>;
 
+/**
+ * The overlay is opaque, so it used to be replaced by the map in a single frame — the one hard
+ * cut left in the wake sequence, and it landed exactly when the map's first frames arrive.
+ * Fading it out lets the map settle underneath instead of being switched on.
+ */
+const FADE_MS = 220;
+
 export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
   const dashOffset = useSharedValue(PATH_LENGTH);
   const laneDash = useSharedValue(0);
+  const fade = useSharedValue(visible ? 1 : 0);
+  // Stays mounted for the length of the fade-out, then unmounts: an invisible overlay would
+  // otherwise keep four SVG paths and an elevation layer alive for the whole trip.
+  const [mounted, setMounted] = useState(visible);
 
   useEffect(() => {
-    if (!visible) return;
+    if (visible) {
+      setMounted(true);
+      fade.value = withTiming(1, {
+        duration: FADE_MS,
+        easing: Easing.out(Easing.ease),
+      });
+    } else {
+      fade.value = withTiming(
+        0,
+        { duration: FADE_MS, easing: Easing.out(Easing.ease) },
+        (finished) => {
+          if (finished) runOnJS(setMounted)(false);
+        },
+      );
+      // An invisible repeat still runs on the UI thread; stop it with the overlay.
+      cancelAnimation(dashOffset);
+      cancelAnimation(laneDash);
+      return;
+    }
 
     dashOffset.value = PATH_LENGTH;
     dashOffset.value = withRepeat(
@@ -68,7 +100,9 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
       -1,
       false,
     );
-  }, [visible, dashOffset, laneDash]);
+  }, [visible, dashOffset, laneDash, fade]);
+
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
 
   const drawProps = useAnimatedProps(() => ({
     strokeDashoffset: dashOffset.value,
@@ -78,10 +112,14 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
     strokeDashoffset: laneDash.value,
   }));
 
-  if (!visible) return null;
+  if (!mounted) return null;
 
   return (
-    <View style={styles.overlay} pointerEvents="auto" accessibilityLabel="Chargement">
+    <Animated.View
+      style={[styles.overlay, overlayStyle]}
+      pointerEvents={visible ? 'auto' : 'none'}
+      accessibilityLabel="Chargement"
+    >
       <AppChromeBackground />
       <View style={styles.mark}>
         <Svg
@@ -150,7 +188,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
         </Svg>
         <Text style={styles.caption}>{hint ?? 'Chargement en cours…'}</Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

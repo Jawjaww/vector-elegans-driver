@@ -139,6 +139,14 @@ export const OFFER_PIPELINE_STAGES = [
    */
   'nav_route_error',
   /**
+   * A leg the router failed to answer is being asked again, after a backoff.
+   *
+   * A failed leg leaves a dashed chord, and the off-route guard refuses to latch on a chord — so
+   * the driver was left with a degraded line and no reroute until the leg changed. A mobile link
+   * fails transiently, so the leg is retried a bounded number of times.
+   */
+  'nav_route_retry',
+  /**
    * The driver stayed more than 45 m off the line for three consecutive fixes. `action` is
    * `reroute` when a new line was asked for, `cooldown` when the anti-flap window swallowed the
    * signal — the two look identical from the map, and only one of them explains a stale line.
@@ -162,6 +170,15 @@ export const OFFER_PIPELINE_STAGES = [
    * fixes.
    */
   'nav_message_error',
+  /**
+   * The guidance helpers embedded in the map document were not callable.
+   *
+   * A release build used to inject them with `.toString()`, which Hermes answers with a bytecode
+   * placeholder: the definition is valid and every call throws, so guidance silently fell back to
+   * its non-planning path — 1514 `nav_tick_error` and zero `nav_off_route`, with no way to tell a
+   * hollow helper from a broken tick. The boot probe reports this once, with its own name.
+   */
+  'nav_inject_hollow',
   /**
    * `update_ride_nav_progress` accepted the last progress write. Throttled to one row per RPC
    * window (12 s); present so a NULL `rides.nav_updated_at` names its own cause.

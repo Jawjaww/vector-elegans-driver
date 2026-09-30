@@ -231,6 +231,22 @@ The instruction was a panel pinned over the map for the whole leg, and that fail
 
 Whole thing is JS: it travels in OTA. `tripGuidancePeek.test.ts` pins the rule and the wiring, including two mutations — re-arming the recall budget on every observation, and re-announcing a stage on every route tick — plus the heartbeat's dependency list, which is the one regression here that fails silently on a device.
 
+### Guidance helpers are literal text, never `toString()`
+
+The map document is a string, so its JavaScript helpers have to be written into it as text. Injecting them with `Function.prototype.toString()` looks equivalent and is not: the app ships **Hermes bytecode**, in the embedded release *and* in every OTA, and Hermes does not keep the source. `fn.toString()` then returns `function foo() { [bytecode] }` — a syntactically valid definition (a two-element array literal) that throws `ReferenceError: bytecode is not defined` at every call.
+
+Measured before the fix, from `offer_pipeline_events`: **1514** `nav_tick_error` and **127** `nav_message_error`, one single message, and **zero** `nav_off_route` rows in the whole history. `latchOffRoute` is reached from inside `guideTickPlanned`, which called `snapToNavLine` first, so the off-route guard never ran — the driver was never rerouted, and the camera commands below it were skipped on every tick, which is what "the map sticks then jumps" was.
+
+Node keeps the source, so a Jest test that imports a helper and compares two `.toString()` results is comparing a function to itself and cannot see anything. The helpers therefore live as a literal in `src/map/navGuidanceSource.ts`, wrapped in `/* VE_NAV_HELPERS_START */` … `/* VE_NAV_HELPERS_END */`, and `navGuidanceSource.test.ts` extracts that exact fragment from the built HTML and evaluates it in a scope containing nothing else.
+
+Three rules follow, and each one exists because the failure is silent:
+
+- **Never inject a function with `toString()` into the map document.** `navGuidanceSource.test.ts` fails if `mapHtmlTemplate.ts` contains `${…toString()}` at all.
+- **A guard must not depend on what it guards.** `latchOffRoute` measures with `distanceToNavLine`, a helper that only returns a number, and runs *before* anything that can throw. The off-route latch is also force-cleared and re-measured on `rerouteCheck`, because the fixes that accumulate while the screen is off may never arrive as ticks.
+- **The document probes itself at boot.** `navInjectionProbe()` runs inside the WebView on map load and posts `nav_inject_hollow` if the helpers are hollow — the only observer that runs where the bug lives.
+
+A failed leg is retried with a bounded backoff (`ROUTE_RETRY_BACKOFF_MS`) rather than left as a chord: `navLineIsRoad()` refuses a two-point line, so abandoning a leg used to disarm rerouting until the leg changed.
+
 ### The overlay glass is built, because there is no blur to be had
 
 `expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.
