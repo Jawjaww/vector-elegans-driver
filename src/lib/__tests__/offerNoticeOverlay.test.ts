@@ -17,6 +17,10 @@ const OVERLAY = "src/components/OfferNoticeOverlay.tsx";
 const RETIRED_CARD = "src/components/OfferNoticeCard.tsx";
 const STACK = "src/components/OfferRideCarousel.tsx";
 const SHEET = "src/components/BottomSheet.tsx";
+/** The card the notice shares its lane with, and the one it takes its scale from. */
+const GUIDANCE_BAR = "src/components/TripGuidanceBar.tsx";
+/** Its supporting street line is where the notice's body size comes from. */
+const MANEUVER_HUD = "src/components/TripManeuverHud.tsx";
 
 function readSource(relativePath: string): string {
   return readFileSync(join(REPO_ROOT, relativePath), "utf8");
@@ -121,6 +125,21 @@ describe("the offer notice is a map overlay now", () => {
     // No colour of its own, so retuning the face cannot leave one card off-material.
     expect(overlay).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(overlay).not.toMatch(/rgba?\(/);
+  });
+
+  it("reads at the scale of the instruction card it shares the lane with", () => {
+    // 15 on 20 over a 13 pt body was a step below both neighbours on the same pale face, and the
+    // second half of "one doesn't see the message well". The title takes the guidance bar's 16 on
+    // 22; the body takes the next-turn HUD's supporting line, 15 on 20. Asserted against the two
+    // reference files rather than as bare numbers, so moving the family moves this with it.
+    const bar = readSource(GUIDANCE_BAR);
+    const hud = readSource(MANEUVER_HUD);
+    expect(bar).toContain("fontSize: 16");
+    expect(hud).toContain("const STREET_SIZE = 15");
+
+    expect(overlay).toContain("fontSize: 16");
+    expect(overlay).toContain("fontSize: 15");
+    expect(overlay).not.toContain("fontSize: 13");
   });
 });
 
