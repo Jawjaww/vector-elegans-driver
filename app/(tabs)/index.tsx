@@ -1766,20 +1766,20 @@ export default function DashboardScreen() {
   );
 
   return (
-    <AnimatedPage instant={notificationArrival}>
-      {/* The offer overlay's parent is this stable wrapper, and never the boot branch: it used to
-          move from one parent to the other when the boot resolved, so React unmounted and rebuilt
-          the card — painted over a bare spinner, then destroyed and painted again over the map.
-          With the parent fixed, the card a notification produced is the card the driver keeps. */}
-      <View style={{ flex: 1 }}>
-        {loading ? (
-          <View
-            className="flex-1 justify-center items-center"
-            style={{ backgroundColor: "transparent" }}
-          >
-            <ActivityIndicator size="large" color="#10b981" />
-          </View>
-        ) : (
+    <View style={{ flex: 1 }}>
+      {/* The boot surface is deliberately *outside* the entry fade: it holds the card a
+          notification built and nothing else, and the driver is watching it because they tapped.
+          Under AnimatedPage it started transparent, and the wake showed a black screen whenever
+          the arrival landed before the fade had run its 300 ms. */}
+      {loading ? (
+        <View
+          className="flex-1 justify-center items-center"
+          style={{ backgroundColor: "transparent" }}
+        >
+          <ActivityIndicator size="large" color="#10b981" />
+        </View>
+      ) : (
+        <AnimatedPage instant={notificationArrival}>
           <View
             ref={mapHostViewRef}
             onLayout={() => setFrostScene(mapHostViewRef.current)}
@@ -1897,12 +1897,15 @@ export default function DashboardScreen() {
               />
             </BottomSheet>
           </View>
-        )}
+        </AnimatedPage>
+      )}
 
-        {/* The boot no longer stands between the driver and the ride they just tapped. */}
-        {offerCarouselElement}
-      </View>
-    </AnimatedPage>
+      {/* The offer overlay's parent is this wrapper, and it is the same element in both branches:
+          it used to move from the boot branch to the dashboard tree, so React unmounted and
+          rebuilt the card — painted over a bare spinner, then destroyed and painted again over
+          the map. The boot no longer stands between the driver and the ride they just tapped. */}
+      {offerCarouselElement}
+    </View>
   );
 }
 

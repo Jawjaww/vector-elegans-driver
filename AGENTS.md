@@ -247,6 +247,15 @@ Three rules follow, and each one exists because the failure is silent:
 
 A failed leg is retried with a bounded backoff (`ROUTE_RETRY_BACKOFF_MS`) rather than left as a chord: `navLineIsRoad()` refuses a two-point line, so abandoning a leg used to disarm rerouting until the leg changed.
 
+### Nothing the driver is waiting for sits behind a page-level fade
+
+`AnimatedPage` skips its entry movement when `instant` is true, and on the driver home `instant` is `isNotificationArrival(offerArrivalAt)`. That value is **false on the first render** — the store starts at `null` — and flips as soon as the tap lands, which on a notification wake is the first effect, the response being read synchronously on mount. React runs the previous effect's cleanup before the new body, so the pending entry timer is cleared; the `if (instant) return undefined;` that used to follow left the page on the shared values it started with, **opacity 0**, with nothing left to assign them. Because the boot placeholder, the card and the map were all inside that one component, the whole wake was transparent: the app came to the foreground and stayed black. It is not a race — the flip lands in the first frames by construction.
+
+Two rules follow:
+
+- **`instant` assigns the resting position; it never returns.** It is not a mount-time property. A page left at opacity 0 because a prop meant to *skip* movement arrived after the mount is a black screen, not a missing animation. `offerArrival.test.ts` fails on `if (instant) return undefined;` and requires the branch to assign both values.
+- **The boot surface is painted by the wrapper around the fade, never inside it.** The boot placeholder and the card a notification built are the two things the driver must see first; they precede `<AnimatedPage` in the tree, and `offerArrival.test.ts` pins that order. The carousel still has exactly one parent in both branches, so resolving the boot rebuilds nothing.
+
 ### The overlay glass is built, because there is no blur to be had
 
 `expo-blur` is not merely expensive over this screen, it is inert: on Android `BlurView` defaults to `BlurMethod.NONE` and `setColor` paints a flat tint rather than blurring (`ExpoBlurView.kt`). The overlays above the map would pay for a backdrop capture and receive an opaque rectangle — and the backdrop is a map that never holds still, so the capture would be recomputed on every frame the driver moves. The glass is *constructed* instead, from static layers. Being built is also why it can afford to be convincing: painted once, it costs nothing per frame.
