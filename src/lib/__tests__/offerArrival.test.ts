@@ -501,6 +501,19 @@ describe('the boot no longer stands between the tap and the ride', () => {
   it('presents the arrival without entry motion', () => {
     expect(dashboard).toContain('<AnimatedPage instant={notificationArrival}>');
   });
+
+  it('keeps the boot surface out of the entry fade', () => {
+    // The boot placeholder and the card a notification built are the two things the driver must
+    // see first. Inside AnimatedPage they started transparent, and the arrival that flips
+    // `instant` mid-fade froze the page at opacity 0: the wake ended on a black screen, spinner,
+    // card and map alike. The fade wraps the dashboard alone; the boot branch precedes it.
+    const bootGate = dashboard.indexOf('{loading ? (');
+    const entryFade = dashboard.indexOf(
+      '<AnimatedPage instant={notificationArrival}>',
+    );
+    expect(bootGate).toBeGreaterThan(-1);
+    expect(entryFade).toBeGreaterThan(bootGate);
+  });
 });
 
 describe('the entry animations can be skipped on arrival', () => {
@@ -511,7 +524,14 @@ describe('the entry animations can be skipped on arrival', () => {
     expect(source).toContain('useSharedValue(instant ? 0 : 15)');
     // The fade must not merely be shortened: an eager `withTiming` on mount would still paint
     // the page invisible for its duration.
-    expect(source).toContain('if (instant) return undefined;');
+    // The instant branch must *assign* the resting position, and not walk out early: `instant`
+    // also arrives after the mount (a notification tap during the entry fade), and React's
+    // cleanup cancels the fade before the effect re-runs. An `if (instant) return undefined;`
+    // left the page at opacity 0 — the whole wake stayed black.
+    expect(source).not.toContain('if (instant) return undefined;');
+    expect(source).toMatch(
+      /if \(instant\) \{[\s\S]*?opacity\.value = 1;[\s\S]*?translateY\.value = 0;/,
+    );
   });
 
   it('OfferRideCard drops its four-staged cascade when asked to', () => {

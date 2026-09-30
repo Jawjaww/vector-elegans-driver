@@ -30,7 +30,18 @@ export function AnimatedPage({
   const translateY = useSharedValue(instant ? 0 : 15);
 
   useEffect(() => {
-    if (instant) return undefined;
+    if (instant) {
+      // Rest, now — assigning also interrupts a fade already in flight.
+      //
+      // `instant` is not a mount-time property alone: the driver taps the notification while the
+      // page is still fading in, React runs this cleanup first and clears the pending entry
+      // timer, and the effect re-runs. Returning here without touching the values left the page
+      // frozen at its *initial* ones, opacity 0 — a wake that never painted anything, black from
+      // the spinner to the map. Snap instead of returning; nothing may leave this page invisible.
+      opacity.value = 1;
+      translateY.value = 0;
+      return undefined;
+    }
     const timeout = setTimeout(() => {
       opacity.value = withTiming(1, {
         duration: 300,
