@@ -40,6 +40,8 @@ const GUIDANCE_BAR = 'src/components/TripGuidanceBar.tsx';
 const ARRIVAL_HUD = 'src/components/TripArrivalHud.tsx';
 const MANEUVER_HUD = 'src/components/TripManeuverHud.tsx';
 const RECENTER_BUTTON = 'src/components/MapRecenterButton.tsx';
+/** The one glass card drawn *outside* the map group, and the reason `GlassPanel` has two routes. */
+const NOTICE_OVERLAY = 'src/components/OfferNoticeOverlay.tsx';
 const DASHBOARD = 'app/(tabs)/index.tsx';
 const NEON_SWIPE_BUTTON = 'src/components/NeonSwipeButton.tsx';
 const DELETED_PREFERENCE_MODULE = 'src/lib/glass/glassMaterialPreference.ts';
@@ -52,6 +54,9 @@ const GLASS_CONSUMERS = [
   ARRIVAL_HUD,
   MANEUVER_HUD,
   RECENTER_BUTTON,
+  // The notice joined the family when it moved out of the sheet onto the map. It is the only
+  // member drawn outside the map group, which is why the panel needs a second measuring route.
+  NOTICE_OVERLAY,
 ];
 
 /** Every stage the guidance bar can be drawn for, so a new one cannot skip the look rules. */
@@ -290,7 +295,8 @@ describe('one material, and the theme owns it', () => {
   it('is the single source of the look, reused by every overlay above the map', () => {
     for (const file of GLASS_CONSUMERS) {
       const source = readSource(file);
-      expect(source).toContain("from './GlassPanel'");
+      // Quote-agnostic: the notice is the newest member and writes its imports the other way.
+      expect(source).toMatch(/from\s+['"]\.\/GlassPanel['"]/);
       expect(source).toContain('<GlassPanel');
       // And each one reads the same material, from the theme rather than a hook or a store —
       // that indirection is what the switch needed and what made two looks possible.
@@ -352,6 +358,30 @@ describe('one material, and the theme owns it', () => {
       expect(code).not.toContain('expo-blur');
       expect(code).not.toContain('BlurView');
     }
+  });
+
+  it('frosts a card that is not a descendant of the map group', () => {
+    // The regression this exists for: `measureLayout` measures a node against an *ancestor* and
+    // answers nothing when the two are unrelated — Fabric aborts the walk on an empty ancestor
+    // list and returns `EmptyLayoutMetrics`, i.e. a 0×0 frame — so the guard in the panel dropped
+    // the rect and the offer notice, the one card outside the map group, was drawn as a clear
+    // panel over the raw map: no face under the type, no rim, and a message the driver could not
+    // read. The window path is what puts the frost back.
+    const panel = stripComments(readSource(GLASS_PANEL));
+    expect(panel).toContain('measureInWindow');
+    // Both frames, so the subtraction cancels the status bar and the scene's own origin. Two
+    // calls is the whole arithmetic, and one alone would publish window coordinates as frost.
+    expect(panel.match(/measureInWindow/g)).toHaveLength(2);
+    // Reached from the empty answer *and* from the failure callback: which one Fabric takes is not
+    // something this side gets to choose, and a single-route fix would miss the other.
+    expect(panel).toMatch(
+      /width > 0 && height > 0[\s\S]{0,160}reportFromWindow\(\)/,
+    );
+    expect(panel).toMatch(
+      /measureLayout\(\s*anchor,[\s\S]*?reportFromWindow,\s*\)/,
+    );
+    // And the rebase is a subtraction against the scene, never the raw window frame.
+    expect(panel).toContain('publish(x - sceneX, y - sceneY, width, height)');
   });
 
   it('leaves the swipe controls alone', () => {

@@ -44,6 +44,11 @@ type OfferNoticeOverlayProps = Readonly<{
  * Outside the map group, as a sibling between the offer stack and the sheet: that group is a
  * sealed stacking context, so an overlay inside it could not be lifted above the offer stack it
  * replaces. Below the sheet on purpose — a sheet the driver pulled up must win.
+ *
+ * Sitting outside the group has a second consequence, one that cost this card its face: the panel
+ * measures itself against the map scene, and `measureLayout` only answers for a descendant. See
+ * `GlassPanel` — the rect is rebased from window space instead, so the card is frosted and rimmed
+ * like the instruction bar it shares the lane with.
  */
 export function OfferNoticeOverlay({
   notice,
@@ -105,20 +110,28 @@ export function OfferNoticeOverlay({
             <View style={{ flex: 1 }}>
               <Text
                 style={{
+                  // The scale of the card this one stands in for: the guidance bar reads its
+                  // sentence at 16 on 22 in the same lane, and the next-turn HUD sets its
+                  // supporting street line at 15 on 20. A notice at 15 on 20 with a 13 pt body was
+                  // a size below both, on the same pale face — which is a message read at a
+                  // glance, from a phone on a mount, by someone who is not stopped.
                   color: copy.ink,
-                  fontSize: 15,
-                  lineHeight: 20,
+                  fontSize: 16,
+                  lineHeight: 22,
                   fontWeight: "700",
                 }}
               >
                 {t(copy.titleKey)}
               </Text>
               <Text
-                numberOfLines={3}
+                // Three lines carry every locale at this size on a 390 pt screen; the fourth is
+                // the margin a 360 pt one needs for the longest body (`fr`, 85 characters), whose
+                // last words are the instruction. Truncating them would be cutting the message.
+                numberOfLines={4}
                 style={{
                   color: material.textDim,
-                  fontSize: 13,
-                  lineHeight: 18,
+                  fontSize: 15,
+                  lineHeight: 20,
                   fontWeight: "500",
                 }}
               >
@@ -141,7 +154,7 @@ export function OfferNoticeOverlay({
               style={{ marginLeft: 32 }}
             >
               <Text
-                style={{ color: copy.ink, fontSize: 13, fontWeight: "700" }}
+                style={{ color: copy.ink, fontSize: 15, fontWeight: "700" }}
               >
                 {t(cta.labelKey)}
               </Text>
