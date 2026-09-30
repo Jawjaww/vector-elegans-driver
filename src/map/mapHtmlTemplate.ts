@@ -3,12 +3,7 @@ import { offerMapZoomScriptBlock } from "../lib/utils/offerMapZoom";
 import { MAP_PALETTE } from "../lib/mapPalette";
 import { BASEMAP_CANVAS, BASEMAP_TONE_JS } from "./basemapTone";
 import { FROST_RIM_CORNER_SPAN, GLASS_MATERIAL } from "../lib/theme";
-import { snapToNavLine } from "../lib/utils/routeSnap";
-import {
-  deviceBearing,
-  normaliseBearing,
-  planNavCamera,
-} from "../lib/utils/navCamera";
+import { NAV_GUIDANCE_SOURCE } from "./navGuidanceSource";
 import {
   OFFER_APPROACH_HIDE_MAX_METERS,
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
@@ -450,6 +445,10 @@ export function buildMapHtmlTemplate(
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: "mapReady" }));
         }
+        const injectionError = navInjectionProbe();
+        if (injectionError) {
+          postNavDiag({ error: injectionError, source: "navInjectionProbe" });
+        }
       } catch {}
 
       // Source GeoJSON pour les chauffeurs
@@ -765,6 +764,8 @@ export function buildMapHtmlTemplate(
           }
         } else if (msg.type === "prefetchBounds" && Array.isArray(msg.bounds)) {
           prefetchBounds(msg.bounds, msg.zoomLevels || [10, 11, 12]);
+        } else if (msg.type === "rerouteCheck") {
+          rerouteCheckNow();
         } else if (msg.type === "setFrost" && Array.isArray(msg.rects)) {
           applyFrost(msg.rects);
         }
@@ -877,6 +878,7 @@ export function buildMapHtmlTemplate(
       } catch (e) {}
     }
 
+    /* VE_NAV_HELPERS_START */
     function haversineMeters(a, b) {
       const toRad = Math.PI / 180;
       const dLat = (b[1] - a[1]) * toRad;
@@ -903,13 +905,49 @@ export function buildMapHtmlTemplate(
       return (Math.atan2(y, x) * toDeg + 360) % 360;
     }
 
-    ${snapToNavLine.toString()}
-    // Three functions, three sources: each one only carries its own body, so the helpers the
-    // planner calls must be injected alongside it or the document throws a ReferenceError at the
-    // first tick. navInjectionContract.test.ts runs this exact fragment in a fresh scope.
-    ${normaliseBearing.toString()}
-    ${deviceBearing.toString()}
-    ${planNavCamera.toString()}
+    /* The guidance helpers are embedded as literal text, never as a toString() result: Hermes
+       ships bytecode and discards the source, so toString() yields the bytecode placeholder and
+       every call throws on a release build. See navGuidanceSource.ts. */
+    ${NAV_GUIDANCE_SOURCE}
+    /* VE_NAV_HELPERS_END */
+
+    /**
+     * Fail loudly if the embedded guidance helpers are hollow.
+     *
+     * The helpers used to arrive through toString(), which Hermes answers with a bytecode
+     * placeholder: the definition is valid and every call throws, so guidance silently fell back
+     * and the only trace was a flood of nav_tick_error. This probe runs on the device, where the
+     * document is the only observer, and names the failure instead of leaving it to be inferred.
+     * Returns the reason string, or null when the helpers answer correctly.
+     */
+    function navInjectionProbe() {
+      try {
+        const plan = planNavCamera({
+          traceBearing: 137,
+          deviceHeading: 300,
+          mapBearing: 0,
+          lastBearing: 12,
+        });
+        if (!plan || plan.bearing !== 137 || plan.courseUp !== true) {
+          return "planNavCamera answered " + JSON.stringify(plan);
+        }
+        const snap = snapToNavLine(
+          [2.301, 48.8404],
+          [
+            [2.3, 48.84],
+            [2.302, 48.84],
+            [2.304, 48.84],
+          ],
+          60
+        );
+        if (!snap || typeof snap.traveledMeters !== "number") {
+          return "snapToNavLine answered " + JSON.stringify(snap);
+        }
+        return null;
+      } catch (error) {
+        return navErrorMessage(error);
+      }
+    }
 
     /** Point ~lookAheadM along the nav polyline ahead of current position */
     function lookAheadPoint(coords, line, lookAheadM) {
@@ -1234,6 +1272,7 @@ export function buildMapHtmlTemplate(
       } catch (e) {}
     }
 
+    /* VE_OFF_ROUTE_GUARD_START */
     var OFF_ROUTE_METERS = 45;
     var OFF_ROUTE_FIXES = 3;
 
@@ -1272,6 +1311,44 @@ export function buildMapHtmlTemplate(
       } catch (e) {}
       return true;
     }
+    /* VE_OFF_ROUTE_GUARD_END */
+
+    /* VE_REROUTE_RESUME_START */
+    /**
+     * Re-measure the drift on demand, with the latch force-cleared first.
+     *
+     * Asked for when the app returns to the foreground. The fixes that accumulated while the
+     * screen was off may never have arrived as ticks, so the streak is meaningless and the latch
+     * may already have been spent on a line the driver has since left. The document is the only
+     * side holding the line, so the decision stays here; the reason field lets the app skip the
+     * anti-flap window it would otherwise apply to a signal that arrives in a burst.
+     */
+    function rerouteCheckNow() {
+      const nav = window.__veNav;
+      if (!nav || !navLineIsRoad()) return;
+      const coords = window.__veLastGpsCoords;
+      if (!coords) return;
+      const dist = distanceToNavLine(coords, nav.line);
+      clearOffRouteLatch();
+      if (!(dist > OFF_ROUTE_METERS)) return;
+      // The driver is already off the drawn line: one fix is enough, this is not a new streak.
+      // The latch is spent here too, so the following ticks stay quiet until the new line lands.
+      nav.offRouteStreak = OFF_ROUTE_FIXES;
+      nav.awaitingReroute = true;
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: "offRoute",
+              reason: "resume",
+              lng: coords[0],
+              lat: coords[1],
+            })
+          );
+        }
+      } catch (e) {}
+    }
+    /* VE_REROUTE_RESUME_END */
 
     function isNavMode(opts) {
       return !!(opts && opts.navigation === true);
@@ -1381,11 +1458,15 @@ export function buildMapHtmlTemplate(
     function guideTickPlanned(coords, opts) {
       const nav = window.__veNav;
       const line = nav.line;
+      // The off-route guard measures before anything else runs. It must not sit behind a helper
+      // that can throw: a hollow snapToNavLine used to swallow the guard entirely, which is how
+      // the driver stayed unguided with zero reroutes recorded.
+      const offRoute = latchOffRoute(
+        coords,
+        distanceToNavLine(coords, line)
+      );
       const snapped =
         line && line.length > 1 ? snapToNavLine(coords, line, 60) : null;
-      const offRoute = snapped
-        ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
-        : false;
       const onLine = snapped && !offRoute;
       const center = onLine ? snapped.point : coords;
 
@@ -1573,14 +1654,13 @@ export function buildMapHtmlTemplate(
         return;
       }
 
+      const offRoute = follow
+        ? latchOffRoute(coords, distanceToNavLine(coords, nav.line))
+        : false;
       const snapped =
         nav.line && nav.line.length > 1
           ? snapToNavLine(coords, nav.line, 60)
           : null;
-      const offRoute =
-        follow && snapped
-          ? latchOffRoute(coords, haversineMeters(coords, snapped.point))
-          : false;
 
       if (follow && snapped && !offRoute) {
         // On the line but not guiding: keep the puck on the line and leave the camera where

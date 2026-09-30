@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  FadeOut,
   useAnimatedStyle,
   useSharedValue,
   type SharedValue,
@@ -47,6 +48,17 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
  */
 const paintedRideIds = new Set<string>();
 const MAX_PAINTED_TRACKED = 20;
+
+/**
+ * How long the provisional card takes to give way to the real one.
+ *
+ * The swap is invisible to React: the real card is already mounted behind the provisional, so
+ * nothing remounts and no layout animation fires. In one frame the deck re-depths (10 px, 1.5 %)
+ * and the card the driver reads changes for a taller one, and the bottom anchor turns that into
+ * a card that grows upwards instantly. Fading the provisional out hands the same reveal over
+ * `SWAP_FADE_MS` instead.
+ */
+const SWAP_FADE_MS = 200;
 
 interface OfferRideCarouselProps {
   rides: Ride[];
@@ -273,8 +285,9 @@ export function OfferRideCarousel({
             />
           ))}
           {provisional ? (
-            <View
+            <Animated.View
               key={provisional.rideId}
+              exiting={FadeOut.duration(SWAP_FADE_MS)}
               style={[
                 styles.layer,
                 offerStackRestStyle(0, stackCardLeft, stackExtra),
@@ -287,7 +300,7 @@ export function OfferRideCarousel({
                 layout={cardLayout}
                 onAccept={() => onAcceptRide(provisional.rideId)}
               />
-            </View>
+            </Animated.View>
           ) : null}
         </View>
       </View>

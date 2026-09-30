@@ -122,6 +122,17 @@ const NAV_CAMERA_STALE_FIX_MS = 3000;
 /** Ignore a second off-route signal until the new geometry has had time to land. */
 const REROUTE_COOLDOWN_MS = 8000;
 
+/**
+ * Backoff before asking the router again for a leg it failed to answer.
+ *
+ * A leg with no road answer leaves a dashed chord, and the map's off-route guard deliberately
+ * refuses to latch on a chord — correct, since a chord is not a road, but it means one transient
+ * failure used to disarm rerouting until the leg changed. Two retries cover a mobile link's
+ * usual failures without hammering a router that is genuinely down; `aborted` is the caller
+ * superseding the request and is never retried.
+ */
+const ROUTE_RETRY_BACKOFF_MS = [1200, 3000] as const;
+
 function handleMapConsoleMessage(msg: MapMessage) {
   const args = msg.args as unknown[] | undefined;
   if (msg.level === 'error') {
@@ -184,7 +195,7 @@ type WebViewMapMessageContext = {
     speed?: number,
   ) => void;
   handleUserMapInteract: () => void;
-  onOffRoute?: () => void;
+  onOffRoute?: (reason?: string) => void;
   onRouteReady?: NonNullable<MapProps['onRouteReady']>;
   onRoutePresented?: () => void;
   /** Active ride id, attached to the guidance diagnostic rows. */
@@ -192,6 +203,7 @@ type WebViewMapMessageContext = {
 };
 
 function navDiagLogStage(detail: Record<string, unknown>): OfferPipelineStage {
+  if (detail.source === 'navInjectionProbe') return 'nav_inject_hollow';
   if (!detail.error) return 'nav_tick';
   if (detail.source === 'handleNativeMessage') return 'nav_message_error';
   return 'nav_tick_error';
@@ -237,7 +249,10 @@ function dispatchWebViewMapMessage(
       }
       break;
     case 'offRoute':
-      ctx.onOffRoute?.();
+      // `reason` is `resume` when the document re-checked the drift because the app came back to
+      // the foreground: the fixes that accumulated while the screen was off may never have been
+      // delivered as ticks, so this one bypasses the anti-flap window.
+      ctx.onOffRoute?.(typeof msg.reason === 'string' ? msg.reason : undefined);
       break;
     case 'navDiag': {
       // The tick and the message bridge report from inside the map document, where they are the
@@ -392,10 +407,14 @@ export function WebViewMap({
         });
       }
 
-      for (const leg of legs) {
+      const attemptLeg = (
+        leg: { legKind: 'trip' | 'approach'; from: LatLng; to: LatLng },
+        attempt: number,
+      ) => {
         logOfferStage('nav_route_requested', {
           leg: leg.legKind,
           generation,
+          attempt,
         });
         void fetchRoute(leg.from, leg.to, { signal })
           .then((route) => {
@@ -417,6 +436,25 @@ export function WebViewMap({
             if (signal.aborted) return;
             const reason =
               error instanceof RoutingError ? error.reason : 'network';
+            const backoffMs = ROUTE_RETRY_BACKOFF_MS[attempt];
+            if (reason !== 'aborted' && backoffMs != null) {
+              logOfferStage('nav_route_retry', {
+                leg: leg.legKind,
+                generation,
+                attempt: attempt + 1,
+                reason,
+              });
+              const timer = setTimeout(() => {
+                if (signal.aborted) return;
+                attemptLeg(leg, attempt + 1);
+              }, backoffMs);
+              // The timer must not outlive the request it belongs to: a superseding route
+              // aborts the signal and would otherwise leave this leg racing the new one.
+              signal.addEventListener('abort', () => clearTimeout(timer), {
+                once: true,
+              });
+              return;
+            }
             postToMap({
               type: 'routeError',
               routeGeneration: generation,
@@ -424,7 +462,9 @@ export function WebViewMap({
               reason,
             });
           });
-      }
+      };
+
+      for (const leg of legs) attemptLeg(leg, 0);
     },
     [postToMap],
   );
@@ -551,10 +591,15 @@ export function WebViewMap({
     [postToMap],
   );
 
-  const requestReroute = useCallback(() => {
-    if (!navigationFollowRef.current) return;
+  const requestReroute = useCallback((force = false) => {
+    if (!navigationFollowRef.current) {
+      // Nothing to redraw without a guidance line. Logged because this used to return in
+      // silence, and "no reroute happened" is exactly the symptom an absent row cannot explain.
+      logOfferStage('nav_off_route', { action: 'skipped', reason: 'not_navigating' });
+      return;
+    }
     const now = Date.now();
-    if (now - lastRerouteAtRef.current < REROUTE_COOLDOWN_MS) {
+    if (!force && now - lastRerouteAtRef.current < REROUTE_COOLDOWN_MS) {
       logOfferStage('nav_off_route', {
         action: 'cooldown',
         since_ms: now - lastRerouteAtRef.current,
@@ -800,6 +845,12 @@ export function WebViewMap({
         webViewRef.current?.injectJavaScript(
           `(function(){try{if(window.__veResizeMap)window.__veResizeMap();}catch(e){}true;})();`,
         );
+        if (navigationFollowRef.current) {
+          // The screen was off: the fixes accumulated meanwhile may never have been delivered as
+          // ticks, so the latch can be stale in either direction. The document holds the line, so
+          // it re-measures and answers with `offRoute reason=resume` only when still adrift.
+          postToMap({ type: 'rerouteCheck' });
+        }
       }
     },
     [prefetchConfig.aggressiveMode, postToMap],
@@ -959,7 +1010,7 @@ export function WebViewMap({
           handleUserMapInteract,
           onRouteReady,
           onRoutePresented,
-          onOffRoute: requestReroute,
+          onOffRoute: (reason) => requestReroute(reason === 'resume'),
           activeRideId,
         });
       } catch (e) {

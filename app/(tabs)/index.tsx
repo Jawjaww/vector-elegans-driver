@@ -1004,9 +1004,10 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
 /**
  * The offer overlay, in one place.
  *
- * It is rendered by the boot branch (so a card built from the notification payload can appear
- * while the identity is still resolving) and by the dashboard tree; sharing a component keeps
- * the two from drifting apart, and keeps the visibility rule in a single spot.
+ * It is rendered once, below the boot conditional, over whichever surface is on screen: the boot
+ * placeholder (so a card built from the notification payload can appear while the identity is
+ * still resolving) or the dashboard tree. One element with one parent — it used to be rendered by
+ * two different parents, and React tore the card down and rebuilt it when the boot resolved.
  */
 function DashboardOfferOverlay({
   rides,
@@ -1764,138 +1765,142 @@ export default function DashboardScreen() {
     />
   );
 
-  if (loading) {
-    return (
-      <View
-        className="flex-1 justify-center items-center"
-        style={{ backgroundColor: "transparent" }}
-      >
-        <ActivityIndicator size="large" color="#10b981" />
-        {/* The boot no longer stands between the driver and the ride they just tapped. */}
-        {offerCarouselElement}
-      </View>
-    );
-  }
-
   return (
     <AnimatedPage instant={notificationArrival}>
-      <View
-        ref={mapHostViewRef}
-        onLayout={() => setFrostScene(mapHostViewRef.current)}
-        style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
-      >
-        {/* Single warm VTCMap — also used for offer overview + route */}
-        <VTCMap
-            style={{ zIndex: 0 }}
-            initialCenter={mapBoot.center}
-            initialZoom={mapBoot.zoom}
-            start={tripMapPoints.start}
-            end={tripMapPoints.end}
-            approachFrom={tripMapPoints.approachFrom}
-            drivers={[]}
-            showRoute={mapShowRoute}
-            presentation={mapInOfferMode ? "offer" : "default"}
-            driverMarker={
-              mapInOfferMode && currentLocation
-                ? { lat: currentLocation.lat, lng: currentLocation.lng }
-                : undefined
-            }
-            followUser={!activeRide && !mapRouteRide}
-            navigationFollow={!!activeRide}
-            activeRideId={activeRide?.id}
-            idleRecenterMs={8000}
-            onFollowPausedChange={setMapFollowPaused}
-            resumeFollowRef={resumeMapFollowRef}
-            mapControllerRef={mapControllerRef}
-            routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
-            routeFitPadding={
-              mapInOfferMode ? offerFitPadding : undefined
-            }
-            onLocationUpdate={onLocationUpdate}
-            onRouteReady={handleRouteReady}
-            onMapReady={handleMapReady}
-          />
-
-        <MapRecenterButton
-          visible={mapFollowPaused && !mapInOfferMode}
-          bottom={Math.max(24, mapRecenterBottomOffset + CONTROL_BASE_OFFSET)}
-          navigationMode={!!activeRide}
-          aboveGuidanceBar={guidanceVisible}
-          onPress={() => resumeMapFollowRef.current?.()}
-        />
-
-        <VGpsLoader
-          visible={showMapLoader && !mapInOfferMode}
-          hint={mapLoaderHint(mapReady, hasGpsFix)}
-        />
-
-        {/* The instruction for this stage of the trip, told as an announcement. Deliberately
-            outside the sheet: the sheet rests at `nav` while a ride is driven, which is 14 px of
-            body, and the sentence the driver needs was living in there. It stays mounted for the
-            whole stage so it can retract into the sheet instead of blinking out — `visible` is
-            what moves. */}
-        {tripStage && !mapInOfferMode ? (
-          <TripGuidanceBar
-            stage={tripStage}
-            sheetVisibleH={overlaySheetVisibleH}
-            visible={guidanceVisible}
-          />
-        ) : null}
-
-        {maneuverProgress ? (
-          <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
-        ) : null}
-        {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
-          <TripArrivalHud
-            progress={navProgress}
-            sheetVisibleH={overlaySheetVisibleH}
-            aboveGuidanceBar={guidanceVisible}
-          />
-        ) : null}
-
-        {offerCarouselElement}
-
-        {/* Content Overlay — zIndex 40, above offer stack (30) when raised */}
-        <BottomSheet
-          snapLevel={bottomSheetSnapLevel}
-          allowedSnaps={bottomSheetAllowedSnaps}
-          noticesHeight={noticesHeight}
-          collapseToken={offerToken}
-          onSettle={setSheetSettledAt}
-        >
-          <OnlineStatusRow
-            duty={resolveDriverDuty(isOnline, activeRide)}
-            isOnline={isOnline}
-            onToggle={handleToggleOnline}
-            pushStatus={pushRegisterStatus}
-          />
-          <DriverStatusBanner
-            banners={visibleDossierBanners}
-            overflowCount={overflowCount}
-            rejectedDocs={rejectedDocs}
-            expiredTypes={expiredTypes}
-            onOpenProfile={() => router.push("/(auth)/profile-setup")}
-            onDismissValidated={() => setJustValidated(false)}
-          />
-          {offerNotice ? (
-            <OfferNoticeCard
-              notice={offerNotice}
-              onDismiss={() => setOfferNotice(null)}
-              onOpenProfile={() => router.push("/(auth)/profile-setup")}
-              onOpenRides={() => router.push("/(tabs)/rides")}
+      {/* The offer overlay's parent is this stable wrapper, and never the boot branch: it used to
+          move from one parent to the other when the boot resolved, so React unmounted and rebuilt
+          the card — painted over a bare spinner, then destroyed and painted again over the map.
+          With the parent fixed, the card a notification produced is the card the driver keeps. */}
+      <View style={{ flex: 1 }}>
+        {loading ? (
+          <View
+            className="flex-1 justify-center items-center"
+            style={{ backgroundColor: "transparent" }}
+          >
+            <ActivityIndicator size="large" color="#10b981" />
+          </View>
+        ) : (
+          <View
+            ref={mapHostViewRef}
+            onLayout={() => setFrostScene(mapHostViewRef.current)}
+            style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
+          >
+            {/* Single warm VTCMap — also used for offer overview + route */}
+            <VTCMap
+              style={{ zIndex: 0 }}
+              initialCenter={mapBoot.center}
+              initialZoom={mapBoot.zoom}
+              start={tripMapPoints.start}
+              end={tripMapPoints.end}
+              approachFrom={tripMapPoints.approachFrom}
+              drivers={[]}
+              showRoute={mapShowRoute}
+              presentation={mapInOfferMode ? "offer" : "default"}
+              driverMarker={
+                mapInOfferMode && currentLocation
+                  ? { lat: currentLocation.lat, lng: currentLocation.lng }
+                  : undefined
+              }
+              followUser={!activeRide && !mapRouteRide}
+              navigationFollow={!!activeRide}
+              activeRideId={activeRide?.id}
+              idleRecenterMs={8000}
+              onFollowPausedChange={setMapFollowPaused}
+              resumeFollowRef={resumeMapFollowRef}
+              mapControllerRef={mapControllerRef}
+              routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
+              routeFitPadding={mapInOfferMode ? offerFitPadding : undefined}
+              onLocationUpdate={onLocationUpdate}
+              onRouteReady={handleRouteReady}
+              onMapReady={handleMapReady}
             />
-          ) : null}
-          <DriverHomeSheetBody
-            activeRide={activeRide}
-            availableRide={availableRide}
-            deferredRides={deferredRides}
-            stats={stats}
-            tripActions={tripActions}
-            onOpenActiveRide={() => router.push("/(tabs)/rides")}
-            onPromoteDeferred={promoteDeferredRide}
-            onDismissDeferred={handleDismissDeferredRide}
-          />
-        </BottomSheet>
+
+            <MapRecenterButton
+              visible={mapFollowPaused && !mapInOfferMode}
+              bottom={Math.max(
+                24,
+                mapRecenterBottomOffset + CONTROL_BASE_OFFSET,
+              )}
+              navigationMode={!!activeRide}
+              aboveGuidanceBar={guidanceVisible}
+              onPress={() => resumeMapFollowRef.current?.()}
+            />
+
+            <VGpsLoader
+              visible={showMapLoader && !mapInOfferMode}
+              hint={mapLoaderHint(mapReady, hasGpsFix)}
+            />
+
+            {/* The instruction for this stage of the trip, told as an announcement. Deliberately
+                outside the sheet: the sheet rests at `nav` while a ride is driven, which is 14 px
+                of body, and the sentence the driver needs was living in there. It stays mounted
+                for the whole stage so it can retract into the sheet instead of blinking out —
+                `visible` is what moves. */}
+            {tripStage && !mapInOfferMode ? (
+              <TripGuidanceBar
+                stage={tripStage}
+                sheetVisibleH={overlaySheetVisibleH}
+                visible={guidanceVisible}
+              />
+            ) : null}
+
+            {maneuverProgress ? (
+              <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
+            ) : null}
+            {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
+              <TripArrivalHud
+                progress={navProgress}
+                sheetVisibleH={overlaySheetVisibleH}
+                aboveGuidanceBar={guidanceVisible}
+              />
+            ) : null}
+
+            {/* Content Overlay — zIndex 40, above offer stack (30) when raised */}
+            <BottomSheet
+              snapLevel={bottomSheetSnapLevel}
+              allowedSnaps={bottomSheetAllowedSnaps}
+              noticesHeight={noticesHeight}
+              collapseToken={offerToken}
+              onSettle={setSheetSettledAt}
+            >
+              <OnlineStatusRow
+                duty={resolveDriverDuty(isOnline, activeRide)}
+                isOnline={isOnline}
+                onToggle={handleToggleOnline}
+                pushStatus={pushRegisterStatus}
+              />
+              <DriverStatusBanner
+                banners={visibleDossierBanners}
+                overflowCount={overflowCount}
+                rejectedDocs={rejectedDocs}
+                expiredTypes={expiredTypes}
+                onOpenProfile={() => router.push("/(auth)/profile-setup")}
+                onDismissValidated={() => setJustValidated(false)}
+              />
+              {offerNotice ? (
+                <OfferNoticeCard
+                  notice={offerNotice}
+                  onDismiss={() => setOfferNotice(null)}
+                  onOpenProfile={() => router.push("/(auth)/profile-setup")}
+                  onOpenRides={() => router.push("/(tabs)/rides")}
+                />
+              ) : null}
+              <DriverHomeSheetBody
+                activeRide={activeRide}
+                availableRide={availableRide}
+                deferredRides={deferredRides}
+                stats={stats}
+                tripActions={tripActions}
+                onOpenActiveRide={() => router.push("/(tabs)/rides")}
+                onPromoteDeferred={promoteDeferredRide}
+                onDismissDeferred={handleDismissDeferredRide}
+              />
+            </BottomSheet>
+          </View>
+        )}
+
+        {/* The boot no longer stands between the driver and the ride they just tapped. */}
+        {offerCarouselElement}
       </View>
     </AnimatedPage>
   );
