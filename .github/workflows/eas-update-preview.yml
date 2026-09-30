@@ -26,16 +26,17 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       # Three attempts, escalating waits. The action installs eas-cli into a fresh, lockfile-less
-      # temp directory (`$RUNNER_TEMP/eas-cli/<version>/<arch>`), so on a cold cache every
-      # transitive dependency is resolved from scratch — `browserslist` -> `electron-to-chromium`,
-      # republished every day or two, picks whatever the registry advertises at that instant.
-      # On 2026-09-30 the GitHub cache answered 400, the install went cold, and npm served
-      # `dist-tags.latest` = 1.5.443 while its tarball was still `404 Not Found`: the job died in
-      # 20 s, before `npm ci`, on a package that is not even ours. The window is npm-side and
-      # lasts minutes — measured at up to 14 that day — so the answer is patience and another
-      # attempt: two minutes, then seven, which is free in a job nobody is waiting on.
-      # A retry also reuses the action's own cache, and the local tool cache if the first attempt
-      # got that far. Nothing here can publish twice: only the last step does.
+      # temp directory (`$RUNNER_TEMP/eas-cli/<version>/<arch>`), so every transitive dependency is
+      # resolved from scratch — and `browserslist` -> `electron-to-chromium`, republished every day
+      # or two, takes whatever the registry advertises at that instant. The action's own remote
+      # cache does not shield this: it has answered `400` on every run checked, green ones
+      # included, so the install is cold every time.
+      # On 2026-09-30 npm served `dist-tags.latest` = 1.5.443 while its tarball was still
+      # `404 Not Found`, and the job died in 20 s, before `npm ci`, on a package that is not even
+      # ours. The window is npm-side and lasts minutes — measured at up to 14 that day — so the
+      # answer is patience and another attempt: two minutes, then seven, which is free in a job
+      # nobody is waiting on. A retry also reuses the local tool cache if the first attempt got
+      # that far. Nothing here can publish twice: only the last step does.
       - name: Install eas-cli (attempt 1/3)
         id: eas_setup_1
         uses: expo/expo-github-action@v8
