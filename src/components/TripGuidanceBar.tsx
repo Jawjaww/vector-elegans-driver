@@ -52,7 +52,9 @@ type TripGuidanceBarProps = Readonly<{
  *
  * Drawn on a `GlassPanel` and accented per stage, so the bar is identifiable at a glance without
  * being read: blue for the drive to the customer, amber for the wait, green for the drive to the
- * destination — the same colours as the pins it names. The whole bar is transparent to touch: it
+ * destination and for the moment of dropping off there. The arrival stages do not retract — see
+ * `tripGuidancePeek` — because the driver is standing still at a place they were sent to, and the
+ * sentence is the whole reason the bar exists for them. The whole bar is transparent to touch: it
  * is read, never pressed, and a panel that swallowed a pan would cost the driver the map.
  */
 export function TripGuidanceBar({

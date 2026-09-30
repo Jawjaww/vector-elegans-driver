@@ -1,4 +1,4 @@
-import type { TripStage } from './tripGuidance';
+import { isParkedStage, type TripStage } from './tripGuidance';
 
 /**
  * Whether the guidance bar is on screen, and when it takes itself away — and brings itself back.
@@ -23,6 +23,14 @@ import type { TripStage } from './tripGuidance';
  * The return is deliberately capped at **one per stage**. It exists to cover a single lapse of
  * attention, not to nag: a bar that reappeared every two minutes for a twenty-minute leg would
  * be the permanent panel again, arriving in instalments.
+ *
+ * ## The two arrival stages are exempt from all of it
+ *
+ * `at_pickup` and `at_dropoff` are not announcements, they are *states*, and they hold until the
+ * stage changes. The driver is already there: there is no ground to cover, so there is no "acted
+ * on" this rule could ever detect — while the remaining distance, which would have to stay still
+ * to keep the bar up, is recomputed under a parked car and drops for reasons that have nothing to
+ * do with driving. The reducer short-circuits both stages before any of the movement logic runs.
  *
  * ## Why the movement signal is route progress, and never `currentLocation.speed`
  *
@@ -56,6 +64,17 @@ export const GUIDANCE_DEPART_METERS = 8;
  * station, the phone call pulled over to take.
  */
 export const GUIDANCE_RECALL_MS = 120_000;
+
+/**
+ * Along-track metres a fresh measurement may sit *behind* the armed origin before the polyline is
+ * read as replaced.
+ *
+ * A reroute restarts the line at the driver, so the new line measures the driver as far *back*
+ * along it as the distance already covered on the old one. Ordinary progress only ever moves the
+ * measurement forwards, so a fall of more than this slack is a discontinuity — a new line, not a
+ * driver who reversed over the last 30 metres. See `realignAlongBaseline`.
+ */
+export const REROUTE_BASELINE_SLACK_M = 30;
 
 /**
  * How often the announcement's observation is re-run while a ride is in progress.
@@ -152,84 +171,216 @@ export function guidancePeekReducer(
     return state.stage === null ? state : INITIAL_GUIDANCE_PEEK;
   }
 
+  // A stage the announcement is not armed for is a new announcement, whatever the driver did in
+  // the meantime: armed and showing, however recently the previous one was read.
   if (state.stage !== stage) {
+    return armAnnouncement(stage, remainingMeters, alongTrackMeters, nowMs);
+  }
+
+  // An arrival stage is a state, not an announcement, and it leaves when the stage does.
+  //
+  // There is nothing here for the retire/recall pair to observe. The driver is *at* the place, so
+  // there is no ground to cover and therefore no "acted on" to detect — but the distance that
+  // would have to stay still is not still: the route is recomputed under a parked car (the
+  // destination changes at the pickup, the line is re-drawn, a fix lands 10 m from the last one),
+  // and a drop in the remaining distance is indistinguishable from having moved. Left to the
+  // generic rule, the sentence the driver is waiting to read would withdraw itself on a route the
+  // driver never drove, which is exactly the report: "arriving at the pickup, nothing tells me to
+  // wait". So the two arrival stages hold until the stage changes, and their recall budget is
+  // untouched because nothing was ever withdrawn.
+  if (isParkedStage(stage)) {
+    return holdVisible(state);
+  }
+
+  const progress = measureAdvance(state, remainingMeters, alongTrackMeters);
+  const visibility = resolveVisibility(state, progress, nowMs);
+  const next: GuidancePeekState = {
+    stage,
+    baselineMeters: progress.baselineMeters,
+    advanceMeters: progress.advanceMeters,
+    baselineAlongMeters: progress.baselineAlongMeters,
+    lastProgressAtMs: visibility.lastProgressAtMs,
+    visible: visibility.visible,
+    recallSpent: visibility.recallSpent,
+  };
+  // Nothing moved: hand back the *same object*, so a heartbeat that observed nothing re-renders
+  // nothing. The dashboard re-runs this every few seconds for the whole ride, and a fresh state
+  // would repaint the overlays at that cadence for no reason.
+  return sameAnnouncement(state, next) ? state : next;
+}
+
+/** A new announcement, armed and showing, with its recall budget intact. */
+function armAnnouncement(
+  stage: TripStage,
+  remainingMeters: number | null,
+  alongTrackMeters: number | null,
+  nowMs: number,
+): GuidancePeekState {
+  return {
+    stage,
+    baselineMeters: finiteOrNull(remainingMeters),
+    advanceMeters: 0,
+    baselineAlongMeters: alongTrackMeters,
+    lastProgressAtMs: nowMs,
+    visible: true,
+    recallSpent: false,
+  };
+}
+
+type AnnouncementProgress = {
+  baselineMeters: number | null;
+  baselineAlongMeters: number | null;
+  advanceMeters: number;
+  /** Whether *this* observation covered ground, which the running maximum cannot answer. */
+  advancedNow: boolean;
+};
+
+/**
+ * How far the announcement has been carried, and whether this observation contributed.
+ *
+ * The running maximum is kept rather than the latest difference, because a route recomputed
+ * mid-leg raises the remaining distance: a plain subtraction would read as the driver having
+ * gone backwards and would forget an advance that genuinely happened.
+ *
+ * `advancedNow` is what the maximum cannot answer. It stays at its peak forever, so it is true on
+ * every tick once the driver has moved once — and a stop is only ever visible as the absence of
+ * this, never as a negative.
+ */
+function measureAdvance(
+  state: GuidancePeekState,
+  remainingMeters: number | null,
+  alongTrackMeters: number | null,
+): AnnouncementProgress {
+  const baselineMeters = state.baselineMeters ?? finiteOrNull(remainingMeters);
+  const baselineAlongMeters = realignAlongBaseline(
+    state.baselineAlongMeters,
+    alongTrackMeters,
+    state.advanceMeters,
+  );
+  const advanceMeters = Math.max(
+    state.advanceMeters,
+    alongAdvanceSince(baselineAlongMeters, alongTrackMeters),
+    advanceSince(baselineMeters, remainingMeters),
+  );
+  return {
+    baselineMeters,
+    baselineAlongMeters,
+    advanceMeters,
+    advancedNow: advanceMeters > state.advanceMeters,
+  };
+}
+
+/**
+ * The along-track origin the current polyline is measured from.
+ *
+ * A reroute replaces the line with one that starts where the driver currently is. Measured
+ * against the old origin the new line would read as a large backwards jump, and the driver would
+ * look like they had stopped — which is what the recall timer keys off. Re-basing the origin to
+ * the current fix *and subtracting the advance already earned* carries that advance across.
+ */
+function realignAlongBaseline(
+  baselineAlongMeters: number | null,
+  alongTrackMeters: number | null,
+  advanceMeters: number,
+): number | null {
+  if (alongTrackMeters === null) return baselineAlongMeters;
+  if (baselineAlongMeters === null) return alongTrackMeters;
+  if (alongTrackMeters + REROUTE_BASELINE_SLACK_M < baselineAlongMeters) {
+    return alongTrackMeters - advanceMeters;
+  }
+  return baselineAlongMeters;
+}
+
+function alongAdvanceSince(
+  baselineAlongMeters: number | null,
+  alongTrackMeters: number | null,
+): number {
+  if (baselineAlongMeters === null || alongTrackMeters === null) return 0;
+  return Math.max(0, alongTrackMeters - baselineAlongMeters);
+}
+
+type AnnouncementVisibility = {
+  visible: boolean;
+  recallSpent: boolean;
+  lastProgressAtMs: number;
+};
+
+/**
+ * Whether the announcement is on screen after this observation.
+ *
+ * Ground covered withdraws it, but only once the driver has covered enough of it to have read the
+ * sentence (`GUIDANCE_DEPART_METERS`) — and withdrawn is not consumed: the stage is still the
+ * driver's instruction, it has simply been acted on. Standing still brings it back once, and only
+ * once, at `GUIDANCE_RECALL_MS`: the return covers a single lapse of attention, not a nag.
+ */
+function resolveVisibility(
+  state: GuidancePeekState,
+  progress: AnnouncementProgress,
+  nowMs: number,
+): AnnouncementVisibility {
+  if (!progress.advancedNow) {
+    const stalledMs = nowMs - state.lastProgressAtMs;
+    const shouldRecall =
+      !state.visible && !state.recallSpent && stalledMs >= GUIDANCE_RECALL_MS;
     return {
-      stage,
-      baselineMeters: finiteOrNull(remainingMeters),
-      advanceMeters: 0,
-      baselineAlongMeters: alongTrackMeters,
-      lastProgressAtMs: nowMs,
-      visible: true,
-      recallSpent: false,
+      visible: shouldRecall || state.visible,
+      recallSpent: shouldRecall || state.recallSpent,
+      lastProgressAtMs: state.lastProgressAtMs,
     };
   }
 
-  const baselineMeters = state.baselineMeters ?? finiteOrNull(remainingMeters);
-  let baselineAlong = state.baselineAlongMeters;
-  if (alongTrackMeters !== null) {
-    if (baselineAlong === null) {
-      baselineAlong = alongTrackMeters;
-    } else if (alongTrackMeters + 30 < baselineAlong) {
-      // The polyline was replaced. Keep the advance already earned and measure the new line
-      // from here, so a reroute does not look like the driver has stopped.
-      baselineAlong = alongTrackMeters - state.advanceMeters;
-    }
-  }
-  const alongAdvance =
-    baselineAlong !== null && alongTrackMeters !== null
-      ? Math.max(0, alongTrackMeters - baselineAlong)
-      : 0;
-  const advanceMeters = Math.max(
-    state.advanceMeters,
-    alongAdvance,
-    advanceSince(baselineMeters, remainingMeters),
-  );
-  // Whether *this* observation covered ground, which the running maximum cannot answer: it stays
-  // at its peak forever, so it is true on every tick once the driver has moved once. A stop is
-  // only visible as the absence of this.
-  const advancedNow = advanceMeters > state.advanceMeters;
-
-  let { visible, recallSpent, lastProgressAtMs } = state;
-
-  if (advancedNow) {
-    lastProgressAtMs = nowMs;
-    if (advanceMeters >= GUIDANCE_DEPART_METERS) {
-      // Withdrawn, not consumed: the stage is still the driver's instruction, it has simply been
-      // acted on. A recall is what brings it back, and only one of those is spent per stage.
-      visible = false;
-    }
-  } else if (
-    !visible &&
-    !recallSpent &&
-    nowMs - lastProgressAtMs >= GUIDANCE_RECALL_MS
-  ) {
-    visible = true;
-    recallSpent = true;
-  }
-
-  if (
-    baselineMeters === state.baselineMeters &&
-    advanceMeters === state.advanceMeters &&
-    baselineAlong === state.baselineAlongMeters &&
-    lastProgressAtMs === state.lastProgressAtMs &&
-    visible === state.visible &&
-    recallSpent === state.recallSpent
-  ) {
-    // The same object, so a heartbeat that observed nothing re-renders nothing. The dashboard
-    // re-runs this every few seconds for the whole ride; returning a fresh state each time would
-    // repaint the overlays at that cadence for no reason.
-    return state;
-  }
-
   return {
-    stage,
-    baselineMeters,
-    advanceMeters,
-    baselineAlongMeters: baselineAlong,
-    lastProgressAtMs,
-    visible,
-    recallSpent,
+    visible: state.visible && progress.advanceMeters < GUIDANCE_DEPART_METERS,
+    recallSpent: state.recallSpent,
+    lastProgressAtMs: nowMs,
   };
+}
+
+/**
+ * Whether one observation changed anything at all.
+ *
+ * The dashboard re-runs the reducer on a heartbeat for the whole ride, so a fold that observed
+ * nothing must return the *same object* — a fresh but equal state would re-render every overlay
+ * at the tick's cadence for no reason.
+ */
+function sameAnnouncement(a: GuidancePeekState, b: GuidancePeekState): boolean {
+  return (
+    a.stage === b.stage &&
+    a.baselineMeters === b.baselineMeters &&
+    a.advanceMeters === b.advanceMeters &&
+    a.baselineAlongMeters === b.baselineAlongMeters &&
+    a.lastProgressAtMs === b.lastProgressAtMs &&
+    a.visible === b.visible &&
+    a.recallSpent === b.recallSpent
+  );
+}
+
+/**
+ * Whether the raised trip sheet already carries the same instruction as the bar.
+ *
+ * Only the drive to the pickup has a stand-in up there: while the driver is on their way to the
+ * customer with the sheet pulled up, it names the pickup, the fare and the customer, and the
+ * bar's sentence repeats the destination the sheet is already showing. That is the one case this
+ * covers.
+ *
+ * The two arrival stages are its exact opposite, and suppressing them *was* the bug behind the
+ * report "arriving at the pickup, nothing tells me to wait for the customer". They are the only
+ * stages where the sheet is forced to its `trip` palier — `resolveDriverHomeSnapLevel` returns
+ * `trip` for the whole wait — so `tripVisibleInSheet` is true on every frame, and the bar was
+ * withheld for the whole stage, every time, on the assumption that the sheet says the same thing.
+ * It does not: the wait shows a status tag (« En attente »), an elapsed timer and a swipe. The
+ * sentence is written nowhere else, and the sentence is what was being withheld.
+ *
+ * `to_dropoff` is exempt for the original layout reason: once the leg starts, the driver may
+ * still have the sheet expanded from the pickup swipe, and the next announcement must sit above
+ * that sheet rather than vanish or leave a frost ghost with no text.
+ */
+export function guidanceSuppressedByRaisedTripSheet(
+  stage: TripStage | null,
+  tripVisibleInSheet: boolean,
+): boolean {
+  if (!tripVisibleInSheet || stage === null) return false;
+  return !isParkedStage(stage) && stage !== 'to_dropoff';
 }
 
 /**
@@ -246,21 +397,6 @@ export function guidancePeekReducer(
  * It also cannot consume a recall: suppressing the bar because the sheet is already showing the
  * same words is not the driver having read it, so the stage keeps whatever budget it had.
  */
-/**
- * Whether the raised trip sheet already carries the same instruction as the bar.
- *
- * `to_dropoff` is excluded on purpose: once the leg starts, the driver may still have the sheet
- * expanded from the pickup swipe, and the next announcement must sit above that sheet rather than
- * vanish or leave a frost ghost with no text.
- */
-export function guidanceSuppressedByRaisedTripSheet(
-  stage: TripStage | null,
-  tripVisibleInSheet: boolean,
-): boolean {
-  if (!tripVisibleInSheet || stage === null) return false;
-  return stage !== 'to_dropoff';
-}
-
 export function guidancePeekVisible(
   state: GuidancePeekState,
   tripVisibleInSheet: boolean,
@@ -286,6 +422,17 @@ function advanceSince(
   if (baselineMeters === null || remainingMeters === null) return 0;
   if (!Number.isFinite(remainingMeters)) return 0;
   return Math.max(0, baselineMeters - remainingMeters);
+}
+
+/**
+ * An arrival stage, held on screen.
+ *
+ * The same object whenever it is already visible, for the same reason the reducer returns one:
+ * the dashboard re-runs this on a heartbeat for the whole stage, and a stage the driver waits out
+ * is the longest one there is.
+ */
+function holdVisible(state: GuidancePeekState): GuidancePeekState {
+  return state.visible ? state : { ...state, visible: true };
 }
 
 function finiteOrNull(value: number | null): number | null {

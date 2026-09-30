@@ -90,7 +90,8 @@
     "guidance": {
       "toPickup": "Head to the pickup point",
       "atPickup": "Waiting for the customer",
-      "toDropoff": "Drive the customer to the destination"
+      "toDropoff": "Drive the customer to the destination",
+      "atDropoff": "Drop the customer off here"
     },
     "swipeToDecline": "Swipe to decline",
     "offerAccept": "Accept",
@@ -366,6 +367,39 @@
     "previewHint": "Pinch or double-tap to zoom · tap the image or below to close",
     "usePhoto": "Use this photo",
     "closePreview": "Close"
+  },
+  "nav": {
+    "distance": {
+      "in": "in {{distance}}",
+      "bare": "{{distance}}"
+    },
+    "maneuver": {
+      "arrive": "You have arrived",
+      "depart": "Depart",
+      "roundaboutExit_one": "Take the {{count}}st exit",
+      "roundaboutExit_two": "Take the {{count}}nd exit",
+      "roundaboutExit_few": "Take the {{count}}rd exit",
+      "roundaboutExit_other": "Take the {{count}}th exit",
+      "roundabout": "Roundabout",
+      "uturn": "Make a U-turn",
+      "slightLeft": "Turn slightly left",
+      "slightRight": "Turn slightly right",
+      "sharpLeft": "Turn sharply left",
+      "sharpRight": "Turn sharply right",
+      "left": "Turn left",
+      "right": "Turn right",
+      "merge": "Merge",
+      "fork": "Take the fork",
+      "straight": "Continue straight"
+    },
+    "stage": {
+      "toPickup": "Head to the pickup point",
+      "toDropoff": "Head to the destination"
+    },
+    "arrival": {
+      "remaining": "left",
+      "eta": "arrival"
+    }
   },
   "navigation": {
     "home": "Home",

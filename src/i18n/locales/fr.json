@@ -96,7 +96,8 @@
     "guidance": {
       "toPickup": "Rendez-vous au point de prise en charge",
       "atPickup": "En attente du client",
-      "toDropoff": "Conduisez le client à destination"
+      "toDropoff": "Conduisez le client à destination",
+      "atDropoff": "Déposez le client ici"
     },
     "swipeToDecline": "Glisser pour refuser",
     "offerAccept": "Accepter",
@@ -406,6 +407,37 @@
     "previewHint": "Pincez ou double-tapez pour zoomer · tapez l'image ou en bas pour fermer",
     "usePhoto": "Utiliser cette photo",
     "closePreview": "Fermer"
+  },
+  "nav": {
+    "distance": {
+      "in": "dans {{distance}}",
+      "bare": "{{distance}}"
+    },
+    "maneuver": {
+      "arrive": "Vous êtes arrivé",
+      "depart": "Départ",
+      "roundaboutExit_one": "Prendre la {{count}}re sortie",
+      "roundaboutExit_other": "Prendre la {{count}}e sortie",
+      "roundabout": "Rond-point",
+      "uturn": "Faire demi-tour",
+      "slightLeft": "Tourner légèrement à gauche",
+      "slightRight": "Tourner légèrement à droite",
+      "sharpLeft": "Tourner franchement à gauche",
+      "sharpRight": "Tourner franchement à droite",
+      "left": "Tourner à gauche",
+      "right": "Tourner à droite",
+      "merge": "S'insérer",
+      "fork": "Prendre la bifurcation",
+      "straight": "Continuer tout droit"
+    },
+    "stage": {
+      "toPickup": "Rejoindre le point de prise en charge",
+      "toDropoff": "Rejoindre la destination"
+    },
+    "arrival": {
+      "remaining": "restant",
+      "eta": "arrivée"
+    }
   },
   "navigation": {
     "home": "Accueil",

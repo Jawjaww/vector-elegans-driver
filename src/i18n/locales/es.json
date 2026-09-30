@@ -86,7 +86,8 @@
     "guidance": {
       "toPickup": "Diríjase al punto de recogida",
       "atPickup": "Esperando al cliente",
-      "toDropoff": "Lleve al cliente a su destino"
+      "toDropoff": "Lleve al cliente a su destino",
+      "atDropoff": "Deje al cliente aquí"
     },
     "offerAccept": "Aceptar",
     "offerDecline": "Rechazar",
@@ -269,6 +270,36 @@
     "todaySummary": "Resumen del día",
     "rides": "Viajes",
     "earned": "Ganado"
+  },
+  "nav": {
+    "distance": {
+      "in": "en {{distance}}",
+      "bare": "{{distance}}"
+    },
+    "maneuver": {
+      "arrive": "Ha llegado",
+      "depart": "Salida",
+      "roundaboutExit_other": "Tome la {{count}}ª salida",
+      "roundabout": "Rotonda",
+      "uturn": "Dé la vuelta",
+      "slightLeft": "Gire ligeramente a la izquierda",
+      "slightRight": "Gire ligeramente a la derecha",
+      "sharpLeft": "Gire bruscamente a la izquierda",
+      "sharpRight": "Gire bruscamente a la derecha",
+      "left": "Gire a la izquierda",
+      "right": "Gire a la derecha",
+      "merge": "Incorpórese",
+      "fork": "Tome la bifurcación",
+      "straight": "Continúe recto"
+    },
+    "stage": {
+      "toPickup": "Ir al punto de recogida",
+      "toDropoff": "Ir al destino"
+    },
+    "arrival": {
+      "remaining": "restante",
+      "eta": "llegada"
+    }
   },
   "navigation": {
     "home": "Inicio",

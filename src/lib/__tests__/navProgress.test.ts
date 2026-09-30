@@ -1,6 +1,6 @@
 import {
-  ARRIVAL_CHIP_DISTANCE_CAPTION,
-  ARRIVAL_CHIP_ETA_CAPTION,
+  ARRIVAL_CHIP_DISTANCE_CAPTION_KEY,
+  ARRIVAL_CHIP_ETA_CAPTION_KEY,
   formatArrivalClock,
   formatRemainingDistance,
   maneuverActionPhrase,
@@ -45,21 +45,21 @@ describe('navProgress', () => {
     // Non-vacuity for the HUD gate: with no step from the router this is the only line the
     // driver gets, and it must not be empty.
     expect(tripStageBannerParts('to_pickup', 1200)).toEqual({
-      action: 'Rejoindre le point de prise en charge',
-      distance: '1.2 km',
+      action: { key: 'nav.stage.toPickup' },
+      distance: { key: 'nav.distance.bare', params: { distance: '1.2 km' } },
     });
     expect(tripStageBannerParts('to_dropoff', 348)).toEqual({
-      action: 'Rejoindre la destination',
-      distance: '350 m',
+      action: { key: 'nav.stage.toDropoff' },
+      distance: { key: 'nav.distance.bare', params: { distance: '350 m' } },
     });
     expect(tripStageBannerParts('to_pickup', null)).toEqual({
-      action: 'Rejoindre le point de prise en charge',
+      action: { key: 'nav.stage.toPickup' },
       distance: null,
     });
     // An unknown stage is the pickup leg rather than an empty card.
-    expect(tripStageBannerParts(null, 0).action).toBe(
-      'Rejoindre le point de prise en charge',
-    );
+    expect(tripStageBannerParts(null, 0).action).toEqual({
+      key: 'nav.stage.toPickup',
+    });
   });
 
   it('formatArrivalClock adds eta minutes to local clock', () => {
@@ -73,8 +73,8 @@ describe('navProgress', () => {
     // cannot tell that it means 5.8 km from the arrival point and that you get there at 14:25".
     // Two bare figures with a dot between them look like the same kind of thing. Copy, not
     // styling — so it is asserted like the rest of the driver-facing lines here.
-    expect(ARRIVAL_CHIP_DISTANCE_CAPTION).toBe('restant');
-    expect(ARRIVAL_CHIP_ETA_CAPTION).toBe('arrivée');
+    expect(ARRIVAL_CHIP_DISTANCE_CAPTION_KEY).toBe('nav.arrival.remaining');
+    expect(ARRIVAL_CHIP_ETA_CAPTION_KEY).toBe('nav.arrival.eta');
   });
 
   it('maneuverToFeatherIcon maps turns', () => {
@@ -84,34 +84,40 @@ describe('navProgress', () => {
     expect(maneuverToFeatherIcon('arrive')).toBe('flag');
   });
 
-  it('maneuverBannerParts is a spoken French instruction, split where it is read', () => {
+  it('splits the instruction where it is read, as keys a translator can reach', () => {
+    // The halves are keys rather than sentences: this module holds no locale, so the French,
+    // English or Spanish wording lives in the bundles and is chosen by the phone. What is pinned
+    // here is the decision, which is what used to be a French string.
     expect(maneuverBannerParts('turn', 'right', 60)).toEqual({
-      action: 'Tourner à droite',
-      distance: 'dans 60 m',
+      action: { key: 'nav.maneuver.right' },
+      distance: { key: 'nav.distance.in', params: { distance: '60 m' } },
     });
     expect(maneuverBannerParts('turn', 'slight left', 200)).toEqual({
-      action: 'Tourner légèrement à gauche',
-      distance: 'dans 200 m',
+      action: { key: 'nav.maneuver.slightLeft' },
+      distance: { key: 'nav.distance.in', params: { distance: '200 m' } },
     });
-    expect(maneuverActionPhrase('continue', 'straight')).toBe(
-      'Continuer tout droit',
-    );
-    // Arrival is not something to be "in 12 m": the action is the whole sentence.
+    expect(maneuverActionPhrase('continue', 'straight')).toEqual({
+      key: 'nav.maneuver.straight',
+    });
+    // Arrival is not something to be "in 12 m": the action is the whole sentence. The rule reads
+    // the *key*, so rewording or translating the sentence cannot switch it back on — which is
+    // exactly what the French-string comparison it replaced would have done.
     expect(maneuverBannerParts('arrive', undefined, 12)).toEqual({
-      action: 'Vous êtes arrivé',
+      action: { key: 'nav.maneuver.arrive' },
       distance: null,
     });
+    // A roundabout exit goes out as a count, so each locale builds its own ordinal suffix from
+    // `Intl.PluralRules`: "1re", "1st", "1ª", and "21e" / "21st" rather than a fixed table.
     expect(maneuverBannerParts('roundabout', undefined, 80, 2)).toEqual({
-      action: 'Prendre la 2e sortie',
-      distance: 'dans 80 m',
-    });
-    expect(maneuverBannerParts('roundabout', undefined, 40, 1)).toEqual({
-      action: 'Prendre la 1re sortie',
-      distance: 'dans 40 m',
+      action: {
+        key: 'nav.maneuver.roundaboutExit',
+        params: { count: 2, ordinal: true },
+      },
+      distance: { key: 'nav.distance.in', params: { distance: '80 m' } },
     });
     expect(maneuverBannerParts('rotary', undefined, 30)).toEqual({
-      action: 'Rond-point',
-      distance: 'dans 30 m',
+      action: { key: 'nav.maneuver.roundabout' },
+      distance: { key: 'nav.distance.in', params: { distance: '30 m' } },
     });
     // A spent distance is not announced as zero: the action carries the card alone.
     expect(maneuverBannerParts('turn', 'right', 0).distance).toBeNull();

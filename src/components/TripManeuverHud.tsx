@@ -1,12 +1,14 @@
 import { View, Text } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import {
   maneuverBannerParts,
   maneuverToFeatherIcon,
   tripStageBannerParts,
   type NavProgress,
 } from '../lib/utils/navProgress';
+import { navCopyText } from '../i18n/navCopy';
 import { GlassPanel } from './GlassPanel';
 import { RoundaboutExitGlyph } from './RoundaboutExitGlyph';
 import { GLASS_MATERIAL } from '../lib/theme';
@@ -38,7 +40,12 @@ const STREET_LINE = 20;
 
 type TripManeuverHudProps = Readonly<{
   progress: NavProgress;
-  /** `to_pickup` | `at_pickup` | `to_dropoff`; names the target when there is no turn to announce. */
+  /**
+   * The leg being driven — `to_pickup` or `to_dropoff`; names the target when there is no turn to
+   * announce. Mounted only for those two: the arrival stages are announced by the guidance bar,
+   * which owns the instruction as soon as there is no route left to describe. See
+   * `tripManeuverProgress` in the dashboard, the single owner of that gate.
+   */
   stage: string | null;
 }>;
 
@@ -63,6 +70,7 @@ function isRoundabout(type: string | undefined): boolean {
  * one, and the stage needs no router to be known.
  */
 export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const material = GLASS_MATERIAL;
   const man = progress.nextManeuver;
@@ -147,7 +155,7 @@ export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
                 }}
                 numberOfLines={2}
               >
-                {parts.action}
+                {navCopyText(t, parts.action)}
               </Text>
               {parts.distance ? (
                 <Text
@@ -159,8 +167,8 @@ export function TripManeuverHud({ progress, stage }: TripManeuverHudProps) {
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  {parts.distance}
-                </Text>
+                {navCopyText(t, parts.distance)}
+              </Text>
               ) : null}
             </View>
             {street ? (
