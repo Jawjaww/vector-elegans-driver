@@ -267,6 +267,26 @@ The arrival chip deliberately **does not follow the sheet**. It is anchored to `
 
 Its two figures are captioned (`restant` / `arrivée`). `5,8 km · 14h25` read as two labels for one thing — the report was exactly that, that the numbers explained nothing. A caption is copy, so it is kept beside the other driver-facing map lines and asserted there.
 
+### A dead offer is map news, so the notice is drawn on the map
+
+When a `ride_offer` tap resolves to a ride that cannot be offered (expired, taken, declined, dossier inactive…), the driver gets `OfferNoticeOverlay` — not a row in the sheet. It used to be a child of `BottomSheet`, and its mere existence counted as a notice: `noticeCount` grew, `hasNotices` turned true, and the sheet opened itself onto the `notices` palier for a message the driver had not asked for — the message arriving *inside* the panel that was moving under it in the same commit.
+
+- **`noticeCount` counts dossier banners only.** The offer notice is deliberately absent from it (`app/(tabs)/index.tsx` says so in a comment), so a notice never moves the sheet. Why a ride could not be shown is map news, the same lane as the instruction bar and the arrival chip.
+- **It is a sibling between the offer stack and the sheet, at `zIndex` / `elevation` 34.** Not a child of the map group: that group is a sealed stacking context (`zIndex: -1`), so an overlay inside it could not be lifted above the offer stack it replaces (offer stack `30`). Strictly below the sheet (`40` / drag zone `41`) — a sheet the driver raised must still win.
+- **The anchor is lane arithmetic**, `sheetVisibleHeight(overlaySheetLevel, noticesHeight) + LANE_BASE_OFFSET` from `overlayLane.ts`, like the other controls in that lane. `pointerEvents="box-none"` on the anchor and `auto` on the card, because unlike the trip HUDs (read, never pressed) this one carries a dismiss control and a call to action: the map stays pannable around it while the card takes touches.
+- **It fades in on its own clock** (220 ms). The offer card leaves instantly, so without an entry the two surfaces would swap within one frame and read as a glitch.
+- The `already_on_ride` CTA points at **`home`**, never `rides`: the active trip is driven from the map tab, and the Courses tab is now the completed-ride history (`offerNoticeOverlay.test.ts` fails if any `cta.target` is `rides`).
+
+### The Courses tab is the completed-ride history, read from the server
+
+`app/(tabs)/rides.tsx` used to mirror the trip — `ActiveTripSheet` plus an empty state pointing at the map — which restated what Home already showed and answered nothing about what the driver had done. It now lists the rides carried out, from `rideService.fetchCompletedRides()`.
+
+- **`select … eq('status', 'completed')`, ordered by `updated_at` desc, `limit 50`.** Tenancy is the **RLS policy** `rides_assigned_to_driver`, not a filter: no `driver_id` is passed, and resolving one here would add a second place where "whose rides are these" could be answered differently.
+- **`updated_at` is the completion timestamp, as a measured proxy.** `update_ride_progress` writes `SET status = p_status, updated_at = now()`, no other trigger on `rides` touches the column, and 111 of 111 completed rides on the cloud carry `updated_at >= driver_arrived_at`. `ride_status_history` cannot serve here: its trigger is one of the two left disabled on purpose and the table is empty. A later write on a completed ride would lift it back to the top of the list — a dedicated `rides.completed_at` is the durable fix if that ever happens.
+- **Today's totals are derived from the rows, never from the store.** `driverStore`'s `todayRides` / `todayEarnings` persist between launches and are never reset at midnight, so "today" was wrong for any driver who had not restarted the app (`summarizeHistoryToday`).
+- **Reload on focus, not on mount**, plus a `RefreshControl`: ending a ride happens on the map and the tab stays mounted between visits, so a mount-only read would show the ride before last.
+- The row's date is `updated_at`, the column the list is ordered by. Showing `pickup_time` would order the list by one date and describe it with another.
+
 ### The map's copy is translated, and `navProgress` holds no locale
 
 Everything the driver reads on the map is **i18n keys**, never sentences built in a pure module. `navProgress.ts` returns a `NavCopy` — a key plus its interpolation values — and the component renders it through its own `t` (`navCopyText(t, copy)` from `src/i18n/navCopy.ts`). `tripGuidance` has drawn the same line for the guidance bar's titles since the bar existed; `navProgress` was the last holdout, and it mattered: the maneuver card and the arrival chip were hard-coded French while the app ships `fr`/`en`/`es` and picks the language from the device, so an English or Spanish phone read its turn instructions in French. Rendering through the component's `t` rather than a module-level `i18n.t` is also what makes the card re-render when the language changes — a module-level call renders the right sentence once and then never updates.

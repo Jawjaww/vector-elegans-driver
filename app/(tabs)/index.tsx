@@ -138,7 +138,7 @@ import {
   shouldShowMatchingFlameBadge,
 } from "../../src/lib/utils/ridePickup";
 import { RidePriceBonus } from "../../src/components/RidePriceBonus";
-import { OfferNoticeCard } from "../../src/components/OfferNoticeCard";
+import { OfferNoticeOverlay } from "../../src/components/OfferNoticeOverlay";
 import {
   canDisplayOffers,
   canReceiveOffers,
@@ -1591,7 +1591,10 @@ export default function DashboardScreen() {
     () => sliceDossierBannerStack(dossierBanners),
     [dossierBanners],
   );
-  const noticeCount = dossierBanners.length + (offerNotice ? 1 : 0);
+  // Dossier banners only. The offer notice is deliberately *not* counted: it is painted over the
+  // map (`OfferNoticeOverlay`), so its existence must not pull the sheet up to the `notices`
+  // palier — the sheet opening for a message nobody asked for is the bug this fixes.
+  const noticeCount = dossierBanners.length;
   const noticesHeight = noticesBodyHeight(noticeCount);
   const hasNotices = noticeCount > 0;
 
@@ -1893,10 +1896,21 @@ export default function DashboardScreen() {
         </AnimatedPage>
       )}
 
-      {/* The offer stack, then the sheet: the one thing a raised sheet must always cover is a
-          card, and the driver pulled it up on purpose. Both sit outside the map's group, so the
-          z-order is document order here and the sheet's own zIndex wins. */}
+      {/* The offer stack, then the notice, then the sheet: the one thing a raised sheet must
+          always cover is a card, and the driver pulled it up on purpose. All three sit outside
+          the map's group — a sealed stacking context — so the z-order is document order here and
+          each layer's own zIndex settles it. The notice takes the slot the card leaves when a
+          tapped offer turns out to be unofferable. */}
       {offerCarouselElement}
+      {offerNotice ? (
+        <OfferNoticeOverlay
+          notice={offerNotice}
+          sheetVisibleH={overlaySheetVisibleH}
+          onDismiss={() => setOfferNotice(null)}
+          onOpenProfile={() => router.push("/(auth)/profile-setup")}
+          onOpenHome={() => router.push("/(tabs)")}
+        />
+      ) : null}
       {loading ? null : (
         <BottomSheet
           snapLevel={bottomSheetSnapLevel}
@@ -1919,14 +1933,6 @@ export default function DashboardScreen() {
             onOpenProfile={() => router.push("/(auth)/profile-setup")}
             onDismissValidated={() => setJustValidated(false)}
           />
-          {offerNotice ? (
-            <OfferNoticeCard
-              notice={offerNotice}
-              onDismiss={() => setOfferNotice(null)}
-              onOpenProfile={() => router.push("/(auth)/profile-setup")}
-              onOpenRides={() => router.push("/(tabs)/rides")}
-            />
-          ) : null}
           <DriverHomeSheetBody
             activeRide={activeRide}
             availableRide={availableRide}

@@ -152,9 +152,12 @@
   },
   "ridesScreen": {
     "title": "Rides",
-    "subtitle": "Current & history",
-    "noActiveTitle": "No active rides",
-    "noActiveBody": "Go online to receive ride requests. Trip controls live on the Home map.",
+    "subtitle": "History",
+    "emptyTitle": "No completed rides",
+    "emptyBody": "Rides you complete will show up here, with their route and their fare.",
+    "errorTitle": "History unavailable",
+    "errorBody": "Could not load your completed rides. Check your connection and try again.",
+    "retry": "Try again",
     "todaySummary": "Today's summary",
     "rides": "Rides",
     "earned": "Earned"
