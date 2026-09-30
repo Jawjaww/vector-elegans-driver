@@ -264,9 +264,12 @@
   },
   "ridesScreen": {
     "title": "Viajes",
-    "subtitle": "En curso e historial",
-    "noActiveTitle": "Sin viajes activos",
-    "noActiveBody": "Conéctate para recibir solicitudes. El viaje se controla en el mapa de Inicio.",
+    "subtitle": "Historial",
+    "emptyTitle": "Sin viajes completados",
+    "emptyBody": "Aquí aparecerán los viajes que completes, con su recorrido y su importe.",
+    "errorTitle": "Historial no disponible",
+    "errorBody": "No se pudieron cargar tus viajes completados. Comprueba tu conexión e inténtalo de nuevo.",
+    "retry": "Reintentar",
     "todaySummary": "Resumen del día",
     "rides": "Viajes",
     "earned": "Ganado"

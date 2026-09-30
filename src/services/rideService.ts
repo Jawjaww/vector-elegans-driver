@@ -35,6 +35,20 @@ export interface PendingRide {
   options?: string[];
 }
 
+/** First-version ceiling for the history tab — no pagination beyond it. */
+const COMPLETED_RIDES_PAGE = 50;
+
+/**
+ * Result of reading the driver's completed rides.
+ *
+ * Discriminated rather than `Ride[]`, for the same reason `AssignedRideFetch` is: an empty
+ * history and a read that failed are two different screens — the empty state, and a retry — and
+ * a bare array renders the first when it means the second.
+ */
+export type CompletedRidesFetch =
+  | { ok: true; rides: Ride[] }
+  | { ok: false; reason: 'network' | 'server' };
+
 export interface AcceptRideResult {
   success: boolean;
   error?: string;
@@ -397,6 +411,47 @@ class RideService {
       };
     }
     return { ok: true, ride: data ? toAppRide(data) : null };
+  }
+
+  /**
+   * The driver's completed rides, newest first, for the Courses tab.
+   *
+   * **Tenancy is the RLS policy, not a filter.** `rides_assigned_to_driver` already restricts the
+   * read to this driver's own rides, so no `driver_id` is passed: resolving the driver id here
+   * would only add a second place where "whose rides are these" could be answered differently.
+   *
+   * Ordered by `updated_at`, and deliberately: it is the column `update_ride_progress` writes when
+   * the ride completes (`SET status = p_status, updated_at = now()`), and no other trigger on
+   * `rides` touches it — measured on the cloud, 111 of 111 completed rides carry
+   * `updated_at >= driver_arrived_at`. It is still a *proxy* for "finished at": a later write on a
+   * completed ride would lift that ride back to the top of the list. A dedicated
+   * `rides.completed_at` is the durable fix if that ever happens.
+   *
+   * The select carries no pickup/dropoff coordinates on purpose. `resolveRideTripMetrics` falls
+   * back to the geometry when the stored distance looks wrong, and a row whose coordinates are
+   * half missing would compute a straight line across the globe and overwrite a correct distance
+   * with it. Without any coordinate the helper reads `null` and keeps the stored figures.
+   *
+   * Cancellations and no-shows are excluded by decision: this tab is "rides carried out".
+   */
+  async fetchCompletedRides(): Promise<CompletedRidesFetch> {
+    const { data, error } = await supabase
+      .from('rides')
+      .select(
+        'id, status, pickup_address, dropoff_address, final_price, estimated_price, price, distance, duration, updated_at, accepted_at, pickup_time, vehicle_type',
+      )
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false })
+      .limit(COMPLETED_RIDES_PAGE);
+
+    if (error) {
+      return {
+        ok: false,
+        reason: isTransientNetworkError(error) ? 'network' : 'server',
+      };
+    }
+
+    return { ok: true, rides: (data ?? []).map((row) => toAppRide(row)) };
   }
 
   private mapToPendingRide(ride: Ride): PendingRide {
