@@ -18,6 +18,7 @@ import { AppChromeBackground } from './AppChromeBackground';
 import { setBottomSheetTabBarPanGesture } from './bottomSheetGestureBridge';
 import {
   shouldResettleSheet,
+  type SheetBodyLevel,
   type SheetSettleState,
 } from '../lib/utils/homeSheetSnap';
 
@@ -37,9 +38,6 @@ const HANDLE_ONLY_VISIBLE = 14;
 /** Invisible upward-drag band at scene bottom (above tab bar). */
 export const SCENE_BOTTOM_DRAG_ZONE = 36;
 
-/** Scroll paddingTop + OnlineStatusRow (title, subtitle, switch) without section divider. */
-const ONLINE_BODY_H = 46;
-
 /**
  * Sheet extends below the scene (into tab-bar zone) so the bottom edge
  * stays flush during spring bounce — top-only animation via `top`.
@@ -57,15 +55,6 @@ const SPRING = {
   overshootClamping: false,
 } as const;
 
-/** Dossier incomplete / expiry banner (1 card). Grows via `noticesHeight`. */
-const NOTICES_BODY_H = 100;
-/** ActiveTripSheet (status + addresses + swipe + cancel). */
-const TRIP_BODY_H = 236;
-/** COURSES DISPONIBLES label + deferred carousel. */
-const RIDES_BODY_H = 256;
-/** JOURNÉE + COURSES day stats cards. */
-const STATS_BODY_H = 110;
-
 /**
  * Target visible heights (px from bottom of the home scene).
  *
@@ -76,25 +65,28 @@ const STATS_BODY_H = 110;
  * trip    — switch + banner slot + active trip controls
  * rides   — + available / deferred ride cards
  * stats   — + day earnings and ride count (last idle palier)
+ *
+ * The body heights come from `bodies` — measured by the sections themselves — and not from a
+ * constant per palier. Those constants described components that changed without them, so a
+ * palier could end inside the card it exists to reveal: the bottom of a deferred ride card, and
+ * the earnings under it. See `resolveSheetSectionBottoms` for the fallback and `SheetSection` for
+ * the measurement.
+ *
+ * The cap is the one thing that is still a judgement: a scene shorter than its own content has to
+ * stop somewhere, and `TOP_MAP_REVEAL` is where. A palier that hits the cap is the one case where
+ * this sheet cannot show all of its own content — see the note on `scrollEnabled` below.
  */
-function buildSnapY(sceneH: number, noticesBodyH = NOTICES_BODY_H) {
-  const peek = HANDLE_ONLY_VISIBLE;
-  const nav = HANDLE_ONLY_VISIBLE;
-  const online = HANDLE_H + ONLINE_BODY_H;
-  const notices = online + Math.max(0, noticesBodyH);
-  const trip = notices + TRIP_BODY_H;
-  const rides = notices + RIDES_BODY_H;
-  const stats = rides + STATS_BODY_H;
-  const maxVisible = Math.max(nav, sceneH - TOP_MAP_REVEAL);
-  const cap = (h: number) => Math.min(h, maxVisible);
+function buildSnapY(sceneH: number, bodies: Record<SheetBodyLevel, number>) {
+  const maxVisible = Math.max(HANDLE_ONLY_VISIBLE, sceneH - TOP_MAP_REVEAL);
+  const cap = (bodyHeight: number) => Math.min(HANDLE_H + bodyHeight, maxVisible);
   return {
-    peek: sceneH - peek,
-    nav: sceneH - nav,
-    online: sceneH - cap(online),
-    notices: sceneH - cap(notices),
-    trip: sceneH - cap(trip),
-    rides: sceneH - cap(rides),
-    stats: sceneH - cap(stats),
+    peek: sceneH - HANDLE_ONLY_VISIBLE,
+    nav: sceneH - HANDLE_ONLY_VISIBLE,
+    online: sceneH - cap(bodies.online),
+    notices: sceneH - cap(bodies.notices),
+    trip: sceneH - cap(bodies.trip),
+    rides: sceneH - cap(bodies.rides),
+    stats: sceneH - cap(bodies.stats),
   };
 }
 
@@ -120,38 +112,21 @@ const SNAP_ORDER: SheetSnapLevel[] = [
 /** Visible height of the nav snap (for HUD placement above the sheet). */
 export const NAV_SHEET_VISIBLE_H = HANDLE_ONLY_VISIBLE;
 
-/** Visible height of the trip snap (switch + optional banner + ActiveTripSheet). */
-export function tripSheetVisibleHeight(noticesBodyH = NOTICES_BODY_H): number {
-  return HANDLE_H + ONLINE_BODY_H + Math.max(0, noticesBodyH) + TRIP_BODY_H;
-}
-
-export const TRIP_SHEET_VISIBLE_H = tripSheetVisibleHeight();
-
-/** Visible body height (px from scene bottom) for a settled snap palier. */
+/**
+ * Visible body height (px above the scene bottom) for a settled palier.
+ *
+ * Taken from the same measured boundaries the sheet snaps with, so an overlay placed on top of
+ * the sheet cannot disagree with where the sheet actually is. Deliberately **not** capped by
+ * `TOP_MAP_REVEAL`: that cap belongs to the snap *target*, where a scene shorter than its own
+ * content has to stop somewhere, and callers here are placing a bar above a sheet on a scene that
+ * is at least as tall as what the palier shows.
+ */
 export function sheetVisibleHeight(
   level: SheetSnapLevel,
-  noticesBodyH = NOTICES_BODY_H,
+  bodies: Record<SheetBodyLevel, number>,
 ): number {
-  const online = HANDLE_H + ONLINE_BODY_H;
-  const notices = online + Math.max(0, noticesBodyH);
-  const trip = notices + TRIP_BODY_H;
-  const rides = notices + RIDES_BODY_H;
-  const stats = rides + STATS_BODY_H;
-  switch (level) {
-    case 'peek':
-    case 'nav':
-      return HANDLE_ONLY_VISIBLE;
-    case 'online':
-      return online;
-    case 'notices':
-      return notices;
-    case 'trip':
-      return trip;
-    case 'rides':
-      return rides;
-    case 'stats':
-      return stats;
-  }
+  if (level === 'peek' || level === 'nav') return HANDLE_ONLY_VISIBLE;
+  return HANDLE_H + bodies[level];
 }
 
 function resolveAllowedOrder(
@@ -168,8 +143,16 @@ interface BottomSheetProps {
   snapLevel?: SheetSnapLevel;
   /** When set, drag only settles on these levels (in SNAP_ORDER sequence). */
   allowedSnaps?: readonly SheetSnapLevel[];
-  /** Visible height of the notices palier body (stack of dossier cards). */
-  noticesHeight?: number;
+  /**
+   * Bottom edge of each body palier, in the sheet's scroll-content space.
+   *
+   * The whole geometry of the snap rests on this being where the content actually ends. Built by
+   * `resolveSheetSectionBottoms`, which answers from the guess for a section that has not measured
+   * itself yet; the sections measure through `SheetSection`. The caller owns the state because the
+   * dashboard also places the guidance bar and the offer notice above the sheet, and both have to
+   * land on the same top edge the sheet is going to snap to.
+   */
+  bodies: Record<SheetBodyLevel, number>;
   /**
    * Identity of what the sheet must get out of the way for.
    *
@@ -194,14 +177,14 @@ export const BottomSheet = ({
   children,
   snapLevel = 'peek',
   allowedSnaps,
-  noticesHeight = NOTICES_BODY_H,
+  bodies,
   collapseToken,
   onSettle,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
   const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
   const scrollRef = useRef<ScrollView>(null);
-  const snapY = buildSnapY(sceneH, noticesHeight);
+  const snapY = buildSnapY(sceneH, bodies);
 
   const allowedOrder = useMemo(
     () => resolveAllowedOrder(allowedSnaps),
@@ -231,6 +214,10 @@ export const BottomSheet = ({
   const applySnapLevel = useCallback(
     (level: SheetSnapLevel, report = false) => {
       prevSnap.current = level;
+      // Scrolling opens on the fully expanded palier and nowhere else: between two paliers the
+      // drag that reveals more is the gesture, and a scrollable body would swallow it. With the
+      // boundaries measured, a palier ends exactly where its content ends, so the expanded one has
+      // nothing left to scroll to except in the capped case `buildSnapY` describes.
       const atStats = level === 'stats';
       setScrollEnabled(atStats);
       if (!atStats) {
@@ -241,9 +228,12 @@ export const BottomSheet = ({
     [],
   );
 
-  // Measure scene: update snap points; only re-spring if that snap's Y changed
+  // Measure scene, and follow the boundaries: update every snap point, and re-spring only if the
+  // palier the sheet is on actually moved. A measurement that lands *after* the palier was chosen
+  // is the normal case, not an edge — the sections report one frame after they are laid out — and
+  // it is why this effect compares the old and new target instead of only reacting to `sceneH`.
   useEffect(() => {
-    const nextSnapY = buildSnapY(sceneH, noticesHeight);
+    const nextSnapY = buildSnapY(sceneH, bodies);
     const level = prevSnap.current;
     const prevTarget = snapYShared.value[level];
     const nextTarget = nextSnapY[level];
@@ -251,7 +241,7 @@ export const BottomSheet = ({
     if (Math.abs(prevTarget - nextTarget) > 1) {
       translateY.value = withSpring(nextTarget, SPRING);
     }
-  }, [sceneH, noticesHeight, snapYShared, translateY]);
+  }, [sceneH, bodies, snapYShared, translateY]);
 
   useEffect(() => {
     allowedOrderShared.value = allowedOrder;

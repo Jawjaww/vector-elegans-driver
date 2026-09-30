@@ -169,7 +169,14 @@ export function resolveDossierBanner(input: DossierBannerInput): {
   return { kind: first.kind, expiring: first.expiring };
 }
 
-/** Bottomsheet `notices` body height from stack length. */
+/**
+ * Body height of the `notices` palier from the size of the banner stack.
+ *
+ * Now only the answer for the frame *before* the stack has measured itself: the sheet snaps on the
+ * banner's own bottom edge (`SheetSection` → `resolveSheetSectionBottoms`), because a card whose
+ * subtitle wraps to a second line is taller than any number here could know. These were the whole
+ * answer before, which is why the constant is a couple of dozen pixels off in each direction.
+ */
 export function noticesBodyHeight(stackLength: number): number {
   if (stackLength <= 0) return 0;
   if (stackLength === 1) return NOTICES_HEIGHT_ONE;
