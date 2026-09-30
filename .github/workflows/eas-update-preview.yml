@@ -25,62 +25,51 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      # Three attempts, escalating waits. The action installs eas-cli into a fresh, lockfile-less
-      # temp directory (`$RUNNER_TEMP/eas-cli/<version>/<arch>`), so every transitive dependency is
-      # resolved from scratch — and `browserslist` -> `electron-to-chromium`, republished every day
-      # or two, takes whatever the registry advertises at that instant. The action's own remote
-      # cache does not shield this: it has answered `400` on every run checked, green ones
-      # included, so the install is cold every time.
-      # On 2026-09-30 npm served `dist-tags.latest` = 1.5.443 while its tarball was still
-      # `404 Not Found`, and the job died in 20 s, before `npm ci`, on a package that is not even
-      # ours. The window is npm-side and lasts minutes — measured at up to 14 that day — so the
-      # answer is patience and another attempt: two minutes, then seven, which is free in a job
-      # nobody is waiting on. A retry also reuses the local tool cache if the first attempt got
-      # that far. Nothing here can publish twice: only the last step does.
-      - name: Install eas-cli (attempt 1/3)
-        id: eas_setup_1
-        uses: expo/expo-github-action@v8
-        continue-on-error: true
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Wait 2 min, the registry is serving a version it does not have yet
-        if: steps.eas_setup_1.outcome == 'failure'
-        run: sleep 120
-
-      - name: Install eas-cli (attempt 2/3)
-        id: eas_setup_2
-        if: steps.eas_setup_1.outcome == 'failure'
-        uses: expo/expo-github-action@v8
-        continue-on-error: true
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Wait 7 min, the registry is serving a version it does not have yet
-        if: steps.eas_setup_2.outcome == 'failure'
-        run: sleep 420
-
-      # No `continue-on-error` here: if the third attempt fails too, the job fails.
-      - name: Install eas-cli (attempt 3/3)
-        if: steps.eas_setup_2.outcome == 'failure'
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: package-lock.json
+          # Both trees, because the npm cache is keyed on what gets installed: the app's, and the
+          # CLI's own lockfile below.
+          cache-dependency-path: |
+            package-lock.json
+            tools/eas-cli/package-lock.json
+
+      # The CLI comes from `tools/eas-cli`, not from whatever the registry calls `latest`.
+      #
+      # It used to come from `expo/expo-github-action`, which installs eas-cli into a fresh,
+      # **lockfile-less** temp directory (`$RUNNER_TEMP/eas-cli/<version>/<arch>`) with yarn: every
+      # transitive dependency was resolved from scratch at run time, and `browserslist` →
+      # `electron-to-chromium` — republished every day or two — took whatever the registry
+      # advertised at that instant. On 2026-09-30 that was `dist-tags.latest` = `1.5.443` while its
+      # own tarball was still `404 Not Found`: the job died in 20 s, before `npm ci`, on a package
+      # that is not ours, and nothing in the job could say "not that one" — the resolution belonged
+      # to the temp install. Three attempts with escalating waits (2 min, then 7 min) papered over
+      # the npm-side window; they are gone with the cause, and a registry flake is now a re-run.
+      #
+      # `npm ci` from the committed lockfile never consults a dist-tag: every version and every
+      # integrity hash is written down, so a version the registry advertises but cannot serve is
+      # never selected, and the CLI the OTA runs is the one reviewed in the PR that bumped it.
+      # The action is gone as well — once the install left, all it still did was export the token,
+      # and `EXPO_TOKEN` in the step's environment is the documented non-interactive auth.
+      #
+      # Installed **outside** the project tree on purpose: Metro bundles the app from the root, and
+      # 160 MB of tool under it would join every file map — locally as well as here — for a job
+      # whose only output is a bundle. The checkout stays exactly what the lockfile describes.
+      - name: Install the pinned eas-cli
+        run: |
+          mkdir -p "$RUNNER_TEMP/eas-cli"
+          cp tools/eas-cli/package.json tools/eas-cli/package-lock.json "$RUNNER_TEMP/eas-cli/"
+          cd "$RUNNER_TEMP/eas-cli"
+          npm ci --no-audit --no-fund
+          echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
       - name: EAS Update (preview channel, local APK runtime)
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           # Optional: same bytes as ./google-services.json on your machine (EAS file var is not in env:exec).
           GOOGLE_SERVICES_JSON_CONTENT: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: ./scripts/eas-update-preview.sh "${{ github.event.workflow_run.head_sha }}"

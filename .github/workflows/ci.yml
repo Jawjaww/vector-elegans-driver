@@ -15,6 +15,9 @@ on:
       # A non-vacuity test asserts on the local build script, so a change to it — alone —
       # still has to run the suite that reads it.
       - "scripts/**"
+      # Same rule, same reason: a test reads the pinned OTA CLI (`tools/eas-cli`), so bumping the
+      # pin alone is a change the suite that guards it has to run on.
+      - "tools/**"
       - ".github/workflows/ci.yml"
       - ".github/workflows/eas-update-preview.yml"
   pull_request:
@@ -29,6 +32,7 @@ on:
       - "tsconfig.json"
       - "modules/**"
       - "scripts/**"
+      - "tools/**"
       - ".github/workflows/ci.yml"
       - ".github/workflows/eas-update-preview.yml"
 
