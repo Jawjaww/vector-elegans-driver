@@ -1850,61 +1850,59 @@ export default function DashboardScreen() {
             {shouldShowTripNavigationHud(activeRide, navProgress) && navProgress ? (
               <TripArrivalHud
                 progress={navProgress}
-                sheetVisibleH={overlaySheetVisibleH}
                 aboveGuidanceBar={guidanceVisible}
               />
             ) : null}
-
-            {/* Content Overlay — zIndex 40, above offer stack (30) when raised */}
-            <BottomSheet
-              snapLevel={bottomSheetSnapLevel}
-              allowedSnaps={bottomSheetAllowedSnaps}
-              noticesHeight={noticesHeight}
-              collapseToken={offerToken}
-              onSettle={setSheetSettledAt}
-            >
-              <OnlineStatusRow
-                duty={resolveDriverDuty(isOnline, activeRide)}
-                isOnline={isOnline}
-                onToggle={handleToggleOnline}
-                pushStatus={pushRegisterStatus}
-              />
-              <DriverStatusBanner
-                banners={visibleDossierBanners}
-                overflowCount={overflowCount}
-                rejectedDocs={rejectedDocs}
-                expiredTypes={expiredTypes}
-                onOpenProfile={() => router.push("/(auth)/profile-setup")}
-                onDismissValidated={() => setJustValidated(false)}
-              />
-              {offerNotice ? (
-                <OfferNoticeCard
-                  notice={offerNotice}
-                  onDismiss={() => setOfferNotice(null)}
-                  onOpenProfile={() => router.push("/(auth)/profile-setup")}
-                  onOpenRides={() => router.push("/(tabs)/rides")}
-                />
-              ) : null}
-              <DriverHomeSheetBody
-                activeRide={activeRide}
-                availableRide={availableRide}
-                deferredRides={deferredRides}
-                stats={stats}
-                tripActions={tripActions}
-                onOpenActiveRide={() => router.push("/(tabs)/rides")}
-                onPromoteDeferred={promoteDeferredRide}
-                onDismissDeferred={handleDismissDeferredRide}
-              />
-            </BottomSheet>
           </View>
         </AnimatedPage>
       )}
 
-      {/* The offer overlay's parent is this wrapper, and it is the same element in both branches:
-          it used to move from the boot branch to the dashboard tree, so React unmounted and
-          rebuilt the card — painted over a bare spinner, then destroyed and painted again over
-          the map. The boot no longer stands between the driver and the ride they just tapped. */}
+      {/* The offer stack, then the sheet: the one thing a raised sheet must always cover is a
+          card, and the driver pulled it up on purpose. Both sit outside the map's group, so the
+          z-order is document order here and the sheet's own zIndex wins. */}
       {offerCarouselElement}
+      {loading ? null : (
+        <BottomSheet
+          snapLevel={bottomSheetSnapLevel}
+          allowedSnaps={bottomSheetAllowedSnaps}
+          noticesHeight={noticesHeight}
+          collapseToken={offerToken}
+          onSettle={setSheetSettledAt}
+        >
+          <OnlineStatusRow
+            duty={resolveDriverDuty(isOnline, activeRide)}
+            isOnline={isOnline}
+            onToggle={handleToggleOnline}
+            pushStatus={pushRegisterStatus}
+          />
+          <DriverStatusBanner
+            banners={visibleDossierBanners}
+            overflowCount={overflowCount}
+            rejectedDocs={rejectedDocs}
+            expiredTypes={expiredTypes}
+            onOpenProfile={() => router.push("/(auth)/profile-setup")}
+            onDismissValidated={() => setJustValidated(false)}
+          />
+          {offerNotice ? (
+            <OfferNoticeCard
+              notice={offerNotice}
+              onDismiss={() => setOfferNotice(null)}
+              onOpenProfile={() => router.push("/(auth)/profile-setup")}
+              onOpenRides={() => router.push("/(tabs)/rides")}
+            />
+          ) : null}
+          <DriverHomeSheetBody
+            activeRide={activeRide}
+            availableRide={availableRide}
+            deferredRides={deferredRides}
+            stats={stats}
+            tripActions={tripActions}
+            onOpenActiveRide={() => router.push("/(tabs)/rides")}
+            onPromoteDeferred={promoteDeferredRide}
+            onDismissDeferred={handleDismissDeferredRide}
+          />
+        </BottomSheet>
+      )}
     </View>
   );
 }

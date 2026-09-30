@@ -22,6 +22,18 @@ import { theme } from '../theme';
 export type TripStage = 'to_pickup' | 'at_pickup' | 'to_dropoff';
 
 /**
+ * Whether a loose stage string is one of the three the palette knows.
+ *
+ * The dashboard hands the map cards a `string | null` — it reads the stage off a ride, where the
+ * type is not enforced — so the components that want the stage's colour need to narrow it first.
+ * Written as a guard rather than a cast so an unknown stage falls back to the neutral ink instead
+ * of indexing the palette with a key that is not there.
+ */
+export function isTripStage(value: string | null | undefined): value is TripStage {
+  return value === 'to_pickup' || value === 'at_pickup' || value === 'to_dropoff';
+}
+
+/**
  * The stage for a ride, or `null` when there is no instruction to give.
  *
  * Derived from `status` plus `driver_arrived_at` rather than from a status of its own: arrival

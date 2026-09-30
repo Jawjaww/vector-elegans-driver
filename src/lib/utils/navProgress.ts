@@ -167,6 +167,19 @@ export function formatArrivalClock(
   return `${hh}:${mm}`;
 }
 
+/**
+ * What each number in the arrival chip is, said in one word.
+ *
+ * The chip read `5,8 km · 14h25` and the report was blunt: "you cannot tell that it means 5.8 km
+ * from the arrival point and that you get there at 14:25". Two bare figures with a dot between
+ * them are read as the same kind of thing, so the reader looks for a unit they already know and
+ * settles on the wrong one — the distance as a distance to anywhere, the clock as a departure.
+ * The caption is the entire fix, which is why it is copy rather than a styling pass: it is kept
+ * beside the rest of the driver-facing map lines so the wording can be asserted.
+ */
+export const ARRIVAL_CHIP_DISTANCE_CAPTION = 'restant';
+export const ARRIVAL_CHIP_ETA_CAPTION = 'arrivée';
+
 /** French ordinal for a roundabout exit: 1re, 2e, 3e. */
 export function frenchExitOrdinal(exit: number): string {
   if (exit === 1) return '1re';
@@ -205,41 +218,67 @@ export function maneuverActionPhrase(
 }
 
 /**
- * First line of the maneuver banner: the action, then the distance when it still matters.
- * The street name is rendered on its own line by the HUD.
+ * The instruction, split where it has to be read twice.
+ *
+ * The card draws the action and the distance as two pieces of type: the action is what the driver
+ * does, the distance is the only figure that changes while they do it, and the second is worth the
+ * accent colour. Splitting here rather than in the component keeps the sentence the driver reads
+ * in one place — the two halves cannot drift apart, and a translator has one string per half.
  */
-export function maneuverBannerLine(
+export type ManeuverBannerParts = {
+  /** The action on its own: "Tourner à droite". Never empty. */
+  action: string;
+  /** "dans 60 m", or null when the distance is spent or the router never gave one. */
+  distance: string | null;
+};
+
+/**
+ * The instruction, when a maneuver exists.
+ *
+ * `maneuverActionPhrase` says what to do, `steppedManeuverDistance` says how far, and the street
+ * name is a third line the HUD draws on its own.
+ */
+export function maneuverBannerParts(
   type: string,
   modifier: string | undefined,
   distanceMeters: number | null | undefined,
   exit?: number,
-): string {
+): ManeuverBannerParts {
   const action = maneuverActionPhrase(type, modifier, exit);
-  const arrived = action === 'Vous êtes arrivé';
+  // Arrival is not something to be "in 12 m": the action is the whole sentence.
+  if (action === 'Vous êtes arrivé') return { action, distance: null };
   const distance = steppedManeuverDistance(distanceMeters);
-  if (!arrived && distance !== null && distance > 0) {
-    return `${action} dans ${formatRemainingDistance(distance)}`;
-  }
-  return action;
+  return {
+    action,
+    distance:
+      distance !== null && distance > 0
+        ? `dans ${formatRemainingDistance(distance)}`
+        : null,
+  };
 }
 
 /**
- * The banner when the router has delivered no step yet.
+ * The instruction when the router has delivered no step yet.
  *
- * Withholding the whole card until a maneuver exists is what made it absent for the entire
- * trip whenever the routing request failed: the driver got no instruction at all, not a rough
- * one. The stage phrase is always available — it comes from the ride, not from a router — so it
- * is what the card falls back to, distance stepped like any other.
+ * Withholding the whole card until a maneuver exists is what made it absent for the entire trip
+ * whenever the routing request failed: the driver got no instruction at all, not a rough one. The
+ * stage phrase is always available — it comes from the ride, not from a router — so it is what the
+ * card falls back to, distance stepped like any other.
  */
-export function tripStageBannerLine(
+export function tripStageBannerParts(
   stage: string | null,
   distanceMeters: number | null | undefined,
-): string {
-  const target =
+): ManeuverBannerParts {
+  const action =
     stage === 'to_dropoff'
       ? 'Rejoindre la destination'
       : 'Rejoindre le point de prise en charge';
   const distance = steppedManeuverDistance(distanceMeters);
-  if (distance === null || distance <= 0) return target;
-  return `${target} — ${formatRemainingDistance(distance)}`;
+  return {
+    action,
+    distance:
+      distance !== null && distance > 0
+        ? formatRemainingDistance(distance)
+        : null,
+  };
 }

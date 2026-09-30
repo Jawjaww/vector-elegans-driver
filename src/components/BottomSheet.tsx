@@ -382,7 +382,10 @@ export const BottomSheet = ({
 const styles = StyleSheet.create({
   sceneFill: {
     ...StyleSheet.absoluteFillObject,
-    // Above map GPS HUDs so a raised sheet covers maneuver / arrival chips
+    // Above the offer stack (30) and above every map chip, by document order *and* by this number:
+    // the sheet is the one panel the driver pulls up on purpose, so nothing on the map may cover
+    // it. An iOS `zIndex` alone would not settle it — Android sorts siblings by elevation — which
+    // is why both fields are set. offerArrival.test.ts compares the two figures.
     zIndex: 40,
     elevation: 40,
   },
