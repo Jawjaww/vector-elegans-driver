@@ -46,7 +46,10 @@ import {
   offerSetToken,
   resolveBottomSheetAllowedSnaps,
   resolveDriverHomeSnapLevel,
+  resolveSheetSectionBottoms,
   visibleProvisionalOffer,
+  type SheetBodyLevel,
+  type SheetSectionBottoms,
 } from "../../src/lib/utils/homeSheetSnap";
 import {
   GUIDANCE_TICK_MS,
@@ -75,6 +78,10 @@ import {
   type SheetSnapLevel,
   sheetVisibleHeight,
 } from "../../src/components/BottomSheet";
+import {
+  SheetSection,
+  type SheetSectionMeasure,
+} from "../../src/components/SheetSection";
 import { OfferRideCarousel } from "../../src/components/OfferRideCarousel";
 import { RideOfferExtras } from "../../src/components/RideOfferExtras";
 import { VTCMap } from "../../src/map/VTCMap";
@@ -609,11 +616,11 @@ function tripManeuverProgress(
 
 function resolveMapRecenterBottomOffset(
   activeRide: Ride | null,
-  noticesHeight: number,
+  sheetBodies: Record<SheetBodyLevel, number>,
   sheetLevel: SheetSnapLevel,
 ): number {
   if (!activeRide) return 56;
-  return sheetVisibleHeight(sheetLevel, noticesHeight);
+  return sheetVisibleHeight(sheetLevel, sheetBodies);
 }
 
 /**
@@ -1598,6 +1605,41 @@ export default function DashboardScreen() {
   const noticesHeight = noticesBodyHeight(noticeCount);
   const hasNotices = noticeCount > 0;
 
+  /**
+   * Where each body palier ends, as reported by the section that ends there.
+   *
+   * The sheet snapped on one constant per palier until now, and each constant described a
+   * component that was free to change without it. Reported: with a ride card in the sheet, "the
+   * second palier cuts the bottom of the ride card, and the Journée and Courses cards under it are
+   * cut too". Both were the same bug — the `rides` and `stats` paliers were ending *inside* the
+   * content they exist to reveal — and no constant can be right about a deferred card that gains a
+   * bonus line or day stats that gain a second line of type. The sections measure themselves, so a
+   * palier is a content boundary again.
+   *
+   * The state lives here rather than in the sheet because the dashboard is also what places the
+   * guidance bar and the offer notice above the sheet, from `overlaySheetVisibleH`: the two have to
+   * agree on where the top edge is, and two sources for it is how an overlay ends up overlapping
+   * the panel.
+   */
+  const [sheetBottoms, setSheetBottoms] = useState<SheetSectionBottoms>({});
+
+  // Stable on purpose, and `SheetSection` holds it in a ref for the same reason: an inline arrow
+  // would re-run that section's unmount cleanup on every render, clearing a measurement that is
+  // still true — and no new `onLayout` arrives to put it back.
+  const measureSheetSection = useCallback<SheetSectionMeasure>(
+    (level, bottom) => {
+      setSheetBottoms((previous) =>
+        previous[level] === bottom ? previous : { ...previous, [level]: bottom },
+      );
+    },
+    [],
+  );
+
+  const sheetBodies = useMemo(
+    () => resolveSheetSectionBottoms(sheetBottoms, noticesHeight),
+    [sheetBottoms, noticesHeight],
+  );
+
   // The offered rides, and the provisional card once it has yielded to the real one. Both the
   // sheet rule and the overlay read these, so "a card is on screen" has a single meaning.
   const deckOfferIds = useMemo(
@@ -1688,18 +1730,18 @@ export default function DashboardScreen() {
   const overlaySheetLevel = sheetSettledAt ?? bottomSheetSnapLevel;
 
   const overlaySheetVisibleH = useMemo(
-    () => sheetVisibleHeight(overlaySheetLevel, noticesHeight),
-    [overlaySheetLevel, noticesHeight],
+    () => sheetVisibleHeight(overlaySheetLevel, sheetBodies),
+    [overlaySheetLevel, sheetBodies],
   );
 
   const mapRecenterBottomOffset = useMemo(
     () =>
       resolveMapRecenterBottomOffset(
         activeRide,
-        noticesHeight,
+        sheetBodies,
         overlaySheetLevel,
       ),
-    [activeRide, noticesHeight, overlaySheetLevel],
+    [activeRide, sheetBodies, overlaySheetLevel],
   );
 
   // How far the latest fix is from the drop-off pin, in metres — the only signal that can say the
@@ -1915,24 +1957,31 @@ export default function DashboardScreen() {
         <BottomSheet
           snapLevel={bottomSheetSnapLevel}
           allowedSnaps={bottomSheetAllowedSnaps}
-          noticesHeight={noticesHeight}
+          bodies={sheetBodies}
           collapseToken={offerToken}
           onSettle={setSheetSettledAt}
         >
-          <OnlineStatusRow
-            duty={resolveDriverDuty(isOnline, activeRide)}
-            isOnline={isOnline}
-            onToggle={handleToggleOnline}
-            pushStatus={pushRegisterStatus}
-          />
-          <DriverStatusBanner
-            banners={visibleDossierBanners}
-            overflowCount={overflowCount}
-            rejectedDocs={rejectedDocs}
-            expiredTypes={expiredTypes}
-            onOpenProfile={() => router.push("/(auth)/profile-setup")}
-            onDismissValidated={() => setJustValidated(false)}
-          />
+          {/* One measured section per body palier, in the order the paliers stack. The wrapper is
+              what turns "how tall is the online row today" into a number the snap can use; see
+              `SheetSection` and `resolveSheetSectionBottoms`. */}
+          <SheetSection level="online" onMeasure={measureSheetSection}>
+            <OnlineStatusRow
+              duty={resolveDriverDuty(isOnline, activeRide)}
+              isOnline={isOnline}
+              onToggle={handleToggleOnline}
+              pushStatus={pushRegisterStatus}
+            />
+          </SheetSection>
+          <SheetSection level="notices" onMeasure={measureSheetSection}>
+            <DriverStatusBanner
+              banners={visibleDossierBanners}
+              overflowCount={overflowCount}
+              rejectedDocs={rejectedDocs}
+              expiredTypes={expiredTypes}
+              onOpenProfile={() => router.push("/(auth)/profile-setup")}
+              onDismissValidated={() => setJustValidated(false)}
+            />
+          </SheetSection>
           <DriverHomeSheetBody
             activeRide={activeRide}
             availableRide={availableRide}
@@ -1942,6 +1991,7 @@ export default function DashboardScreen() {
             onOpenActiveRide={() => router.push("/(tabs)/rides")}
             onPromoteDeferred={promoteDeferredRide}
             onDismissDeferred={handleDismissDeferredRide}
+            onMeasure={measureSheetSection}
           />
         </BottomSheet>
       )}
@@ -1958,6 +2008,7 @@ function DriverHomeSheetBody({
   onOpenActiveRide,
   onPromoteDeferred,
   onDismissDeferred,
+  onMeasure,
 }: Readonly<{
   activeRide: Ride | null;
   availableRide: Ride | null;
@@ -1967,6 +2018,7 @@ function DriverHomeSheetBody({
   onOpenActiveRide: () => void;
   onPromoteDeferred: (rideId: string) => void;
   onDismissDeferred: (rideId: string) => void;
+  onMeasure: SheetSectionMeasure;
 }>) {
   const pickupDest = tripActions.pickupDest();
   const dropoffDest = tripActions.dropoffDest();
@@ -1992,34 +2044,45 @@ function DriverHomeSheetBody({
           </Text>
         ) : null}
         {showActiveTrip && activeRide && pickupDest && dropoffDest ? (
-          <ActiveTripSheet
-            ride={activeRide}
-            pickupDest={pickupDest}
-            dropoffDest={dropoffDest}
-            onMarkArrived={() => {
-              void tripActions.markArrived();
-            }}
-            onStartTrip={() => {
-              void tripActions.startTrip();
-            }}
-            onCompleteTrip={() => {
-              void tripActions.completeTrip();
-            }}
-            onCancel={tripActions.cancelTrip}
-          />
+          // Two different bodies in the same slot, so two different paliers: an active trip is the
+          // `trip` palier, and the offers standing in for it are `rides`. Only one is ever mounted,
+          // which is why each measures itself instead of the slot measuring both.
+          <SheetSection level="trip" onMeasure={onMeasure}>
+            <ActiveTripSheet
+              ride={activeRide}
+              pickupDest={pickupDest}
+              dropoffDest={dropoffDest}
+              onMarkArrived={() => {
+                void tripActions.markArrived();
+              }}
+              onStartTrip={() => {
+                void tripActions.startTrip();
+              }}
+              onCompleteTrip={() => {
+                void tripActions.completeTrip();
+              }}
+              onCancel={tripActions.cancelTrip}
+            />
+          </SheetSection>
         ) : (
-          <DashboardRidePreview
-            activeRide={null}
-            availableRide={availableRide}
-            deferredRides={deferredRides.filter((r) => isRideStillOfferable(r))}
-            contentInset={24}
-            onOpenActiveRide={onOpenActiveRide}
-            onPromoteDeferred={onPromoteDeferred}
-            onDismissDeferred={onDismissDeferred}
-          />
+          <SheetSection level="rides" onMeasure={onMeasure}>
+            <DashboardRidePreview
+              activeRide={null}
+              availableRide={availableRide}
+              deferredRides={deferredRides.filter((r) => isRideStillOfferable(r))}
+              contentInset={24}
+              onOpenActiveRide={onOpenActiveRide}
+              onPromoteDeferred={onPromoteDeferred}
+              onDismissDeferred={onDismissDeferred}
+            />
+          </SheetSection>
         )}
       </View>
-      {!activeRide ? <DriverDayStatsRow stats={stats} /> : null}
+      {!activeRide ? (
+        <SheetSection level="stats" onMeasure={onMeasure}>
+          <DriverDayStatsRow stats={stats} />
+        </SheetSection>
+      ) : null}
     </>
   );
 }

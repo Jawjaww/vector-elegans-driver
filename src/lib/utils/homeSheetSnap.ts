@@ -136,6 +136,90 @@ export function resolveBottomSheetAllowedSnaps(
   return withNotices(['peek', 'online', 'notices', 'rides', 'stats']);
 }
 
+/**
+ * The paliers a section of the sheet carries, as opposed to the two that are the handle alone.
+ *
+ * `peek` and `nav` are chrome: 14 px of body, whatever is inside. Everything from `online` down
+ * is a *content boundary* — the bottom edge of the last section that palier shows — which is why
+ * the number cannot be a constant (see `resolveSheetSectionBottoms`).
+ */
+export type SheetBodyLevel = Exclude<SheetSnapLevel, 'peek' | 'nav'>;
+
+/**
+ * Bottom edge of each body palier's own section, in the sheet's scroll-content space, as measured
+ * by `SheetSection`. `null` is a section that is not mounted (or has not been laid out).
+ */
+export type SheetSectionBottoms = Partial<Record<SheetBodyLevel, number | null>>;
+
+/**
+ * What each body was assumed to measure, for the frame before a section has reported its own edge.
+ *
+ * These were the *whole* answer until `SheetSection` existed, and that is the bug they stop
+ * causing: each one describes a component that is free to change without it. A deferred ride card
+ * grew a bonus line, the day-stats cards grew a second line of type, and the `rides` and `stats`
+ * paliers cut through the content they exist to reveal — the bottom of the card, then the
+ * earnings under it. None of that was visible in the constants; a measurement cannot drift from
+ * the thing it measures.
+ *
+ * Kept because the first frame of every mount has no measurement, and a sheet that moved on that
+ * frame would be a jump at boot. `sheetPaliers.test.ts` pins the chain against these numbers, so
+ * they cannot quietly change under it.
+ */
+const SHEET_BODY_GUESS: Readonly<Record<SheetBodyLevel, number>> = {
+  online: 46,
+  notices: 100,
+  trip: 236,
+  rides: 256,
+  stats: 110,
+};
+
+/**
+ * A measured bottom edge, or `null` when the section has not given one the sheet can trust.
+ *
+ * `floor` is where the palier above ends, and the rule is one-sided on purpose: a section cannot
+ * end *before* the one it follows, so a value below the floor describes a layout the sheet has
+ * already moved past — the guess keeps the palier on the content instead of collapsing it upward.
+ * Equality is allowed and is a real answer: an empty dossier banner stack is mounted, has no
+ * height, and genuinely ends exactly where the online row ends.
+ */
+function acceptedEdge(
+  value: number | null | undefined,
+  floor: number,
+): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value >= floor && value > 0 ? value : null;
+}
+
+/**
+ * Where each body palier ends, measured where it can be and guessed where it cannot.
+ *
+ * The fallback is *chained*, each palier hanging off the resolved one above it rather than off
+ * the constant it used to depend on. That is what keeps the boundaries ordered when only some of
+ * them have been measured: a measured `notices` moves the guessed `trip` and `rides` under it, and
+ * a later measurement of those replaces the guess with the real edge. Order matters because the
+ * sheet settles on the palier nearest the finger — two boundaries that crossed would put one
+ * palier out of reach in one direction and double its neighbour in the other.
+ *
+ * `trip` and `rides` both hang off `notices` rather than one off the other: they are the two
+ * bodies of the same slot (an active trip, or the offers standing in for it) and only one of them
+ * is ever mounted.
+ */
+export function resolveSheetSectionBottoms(
+  measured: SheetSectionBottoms,
+  noticesBodyGuess: number,
+): Record<SheetBodyLevel, number> {
+  const online = acceptedEdge(measured.online, 0) ?? SHEET_BODY_GUESS.online;
+  const notices =
+    acceptedEdge(measured.notices, online) ??
+    online + Math.max(0, noticesBodyGuess);
+  const trip = acceptedEdge(measured.trip, notices) ?? notices + SHEET_BODY_GUESS.trip;
+  const rides =
+    acceptedEdge(measured.rides, notices) ?? notices + SHEET_BODY_GUESS.rides;
+  const stats =
+    acceptedEdge(measured.stats, rides) ?? rides + SHEET_BODY_GUESS.stats;
+  return { online, notices, trip, rides, stats };
+}
+
 /** Everything the sheet settles on, as one comparable value. */
 export type SheetSettleState = {
   /** Identity of what the sheet must get out of the way for. */
