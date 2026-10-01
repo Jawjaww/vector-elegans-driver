@@ -35,13 +35,12 @@ import {
 } from "../../src/lib/utils/rideMetrics";
 import {
   rideService,
+  COMPLETED_RIDES_PAGE_SIZE,
   type CompletedRidesFetch,
 } from "../../src/services/rideService";
 
 /** Stable identity for "no rows yet", so the memo below does not re-run on every render. */
 const NO_RIDES: readonly Ride[] = [];
-
-const COMPLETED_RIDES_PAGE = 50;
 
 /**
  * The driver's completed rides.
@@ -52,10 +51,9 @@ const COMPLETED_RIDES_PAGE = 50;
  * the driver was already looking at and answered nothing about what they had done. It now reads
  * the rides they carried, from the server.
  *
- * **Nothing here is cancellable mid-flight**, and that is deliberate: the read is one PostgREST
- * select of fifty rows, and a focus arriving while the previous read is in flight simply issues
- * another. A stale answer would have to lose a race against a newer one to matter, and the rows
- * are ordered server-side, so the worst case is a list one update behind for one frame.
+ * **Nothing here is cancellable mid-flight**, and that is deliberate: each read is one PostgREST
+ * page (10 rows) plus an exact count for the filtered period, and a focus arriving while the
+ * previous read is in flight simply issues another.
  */
 export default function RidesScreen() {
   const { t, i18n } = useTranslation();
@@ -63,7 +61,8 @@ export default function RidesScreen() {
   const [filterRange, setFilterRange] = useState<HistoryDateRange>(() =>
     defaultHistoryFilterRange(),
   );
-  const [filterMode, setFilterMode] = useState<HistoryFilterMode>("month");
+  const [filterMode, setFilterMode] = useState<HistoryFilterMode>("week");
+  const [page, setPage] = useState(0);
   /**
    * `null` is "not answered yet", which is not the same as "no rides": the first is a spinner and
    * the second is the empty state, and the service returns a discriminated result for exactly
@@ -73,11 +72,19 @@ export default function RidesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const filterRangeRef = useRef(filterRange);
   filterRangeRef.current = filterRange;
+  const pageRef = useRef(page);
+  pageRef.current = page;
 
-  const load = useCallback(async (range?: HistoryDateRange) => {
-    const activeRange = range ?? filterRangeRef.current;
-    setState(await rideService.fetchCompletedRides(activeRange));
-  }, []);
+  const load = useCallback(
+    async (range?: HistoryDateRange, nextPage?: number) => {
+      const activeRange = range ?? filterRangeRef.current;
+      const activePage = nextPage ?? pageRef.current;
+      setState(
+        await rideService.fetchCompletedRides(activeRange, activePage),
+      );
+    },
+    [],
+  );
 
   // On focus rather than on mount: ending a ride is done on the map, and the tab stays mounted
   // between visits — a mount-only read would show the ride before last.
@@ -100,7 +107,9 @@ export default function RidesScreen() {
     ({ range, mode }: HistoryFilterChange) => {
       setFilterRange(range);
       setFilterMode(mode);
-      void load(range);
+      setPage(0);
+      pageRef.current = 0;
+      void load(range, 0);
     },
     [load],
   );
@@ -108,9 +117,20 @@ export default function RidesScreen() {
   const resetFilters = useCallback(() => {
     const next = defaultHistoryFilterRange();
     setFilterRange(next);
-    setFilterMode("month");
-    void load(next);
+    setFilterMode("week");
+    setPage(0);
+    pageRef.current = 0;
+    void load(next, 0);
   }, [load]);
+
+  const goToPage = useCallback(
+    (nextPage: number) => {
+      setPage(nextPage);
+      pageRef.current = nextPage;
+      void load(undefined, nextPage);
+    },
+    [load],
+  );
 
   const rides = state?.ok ? state.rides : NO_RIDES;
   const today = useMemo(
@@ -130,32 +150,92 @@ export default function RidesScreen() {
     filterMode,
   );
 
+  const totalCount = state?.ok ? state.totalCount : 0;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalCount / COMPLETED_RIDES_PAGE_SIZE),
+  );
+  const pageFrom =
+    totalCount === 0 ? 0 : page * COMPLETED_RIDES_PAGE_SIZE + 1;
+  const pageTo =
+    totalCount === 0
+      ? 0
+      : Math.min(totalCount, (page + 1) * COMPLETED_RIDES_PAGE_SIZE);
+
   const listFooter =
-    state?.ok && rides.length > 0 ? (
-      <View
-        className="mt-2 mb-4 flex-row items-center justify-between rounded-xl px-3 py-2"
-        style={{
-          borderWidth: 1,
-          borderColor: "rgba(59, 130, 246, 0.1)",
-          backgroundColor: "rgba(255, 255, 255, 0.03)",
-        }}
-      >
-        <Text className="text-slate-300 text-sm flex-1 mr-2">
-          {t("ridesScreen.filterSummary", {
-            count: rides.length,
-            period: filterPeriod,
-          })}
-        </Text>
-        {!isDefaultHistoryFilterRange(filterRange) ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={resetFilters}
-            className="px-2 py-1"
+    state?.ok ? (
+      <View className="mb-4">
+        {totalPages > 1 ? (
+          <View
+            className="mt-2 flex-row items-center justify-between rounded-xl px-3 py-3"
+            style={{
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.08)",
+              backgroundColor: "rgba(255, 255, 255, 0.03)",
+            }}
           >
-            <Text className="text-blue-300 text-xs font-bold uppercase">
-              {t("ridesScreen.clearFilters")}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("ridesScreen.paginationPrev")}
+              disabled={page <= 0}
+              onPress={() => goToPage(page - 1)}
+              className="px-3 py-2 rounded-lg"
+              style={{ opacity: page <= 0 ? 0.35 : 1 }}
+            >
+              <Text className="text-white text-xs font-bold uppercase">
+                {t("ridesScreen.paginationPrev")}
+              </Text>
+            </Pressable>
+            <Text className="text-slate-300 text-xs font-semibold text-center flex-1 mx-2">
+              {t("ridesScreen.paginationPage", {
+                from: pageFrom,
+                to: pageTo,
+                total: totalCount,
+                page: page + 1,
+                pages: totalPages,
+              })}
             </Text>
-          </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("ridesScreen.paginationNext")}
+              disabled={page >= totalPages - 1}
+              onPress={() => goToPage(page + 1)}
+              className="px-3 py-2 rounded-lg"
+              style={{ opacity: page >= totalPages - 1 ? 0.35 : 1 }}
+            >
+              <Text className="text-white text-xs font-bold uppercase">
+                {t("ridesScreen.paginationNext")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {totalCount > 0 ? (
+          <View
+            className="mt-2 flex-row items-center justify-between rounded-xl px-3 py-2"
+            style={{
+              borderWidth: 1,
+              borderColor: "rgba(59, 130, 246, 0.1)",
+              backgroundColor: "rgba(255, 255, 255, 0.03)",
+            }}
+          >
+            <Text className="text-slate-300 text-sm flex-1 mr-2">
+              {t("ridesScreen.filterSummary", {
+                count: totalCount,
+                period: filterPeriod,
+              })}
+            </Text>
+            {!isDefaultHistoryFilterRange(filterRange) ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={resetFilters}
+                className="px-2 py-1"
+              >
+                <Text className="text-blue-300 text-xs font-bold uppercase">
+                  {t("ridesScreen.clearFilters")}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
       </View>
     ) : null;
@@ -196,11 +276,6 @@ export default function RidesScreen() {
             />
             {state?.ok && today.rides > 0 ? (
               <TodaySummary rides={today.rides} earnings={today.earnings} />
-            ) : null}
-            {state?.ok && rides.length === COMPLETED_RIDES_PAGE ? (
-              <Text className="text-slate-500 text-xs mt-3 text-center">
-                {t("ridesScreen.limitReached")}
-              </Text>
             ) : null}
           </View>
         }

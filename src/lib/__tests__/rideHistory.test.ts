@@ -28,11 +28,12 @@ import {
   isSingleLocalDayRange,
   localDayBounds,
   localMonthBounds,
+  localWeekBounds,
   rideHistoryAmount,
   summarizeHistoryToday,
 } from "../utils/rideHistory";
 import type { Ride } from "../stores/driverStore";
-import { rideService } from "../../services/rideService";
+import { rideService, COMPLETED_RIDES_PAGE_SIZE } from "../../services/rideService";
 import fr from "../../i18n/locales/fr.json";
 import en from "../../i18n/locales/en.json";
 import es from "../../i18n/locales/es.json";
@@ -222,14 +223,23 @@ describe("server date filter bounds", () => {
     expect(dec.end).toEqual(new Date(2026, 11, 31, 23, 59, 59, 999));
   });
 
-  it("defaults to the current calendar month", () => {
+  it("defaults to the current calendar week (Monday start)", () => {
+    // 2026-10-01 is a Thursday → week starts Monday 2026-09-29
     const now = at(10, 1, 14, 30);
     const range = defaultHistoryFilterRange(now);
-    expect(range).toEqual(localMonthBounds(2026, 9));
+    expect(range.start).toEqual(new Date(2026, 8, 28, 0, 0, 0, 0));
+    expect(range.end).toEqual(new Date(2026, 9, 4, 23, 59, 59, 999));
     expect(isDefaultHistoryFilterRange(range, now)).toBe(true);
     expect(isDefaultHistoryFilterRange(localMonthBounds(2026, 8), now)).toBe(
       false,
     );
+  });
+
+  it("covers a local week Mon–Sun", () => {
+    const thu = at(10, 1, 12, 0);
+    const week = localWeekBounds(thu);
+    expect(week.start).toEqual(new Date(2026, 8, 28, 0, 0, 0, 0));
+    expect(week.end).toEqual(new Date(2026, 9, 4, 23, 59, 59, 999));
   });
 
   it("detects a single-day range", () => {
@@ -249,6 +259,8 @@ describe("server date filter bounds", () => {
     expect(formatHistoryFilterSummary(day, "fr", "day")).toMatch(/30/);
     const month = localMonthBounds(2026, 8);
     expect(formatHistoryFilterSummary(month, "fr", "month")).toMatch(/2026/);
+    const week = localWeekBounds(at(10, 1, 0));
+    expect(formatHistoryFilterSummary(week, "fr", "week")).toMatch(/–/);
   });
 });
 
@@ -276,83 +288,103 @@ describe("rideService.fetchCompletedRides", () => {
   });
 
   /** The PostgREST chain the read is expected to build, as one set of spies. */
-  function mockQuery(result: { data: unknown; error: unknown }) {
-    const limit = jest.fn().mockResolvedValue(result);
-    const order = jest.fn(() => ({ limit }));
+  function mockQuery(result: {
+    data: unknown;
+    error: unknown;
+    count?: number | null;
+  }) {
+    const resolved = { ...result, count: result.count ?? 0 };
+    const range = jest.fn().mockResolvedValue(resolved);
+    const order = jest.fn(() => ({ range }));
     const lte = jest.fn(() => ({ order }));
     const gte = jest.fn(() => ({ lte, order }));
     const eq = jest.fn(() => ({ gte, lte, order }));
     const select = jest.fn(() => ({ eq }));
     mockFrom.mockReturnValue({ select });
-    return { select, eq, gte, lte, order, limit };
+    return { select, eq, gte, lte, order, range };
   }
 
-  it("asks for the driver\u2019s completed rides, newest first", async () => {
-    const { select, eq, order, limit, gte, lte } = mockQuery({
+  const sampleRange = {
+    start: new Date(2026, 8, 29, 0, 0, 0, 0),
+    end: new Date(2026, 9, 5, 23, 59, 59, 999),
+  };
+
+  it("asks for the driver\u2019s completed rides, newest first, paginated", async () => {
+    const { select, eq, order, range, gte, lte } = mockQuery({
       data: [],
       error: null,
+      count: 0,
     });
 
-    await rideService.fetchCompletedRides();
+    await rideService.fetchCompletedRides(sampleRange, 0);
 
     expect(mockFrom).toHaveBeenCalledWith("rides");
     expect(eq).toHaveBeenCalledWith("status", "completed");
-    expect(gte).not.toHaveBeenCalled();
-    expect(lte).not.toHaveBeenCalled();
+    expect(gte).toHaveBeenCalledWith(
+      "updated_at",
+      sampleRange.start.toISOString(),
+    );
+    expect(lte).toHaveBeenCalledWith(
+      "updated_at",
+      sampleRange.end.toISOString(),
+    );
     expect(order).toHaveBeenCalledWith("updated_at", { ascending: false });
-    expect(limit).toHaveBeenCalledWith(50);
+    expect(range).toHaveBeenCalledWith(0, COMPLETED_RIDES_PAGE_SIZE - 1);
+    expect(select).toHaveBeenCalledWith(
+      expect.stringContaining("final_price"),
+      { count: "exact" },
+    );
     // Tenancy is the RLS policy, not a filter: a `driver_id` term here would be a second place
     // where "whose rides are these" gets answered.
     expect(eq).not.toHaveBeenCalledWith("driver_id", expect.anything());
-    expect(select).toHaveBeenCalledWith(expect.stringContaining("final_price"));
     // And no coordinates: `resolveRideTripMetrics` re-derives the distance from the geometry when
     // the stored figure looks wrong, and a half-geocoded row would hand it a line across the globe.
     expect(select).toHaveBeenCalledWith(
       expect.not.stringContaining("pickup_lat"),
+      { count: "exact" },
     );
   });
 
-  it("bounds the read on updated_at when a range is passed", async () => {
-    const { gte, lte } = mockQuery({ data: [], error: null });
-    const start = new Date(2026, 8, 1, 0, 0, 0, 0);
-    const end = new Date(2026, 8, 30, 23, 59, 59, 999);
-
-    await rideService.fetchCompletedRides({ start, end });
-
-    expect(gte).toHaveBeenCalledWith("updated_at", start.toISOString());
-    expect(lte).toHaveBeenCalledWith("updated_at", end.toISOString());
+  it("requests the correct range offset for page 2", async () => {
+    const { range } = mockQuery({ data: [], error: null, count: 25 });
+    await rideService.fetchCompletedRides(sampleRange, 2);
+    expect(range).toHaveBeenCalledWith(20, 29);
   });
 
-  it("maps rows to the app shape", async () => {
-    mockQuery({ data: [completedRide()], error: null });
+  it("maps rows to the app shape with pagination metadata", async () => {
+    mockQuery({ data: [completedRide()], error: null, count: 1 });
 
-    const result = await rideService.fetchCompletedRides();
+    const result = await rideService.fetchCompletedRides(sampleRange, 0);
 
     expect(result).toMatchObject({
       ok: true,
       rides: [{ id: "ride-1", final_price: 45, offerUnconfirmed: false }],
+      totalCount: 1,
+      page: 0,
+      pageSize: COMPLETED_RIDES_PAGE_SIZE,
     });
   });
 
   it("an empty history is a success, not a failure", async () => {
-    mockQuery({ data: null, error: null });
-    expect(await rideService.fetchCompletedRides()).toEqual({
+    mockQuery({ data: null, error: null, count: 0 });
+    expect(await rideService.fetchCompletedRides(sampleRange, 0)).toEqual({
       ok: true,
       rides: [],
+      totalCount: 0,
+      page: 0,
+      pageSize: COMPLETED_RIDES_PAGE_SIZE,
     });
   });
 
   it("separates a failed read from an empty one", async () => {
-    // The screen shows the empty state for one and a retry for the other; collapsing them renders
-    // "no completed rides" over a read that never happened.
     mockQuery({ data: null, error: { message: "Network request failed" } });
-    expect(await rideService.fetchCompletedRides()).toEqual({
+    expect(await rideService.fetchCompletedRides(sampleRange, 0)).toEqual({
       ok: false,
       reason: "network",
     });
 
     mockQuery({ data: null, error: { message: "permission denied" } });
-    expect(await rideService.fetchCompletedRides()).toEqual({
+    expect(await rideService.fetchCompletedRides(sampleRange, 0)).toEqual({
       ok: false,
       reason: "server",
     });
@@ -403,9 +435,13 @@ describe("the Courses tab", () => {
     expect(screen).not.toContain("ACCENT_RING");
   });
 
+  it("paginates the list server-side", () => {
+    expect(screen).toContain("paginationPage");
+    expect(screen).toContain("goToPage");
+    expect(screen).not.toContain("limitReached");
+  });
+
   it("draws the route with the map\u2019s own two colours", () => {
-    // The dots beside the addresses are the departure and arrival markers, so a driver reads the
-    // row the same way they read the map.
     expect(screen).toContain("MAP_PALETTE.departure");
     expect(screen).toContain("MAP_PALETTE.arrival");
   });
@@ -444,6 +480,7 @@ const RIDES_SCREEN_KEYS = [
   "rides",
   "earned",
   "filterDay",
+  "filterWeek",
   "filterMonth",
   "filterPrev",
   "filterNext",
@@ -451,7 +488,9 @@ const RIDES_SCREEN_KEYS = [
   "filterNextYear",
   "clearFilters",
   "filterSummary",
-  "limitReached",
+  "paginationPrev",
+  "paginationNext",
+  "paginationPage",
 ];
 
 describe("the history tab copy, in the three languages", () => {

@@ -12,10 +12,11 @@ import { VE_BLUE } from "../lib/theme";
 import {
   localDayBounds,
   localMonthBounds,
+  localWeekBounds,
   type HistoryDateRange,
 } from "../lib/utils/rideHistory";
 
-export type HistoryFilterMode = "day" | "month";
+export type HistoryFilterMode = "day" | "week" | "month";
 
 export type HistoryFilterChange = Readonly<{
   range: HistoryDateRange;
@@ -44,12 +45,27 @@ function stopPressPropagation(event: GestureResponderEvent) {
 function formatTriggerLabel(
   locale: string,
   mode: HistoryFilterMode,
-  anchor: Date,
+  range: HistoryDateRange,
 ): string {
   if (mode === "month") {
-    return anchor.toLocaleDateString(locale, { month: "long", year: "numeric" });
+    return range.start.toLocaleDateString(locale, {
+      month: "long",
+      year: "numeric",
+    });
   }
-  return anchor.toLocaleDateString(locale, {
+  if (mode === "week") {
+    const start = range.start.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+    });
+    const end = range.end.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    return `${start} – ${end}`;
+  }
+  return range.start.toLocaleDateString(locale, {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -63,9 +79,22 @@ function monthName(locale: string, monthIndex: number): string {
   });
 }
 
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isDayInWeek(day: Date, week: HistoryDateRange): boolean {
+  const t = day.getTime();
+  return t >= week.start.getTime() && t <= week.end.getTime();
+}
+
 /**
- * Day/month date filter for the Courses tab — UX aligned with client reservations,
- * but every change emits local bounds for a server read on `updated_at`.
+ * Day / week / month filter for the Courses tab — weekly default like driver apps,
+ * with server reads bounded on `updated_at`.
  */
 export function RideHistoryFilters({
   locale,
@@ -95,10 +124,14 @@ export function RideHistoryFilters({
 
   const emit = useCallback(
     (nextMode: HistoryFilterMode, date: Date) => {
-      const nextRange =
-        nextMode === "day"
-          ? localDayBounds(date)
-          : localMonthBounds(date.getFullYear(), date.getMonth());
+      let nextRange: HistoryDateRange;
+      if (nextMode === "day") {
+        nextRange = localDayBounds(date);
+      } else if (nextMode === "week") {
+        nextRange = localWeekBounds(date);
+      } else {
+        nextRange = localMonthBounds(date.getFullYear(), date.getMonth());
+      }
       onRangeChange({ range: nextRange, mode: nextMode });
     },
     [onRangeChange],
@@ -108,6 +141,13 @@ export function RideHistoryFilters({
     syncCalendar(date);
     setViewMode("day");
     emit("day", date);
+  };
+
+  const applyWeek = (date: Date) => {
+    const bounds = localWeekBounds(date);
+    syncCalendar(bounds.start);
+    setViewMode("week");
+    onRangeChange({ range: bounds, mode: "week" });
   };
 
   const applyMonth = (monthIndex: number, yearValue: number) => {
@@ -124,6 +164,12 @@ export function RideHistoryFilters({
       applyDay(prev);
       return;
     }
+    if (viewMode === "week") {
+      const prev = new Date(range.start);
+      prev.setDate(prev.getDate() - 7);
+      applyWeek(prev);
+      return;
+    }
     const prevMonth = month === 0 ? 11 : month - 1;
     const prevYear = month === 0 ? year - 1 : year;
     setYear(prevYear);
@@ -136,6 +182,12 @@ export function RideHistoryFilters({
       const next = new Date(selectedDate);
       next.setDate(next.getDate() + 1);
       applyDay(next);
+      return;
+    }
+    if (viewMode === "week") {
+      const next = new Date(range.start);
+      next.setDate(next.getDate() + 7);
+      applyWeek(next);
       return;
     }
     const nextMonth = month === 11 ? 0 : month + 1;
@@ -166,7 +218,11 @@ export function RideHistoryFilters({
     return cells;
   }, [year, month]);
 
-  const triggerLabel = formatTriggerLabel(locale, mode, selectedDate);
+  const triggerLabel = formatTriggerLabel(locale, mode, range);
+  const highlightWeek =
+    viewMode === "week" ? localWeekBounds(selectedDate) : range;
+
+  const showDayGrid = viewMode === "day" || viewMode === "week";
 
   return (
     <View
@@ -237,6 +293,10 @@ export function RideHistoryFilters({
                   setYear(nextYear);
                   if (viewMode === "month") {
                     applyMonth(month, nextYear);
+                  } else if (viewMode === "week") {
+                    const d = new Date(selectedDate);
+                    d.setFullYear(nextYear);
+                    applyWeek(d);
                   } else {
                     const d = new Date(selectedDate);
                     d.setFullYear(nextYear);
@@ -258,6 +318,10 @@ export function RideHistoryFilters({
                   setYear(nextYear);
                   if (viewMode === "month") {
                     applyMonth(month, nextYear);
+                  } else if (viewMode === "week") {
+                    const d = new Date(selectedDate);
+                    d.setFullYear(nextYear);
+                    applyWeek(d);
                   } else {
                     const d = new Date(selectedDate);
                     d.setFullYear(nextYear);
@@ -270,42 +334,36 @@ export function RideHistoryFilters({
               </Pressable>
             </View>
 
-            <View className="flex-row justify-center gap-4 mb-2">
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setViewMode("day");
-                  emit("day", selectedDate);
-                }}
-              >
-                <Text
-                  className="text-xs font-bold uppercase tracking-widest"
-                  style={{
-                    color: viewMode === "day" ? VE_BLUE.base : "#64748b",
+            <View className="flex-row justify-center gap-3 mb-2">
+              {(["day", "week", "month"] as const).map((m) => (
+                <Pressable
+                  key={m}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setViewMode(m);
+                    if (m === "week") applyWeek(selectedDate);
+                    else emit(m, selectedDate);
                   }}
                 >
-                  {t("ridesScreen.filterDay")}
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setViewMode("month");
-                  emit("month", selectedDate);
-                }}
-              >
-                <Text
-                  className="text-xs font-bold uppercase tracking-widest"
-                  style={{
-                    color: viewMode === "month" ? VE_BLUE.base : "#64748b",
-                  }}
-                >
-                  {t("ridesScreen.filterMonth")}
-                </Text>
-              </Pressable>
+                  <Text
+                    className="text-xs font-bold uppercase tracking-widest"
+                    style={{
+                      color: viewMode === m ? VE_BLUE.base : "#64748b",
+                    }}
+                  >
+                    {t(
+                      m === "day"
+                        ? "ridesScreen.filterDay"
+                        : m === "week"
+                          ? "ridesScreen.filterWeek"
+                          : "ridesScreen.filterMonth",
+                    )}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
-            {viewMode === "day" ? (
+            {showDayGrid ? (
               <>
                 <View className="flex-row mb-1 px-1">
                   {weekdayLabels.map((label) => (
@@ -327,16 +385,21 @@ export function RideHistoryFilters({
                         />
                       );
                     }
+                    const cellDate = new Date(year, month, day);
                     const isSelected =
-                      selectedDate.getFullYear() === year &&
-                      selectedDate.getMonth() === month &&
-                      selectedDate.getDate() === day;
+                      viewMode === "day"
+                        ? isSameLocalDay(cellDate, selectedDate)
+                        : isDayInWeek(cellDate, highlightWeek);
                     return (
                       <Pressable
                         key={day}
                         accessibilityRole="button"
                         onPress={() => {
-                          applyDay(new Date(year, month, day));
+                          if (viewMode === "week") {
+                            applyWeek(cellDate);
+                          } else {
+                            applyDay(cellDate);
+                          }
                           setOpen(false);
                         }}
                         className="w-[14.28%] aspect-square items-center justify-center rounded-md"

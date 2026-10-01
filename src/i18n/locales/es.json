@@ -276,6 +276,7 @@
     "rides": "Viajes",
     "earned": "Ganado",
     "filterDay": "Día",
+    "filterWeek": "Semana",
     "filterMonth": "Mes",
     "filterPrev": "Periodo anterior",
     "filterNext": "Periodo siguiente",
@@ -283,7 +284,9 @@
     "filterNextYear": "Año siguiente",
     "clearFilters": "Borrar",
     "filterSummary": "{{count}} viaje(s) — {{period}}",
-    "limitReached": "Se muestran como máximo los 50 viajes más recientes de este periodo."
+    "paginationPrev": "Ant.",
+    "paginationNext": "Sig.",
+    "paginationPage": "{{from}}–{{to}} de {{total}} · p. {{page}}/{{pages}}"
   },
   "nav": {
     "distance": {

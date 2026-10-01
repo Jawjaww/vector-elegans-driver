@@ -36,8 +36,8 @@ export interface PendingRide {
   options?: string[];
 }
 
-/** First-version ceiling for the history tab — no pagination beyond it. */
-const COMPLETED_RIDES_PAGE = 50;
+/** Rows per page on the Courses tab (server `range`, not a hard cap on the period). */
+export const COMPLETED_RIDES_PAGE_SIZE = 10;
 
 /**
  * Result of reading the driver's completed rides.
@@ -47,7 +47,13 @@ const COMPLETED_RIDES_PAGE = 50;
  * a bare array renders the first when it means the second.
  */
 export type CompletedRidesFetch =
-  | { ok: true; rides: Ride[] }
+  | {
+      ok: true;
+      rides: Ride[];
+      totalCount: number;
+      page: number;
+      pageSize: number;
+    }
   | { ok: false; reason: 'network' | 'server' };
 
 export interface AcceptRideResult {
@@ -436,24 +442,24 @@ class RideService {
    * Cancellations and no-shows are excluded by decision: this tab is "rides carried out".
    */
   async fetchCompletedRides(
-    range?: HistoryDateRange,
+    range: HistoryDateRange,
+    page = 0,
+    pageSize = COMPLETED_RIDES_PAGE_SIZE,
   ): Promise<CompletedRidesFetch> {
-    let query = supabase
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, error, count } = await supabase
       .from('rides')
       .select(
         'id, status, pickup_address, dropoff_address, final_price, estimated_price, price, distance, duration, updated_at, accepted_at, pickup_time, vehicle_type',
+        { count: 'exact' },
       )
-      .eq('status', 'completed');
-
-    if (range) {
-      query = query
-        .gte('updated_at', range.start.toISOString())
-        .lte('updated_at', range.end.toISOString());
-    }
-
-    const { data, error } = await query
+      .eq('status', 'completed')
+      .gte('updated_at', range.start.toISOString())
+      .lte('updated_at', range.end.toISOString())
       .order('updated_at', { ascending: false })
-      .limit(COMPLETED_RIDES_PAGE);
+      .range(from, to);
 
     if (error) {
       return {
@@ -462,7 +468,13 @@ class RideService {
       };
     }
 
-    return { ok: true, rides: (data ?? []).map((row) => toAppRide(row)) };
+    return {
+      ok: true,
+      rides: (data ?? []).map((row) => toAppRide(row)),
+      totalCount: count ?? 0,
+      page,
+      pageSize,
+    };
   }
 
   private mapToPendingRide(ride: Ride): PendingRide {

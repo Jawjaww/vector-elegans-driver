@@ -170,6 +170,7 @@
     "rides": "Courses",
     "earned": "Gagné",
     "filterDay": "Jour",
+    "filterWeek": "Semaine",
     "filterMonth": "Mois",
     "filterPrev": "Période précédente",
     "filterNext": "Période suivante",
@@ -177,7 +178,9 @@
     "filterNextYear": "Année suivante",
     "clearFilters": "Effacer",
     "filterSummary": "{{count}} course(s) — {{period}}",
-    "limitReached": "Affichage limité aux 50 courses les plus récentes pour cette période."
+    "paginationPrev": "Préc.",
+    "paginationNext": "Suiv.",
+    "paginationPage": "{{from}}–{{to}} sur {{total}} · p. {{page}}/{{pages}}"
   },
   "profile": {
     "title": "Profil",
