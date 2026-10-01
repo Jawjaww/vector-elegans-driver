@@ -131,9 +131,33 @@ export function localMonthBounds(
   return { start, end };
 }
 
-/** Default Courses tab filter: current month (web reservations default view). */
+/** Monday 00:00 through Sunday 23:59:59.999 in the device timezone (VTC weekly earnings). */
+export function localWeekBounds(anchor: Date = new Date()): HistoryDateRange {
+  const day = (anchor.getDay() + 6) % 7;
+  const start = new Date(
+    anchor.getFullYear(),
+    anchor.getMonth(),
+    anchor.getDate() - day,
+    0,
+    0,
+    0,
+    0,
+  );
+  const end = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate() + 6,
+    23,
+    59,
+    59,
+    999,
+  );
+  return { start, end };
+}
+
+/** Default Courses tab filter: current week (Mon–Sun), aligned with driver apps like Uber/Bolt. */
 export function defaultHistoryFilterRange(now: Date = new Date()): HistoryDateRange {
-  return localMonthBounds(now.getFullYear(), now.getMonth());
+  return localWeekBounds(now);
 }
 
 export function historyRangesEqual(
@@ -170,7 +194,7 @@ export function isSingleLocalDayRange(range: HistoryDateRange): boolean {
 export function formatHistoryFilterSummary(
   range: HistoryDateRange,
   locale: string,
-  mode: "day" | "month",
+  mode: "day" | "week" | "month",
 ): string {
   if (mode === "day" || isSingleLocalDayRange(range)) {
     return range.start.toLocaleDateString(locale, {
@@ -178,6 +202,18 @@ export function formatHistoryFilterSummary(
       month: "long",
       year: "numeric",
     });
+  }
+  if (mode === "week") {
+    const start = range.start.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+    });
+    const end = range.end.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    return `${start} – ${end}`;
   }
   return range.start.toLocaleDateString(locale, {
     month: "long",

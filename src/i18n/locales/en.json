@@ -164,6 +164,7 @@
     "rides": "Rides",
     "earned": "Earned",
     "filterDay": "Day",
+    "filterWeek": "Week",
     "filterMonth": "Month",
     "filterPrev": "Previous period",
     "filterNext": "Next period",
@@ -171,7 +172,9 @@
     "filterNextYear": "Next year",
     "clearFilters": "Clear",
     "filterSummary": "{{count}} ride(s) — {{period}}",
-    "limitReached": "Showing the 50 most recent rides for this period."
+    "paginationPrev": "Prev",
+    "paginationNext": "Next",
+    "paginationPage": "{{from}}–{{to}} of {{total}} · p. {{page}}/{{pages}}"
   },
   "profile": {
     "title": "Profile",
