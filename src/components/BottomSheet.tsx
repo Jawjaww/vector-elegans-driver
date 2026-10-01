@@ -182,7 +182,6 @@ export const BottomSheet = ({
   onSettle,
 }: BottomSheetProps) => {
   const [sceneH, setSceneH] = useState(WINDOW_H - TAB_BAR_HEIGHT);
-  const [scrollEnabled, setScrollEnabled] = useState(snapLevel === 'stats');
   const scrollRef = useRef<ScrollView>(null);
   const snapY = buildSnapY(sceneH, bodies);
 
@@ -190,6 +189,9 @@ export const BottomSheet = ({
     () => resolveAllowedOrder(allowedSnaps),
     [allowedSnaps],
   );
+
+  const expandedSnap = allowedOrder.at(-1) ?? allowedOrder[0];
+  const [scrollEnabled, setScrollEnabled] = useState(snapLevel === expandedSnap);
 
   const effectiveSnap = allowedOrder.includes(snapLevel)
     ? snapLevel
@@ -211,6 +213,11 @@ export const BottomSheet = ({
   const onSettleRef = useRef(onSettle);
   onSettleRef.current = onSettle;
 
+  // Same reason as `onSettleRef`: `applySnapLevel` must keep its identity, and the expanded
+  // palier is `trip` during a ride, not always `stats`.
+  const expandedSnapRef = useRef(expandedSnap);
+  expandedSnapRef.current = expandedSnap;
+
   const applySnapLevel = useCallback(
     (level: SheetSnapLevel, report = false) => {
       prevSnap.current = level;
@@ -218,9 +225,13 @@ export const BottomSheet = ({
       // drag that reveals more is the gesture, and a scrollable body would swallow it. With the
       // boundaries measured, a palier ends exactly where its content ends, so the expanded one has
       // nothing left to scroll to except in the capped case `buildSnapY` describes.
-      const atStats = level === 'stats';
-      setScrollEnabled(atStats);
-      if (!atStats) {
+      //
+      // That palier is the last allowed snap, not the idle `stats` slot: during a ride the
+      // allowed set stops at `trip`, and hard-coding `stats` left the swipe unreachable when
+      // `TOP_MAP_REVEAL` capped the target.
+      const atExpanded = level === expandedSnapRef.current;
+      setScrollEnabled(atExpanded);
+      if (!atExpanded) {
         scrollRef.current?.scrollTo({ y: 0, animated: false });
       }
       if (report) onSettleRef.current?.(level);

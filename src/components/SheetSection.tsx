@@ -23,9 +23,13 @@ export type SheetSectionMeasure = (
  * reveal: the bottom of the card, and the earnings under it. A wrapper cannot drift from the
  * thing inside it.
  *
- * `y + height`, not `height`: `onLayout` gives the frame relative to the parent, which here is the
- * scroll content container — so the sum is a position in the same space the sheet's snap offsets
- * are built from, and the padding the content carries is already counted in it.
+ * `y + height`, not `height`: `onLayout` gives the frame relative to the parent, which **must
+ * be** the scroll content container — so the sum is a position in the same space the sheet's snap
+ * offsets are built from, and the padding the content carries is already counted in it. An extra
+ * native wrapper around this component would make `y` relative to that wrapper instead: the palier
+ * would stop at the section's own height and cut through everything below the fold, which is how
+ * the trip snap clipped « Je suis arrivé ». The dashboard fragment does not create a native parent;
+ * a `View` does.
  */
 export const SheetSection = ({
   level,
