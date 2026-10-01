@@ -7,6 +7,7 @@ import {
   toOfferOpenFetch,
   type OfferOpenFetch,
 } from '../lib/utils/offerOpenOutcome';
+import type { HistoryDateRange } from '../lib/utils/rideHistory';
 import {
   ACTIVE_RIDE_STATUSES,
   type AssignedRideFetch,
@@ -434,13 +435,23 @@ class RideService {
    *
    * Cancellations and no-shows are excluded by decision: this tab is "rides carried out".
    */
-  async fetchCompletedRides(): Promise<CompletedRidesFetch> {
-    const { data, error } = await supabase
+  async fetchCompletedRides(
+    range?: HistoryDateRange,
+  ): Promise<CompletedRidesFetch> {
+    let query = supabase
       .from('rides')
       .select(
         'id, status, pickup_address, dropoff_address, final_price, estimated_price, price, distance, duration, updated_at, accepted_at, pickup_time, vehicle_type',
       )
-      .eq('status', 'completed')
+      .eq('status', 'completed');
+
+    if (range) {
+      query = query
+        .gte('updated_at', range.start.toISOString())
+        .lte('updated_at', range.end.toISOString());
+    }
+
+    const { data, error } = await query
       .order('updated_at', { ascending: false })
       .limit(COMPLETED_RIDES_PAGE);
 

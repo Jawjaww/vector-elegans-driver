@@ -267,12 +267,23 @@
     "subtitle": "Historial",
     "emptyTitle": "Sin viajes completados",
     "emptyBody": "Aquí aparecerán los viajes que completes, con su recorrido y su importe.",
+    "emptyFilteredTitle": "Ningún viaje en este periodo",
+    "emptyFilteredBody": "Ningún viaje completado coincide con el día o mes seleccionado.",
     "errorTitle": "Historial no disponible",
     "errorBody": "No se pudieron cargar tus viajes completados. Comprueba tu conexión e inténtalo de nuevo.",
     "retry": "Reintentar",
     "todaySummary": "Resumen del día",
     "rides": "Viajes",
-    "earned": "Ganado"
+    "earned": "Ganado",
+    "filterDay": "Día",
+    "filterMonth": "Mes",
+    "filterPrev": "Periodo anterior",
+    "filterNext": "Periodo siguiente",
+    "filterPrevYear": "Año anterior",
+    "filterNextYear": "Año siguiente",
+    "clearFilters": "Borrar",
+    "filterSummary": "{{count}} viaje(s) — {{period}}",
+    "limitReached": "Se muestran como máximo los 50 viajes más recientes de este periodo."
   },
   "nav": {
     "distance": {
