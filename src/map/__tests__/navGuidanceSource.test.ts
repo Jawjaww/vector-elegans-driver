@@ -54,6 +54,18 @@ function navScope(): Record<string, any> {
       haversineMeters: haversineMeters,
       bearingDegrees: bearingDegrees,
       distanceToNavLine: distanceToNavLine,
+      pointAlongNavLine: pointAlongNavLine,
+      canSnapToNavLine: canSnapToNavLine,
+      correctNavProgress: correctNavProgress,
+      advanceNavProgress: advanceNavProgress,
+      emptyNavMotion: emptyNavMotion,
+      headingDeltaDegrees: headingDeltaDegrees,
+      NAV_SNAP_METERS: NAV_SNAP_METERS,
+      NAV_MAX_LEAD_METERS: NAV_MAX_LEAD_METERS,
+      NAV_CATCH_UP_MPS: NAV_CATCH_UP_MPS,
+      NAV_BACKWARD_IGNORE_M: NAV_BACKWARD_IGNORE_M,
+      NAV_BACKWARD_RESET_M: NAV_BACKWARD_RESET_M,
+      NAV_MAX_DT_S: NAV_MAX_DT_S,
     };`,
   )();
 }
@@ -81,7 +93,7 @@ function offRouteGuardScope(nav: Record<string, any>) {
       clearOffRouteLatch: clearOffRouteLatch,
       navLineIsRoad: navLineIsRoad,
       OFF_ROUTE_METERS: OFF_ROUTE_METERS,
-      OFF_ROUTE_FIXES: OFF_ROUTE_FIXES,
+      OFF_ROUTE_MS: OFF_ROUTE_MS,
     };`,
   )(fakeWindow);
   return { api, posted, nav };
@@ -94,7 +106,7 @@ const ROAD_LINE: [number, number][] = [
 ];
 
 function navWith(line: [number, number][] | null) {
-  return { line: line, offRouteStreak: 0, awaitingReroute: false };
+  return { line: line, offRouteSince: null, awaitingReroute: false };
 }
 
 describe("guidance fragment injection contract", () => {
@@ -118,6 +130,10 @@ describe("guidance fragment injection contract", () => {
       "haversineMeters",
       "bearingDegrees",
       "distanceToNavLine",
+      "pointAlongNavLine",
+      "canSnapToNavLine",
+      "correctNavProgress",
+      "advanceNavProgress",
     ]) {
       expect(typeof scope[name]).toBe("function");
     }
@@ -149,27 +165,29 @@ describe("distanceToNavLine", () => {
 });
 
 describe("off-route guard", () => {
-  it("latches only after three consecutive fixes beyond 45 m", () => {
-    const { api, posted } = offRouteGuardScope(navWith(ROAD_LINE));
-    expect(api.OFF_ROUTE_METERS).toBe(45);
-    expect(api.OFF_ROUTE_FIXES).toBe(3);
+  it("latches after 2.5 s of continuous drift, not after N fixes", () => {
+    const { api, posted, nav } = offRouteGuardScope(navWith(ROAD_LINE));
+    expect(api.OFF_ROUTE_METERS).toBe(30);
+    expect(api.OFF_ROUTE_MS).toBe(2500);
 
-    expect(api.latchOffRoute([2.3, 48.842], 60)).toBe(false);
-    expect(api.latchOffRoute([2.3, 48.842], 60)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 0)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 1000)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 2499)).toBe(false);
     expect(posted).toHaveLength(0);
 
-    expect(api.latchOffRoute([2.3, 48.842], 60)).toBe(true);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 2500)).toBe(true);
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({ type: "offRoute", lng: 2.3 });
+    expect(nav.awaitingReroute).toBe(true);
   });
 
-  it("restarts the streak when a fix comes back inside the threshold", () => {
+  it("restarts the window when a fix comes back inside the threshold", () => {
     const { api } = offRouteGuardScope(navWith(ROAD_LINE));
-    api.latchOffRoute([2.3, 48.842], 60);
-    api.latchOffRoute([2.3, 48.842], 60);
-    // One fix on the line clears the two accumulated off-route fixes.
-    expect(api.latchOffRoute([2.3, 48.84], 10)).toBe(false);
-    expect(api.latchOffRoute([2.3, 48.842], 60)).toBe(false);
+    api.latchOffRoute([2.3, 48.842], 60, 0);
+    api.latchOffRoute([2.3, 48.842], 60, 2000);
+    expect(api.latchOffRoute([2.3, 48.84], 10, 2100)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 2101)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 4601)).toBe(true);
   });
 
   it("never latches on a two-point chord: the guard needs a real road line", () => {
@@ -182,21 +200,28 @@ describe("off-route guard", () => {
       ]),
     );
     expect(api.navLineIsRoad()).toBe(false);
-    for (let i = 0; i < 6; i++) {
-      expect(api.latchOffRoute([2.3, 48.85], 500)).toBe(false);
+    for (let t = 0; t <= 8000; t += 500) {
+      expect(api.latchOffRoute([2.3, 48.85], 500, t)).toBe(false);
     }
     expect(posted).toHaveLength(0);
   });
 
   it("stays latched until the line is replaced", () => {
     const { api } = offRouteGuardScope(navWith(ROAD_LINE));
-    api.latchOffRoute([2.3, 48.842], 60);
-    api.latchOffRoute([2.3, 48.842], 60);
-    expect(api.latchOffRoute([2.3, 48.842], 60)).toBe(true);
-    // Back on the line, still awaiting: one reroute per latch, not one per fix.
-    expect(api.latchOffRoute([2.3, 48.84], 1)).toBe(true);
+    api.latchOffRoute([2.3, 48.842], 60, 0);
+    expect(api.latchOffRoute([2.3, 48.842], 60, 2500)).toBe(true);
+    // Back on the line, still awaiting: one reroute per latch, not one per tick.
+    expect(api.latchOffRoute([2.3, 48.84], 1, 3000)).toBe(true);
     api.clearOffRouteLatch();
-    expect(api.latchOffRoute([2.3, 48.84], 1)).toBe(false);
+    expect(api.latchOffRoute([2.3, 48.84], 1, 3100)).toBe(false);
+  });
+
+  it("does not treat a burst of frames as a completed window", () => {
+    const { api, posted } = offRouteGuardScope(navWith(ROAD_LINE));
+    for (let i = 0; i < 60; i++) {
+      expect(api.latchOffRoute([2.3, 48.842], 60, i * 16)).toBe(false);
+    }
+    expect(posted).toHaveLength(0);
   });
 
   it("measures the drift before the helpers that can throw", () => {
@@ -227,6 +252,83 @@ describe("snapToNavLine", () => {
     const { snapToNavLine } = navScope();
     expect(snapToNavLine([2.3, 48.84], [], 60)).toBeNull();
     expect(snapToNavLine([2.3, 48.84], [[2.3, 48.84]], 60)).toBeNull();
+  });
+});
+
+describe("speculative display motion", () => {
+  it("seeds from the first GPS match and never jumps backward for a lagging fix", () => {
+    const { correctNavProgress, emptyNavMotion, NAV_BACKWARD_IGNORE_M } =
+      navScope();
+    const seeded = correctNavProgress(emptyNavMotion(), 100);
+    expect(seeded).toEqual({
+      progressM: 100,
+      gpsProgressM: 100,
+      catchUpM: null,
+    });
+    const lagged = correctNavProgress(seeded, 100 - NAV_BACKWARD_IGNORE_M);
+    expect(lagged.progressM).toBe(100);
+    expect(lagged.gpsProgressM).toBe(100 - NAV_BACKWARD_IGNORE_M);
+  });
+
+  it("catches up forward instead of teleporting, and reseeds on a teleport", () => {
+    const { correctNavProgress, emptyNavMotion, NAV_BACKWARD_RESET_M } =
+      navScope();
+    const seeded = correctNavProgress(emptyNavMotion(), 50);
+    const ahead = correctNavProgress(seeded, 70);
+    expect(ahead.progressM).toBe(50);
+    expect(ahead.catchUpM).toBe(70);
+    const teleport = correctNavProgress(seeded, 50 + NAV_BACKWARD_RESET_M + 1);
+    expect(teleport.progressM).toBe(50 + NAV_BACKWARD_RESET_M + 1);
+    expect(teleport.catchUpM).toBeNull();
+  });
+
+  it("advances along the line at speed, capped by lead and by dt", () => {
+    const { advanceNavProgress, NAV_MAX_LEAD_METERS, NAV_MAX_DT_S } = navScope();
+    const moving = advanceNavProgress(
+      { progressM: 10, gpsProgressM: 10, catchUpM: null },
+      0.05,
+      20,
+    );
+    expect(moving.progressM).toBeCloseTo(11, 5);
+    const runaway = advanceNavProgress(
+      { progressM: 10 + NAV_MAX_LEAD_METERS, gpsProgressM: 10, catchUpM: null },
+      0.05,
+      20,
+    );
+    expect(runaway.progressM).toBe(10 + NAV_MAX_LEAD_METERS);
+    const hugeDt = advanceNavProgress(
+      { progressM: 0, gpsProgressM: 0, catchUpM: null },
+      5,
+      20,
+    );
+    expect(hugeDt.progressM).toBeCloseTo(20 * NAV_MAX_DT_S, 5);
+  });
+
+  it("lets a GPS that is ahead close the gap at the catch-up rate, then stops", () => {
+    const { advanceNavProgress, NAV_CATCH_UP_MPS } = navScope();
+    const step = advanceNavProgress(
+      { progressM: 10, gpsProgressM: 20, catchUpM: 20 },
+      0.05,
+      0,
+    );
+    expect(step.progressM).toBeCloseTo(10 + NAV_CATCH_UP_MPS * 0.05, 5);
+    const done = advanceNavProgress(
+      { progressM: 19.9, gpsProgressM: 20, catchUpM: 20 },
+      0.05,
+      0,
+    );
+    expect(done.progressM).toBe(20);
+    expect(done.catchUpM).toBeNull();
+  });
+
+  it("snaps only while close, and only trusts heading once the car is moving", () => {
+    const { canSnapToNavLine, NAV_SNAP_METERS } = navScope();
+    expect(canSnapToNavLine(NAV_SNAP_METERS, null, 90, 0)).toBe(true);
+    expect(canSnapToNavLine(NAV_SNAP_METERS + 1, 90, 90, 0)).toBe(false);
+    // Parked GPS heading is noise: a 90° disagreement must not unsap the puck.
+    expect(canSnapToNavLine(5, 180, 90, 0.5)).toBe(true);
+    expect(canSnapToNavLine(5, 180, 90, 10)).toBe(false);
+    expect(canSnapToNavLine(5, 95, 90, 10)).toBe(true);
   });
 });
 

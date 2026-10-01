@@ -245,8 +245,12 @@ Node keeps the source, so a Jest test that imports a helper and compares two `.t
 Three rules follow, and each one exists because the failure is silent:
 
 - **Never inject a function with `toString()` into the map document.** `navGuidanceSource.test.ts` fails if `mapHtmlTemplate.ts` contains `${…toString()}` at all.
-- **A guard must not depend on what it guards.** `latchOffRoute` measures with `distanceToNavLine`, a helper that only returns a number, and runs *before* anything that can throw. The off-route latch is also force-cleared and re-measured on `rerouteCheck`, because the fixes that accumulate while the screen is off may never arrive as ticks.
+- **A guard must not depend on what it guards.** `latchOffRoute` measures with `distanceToNavLine`, a helper that only returns a number, and runs *before* anything that can throw. The off-route latch is also force-cleared and re-measured on `rerouteCheck`, because the fixes that accumulate while the screen is off may never arrive as ticks. The window is **time** (30 m for 2.5 s), not a count of GPS fixes: the display loop and the watch do not share a clock, and a streak of frames would otherwise latch in 50 ms.
 - **The document probes itself at boot.** `navInjectionProbe()` runs inside the WebView on map load and posts `nav_inject_hollow` if the helpers are hollow — the only observer that runs where the bug lives.
+
+The puck the driver sees is **not** the last GPS fix. GPS corrects an along-track `progressM`; a ~20 Hz loop in the map document (`navDisplayTick`) advances that progress at the last known speed, with a bounded catch-up and a hard lead cap, and never jumps backward for a lagging sample. Snap-to-route is withheld once the fix is more than ~22 m off (or the heading disagrees while moving), so leaving the line is visible before the reroute latches. `jumpTo` on the interpolated point is what makes the arrow continuous; a 900 ms `easeTo` per fix is the thing this replaced — those overlapped and the bearing belonged to whichever glide had started last.
+
+A reroute in flight replaces the maneuver card with `TripRerouteNotice` (`nav.reroute`). The notice hides when the new road line lands (`rerouteSettled`), not when the pending chord is drawn.
 
 A failed leg is retried with a bounded backoff (`ROUTE_RETRY_BACKOFF_MS`) rather than left as a chord: `navLineIsRoad()` refuses a two-point line, so abandoning a leg used to disarm rerouting until the leg changed.
 

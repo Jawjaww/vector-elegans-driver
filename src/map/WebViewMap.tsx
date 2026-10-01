@@ -196,6 +196,7 @@ type WebViewMapMessageContext = {
   ) => void;
   handleUserMapInteract: () => void;
   onOffRoute?: (reason?: string) => void;
+  onReroutingChange?: (active: boolean) => void;
   onRouteReady?: NonNullable<MapProps['onRouteReady']>;
   onRoutePresented?: () => void;
   /** Active ride id, attached to the guidance diagnostic rows. */
@@ -254,6 +255,9 @@ function dispatchWebViewMapMessage(
       // delivered as ticks, so this one bypasses the anti-flap window.
       ctx.onOffRoute?.(typeof msg.reason === 'string' ? msg.reason : undefined);
       break;
+    case 'rerouteSettled':
+      ctx.onReroutingChange?.(false);
+      break;
     case 'navDiag': {
       // The tick and the message bridge report from inside the map document, where they are the
       // only observers. Three stages out of one message: a swallowed message and a broken tick
@@ -294,6 +298,7 @@ export function WebViewMap({
   resumeFollowRef,
   mapControllerRef,
   activeRideId,
+  onReroutingChange,
   prefetchConfig = {
     enabled: true,
     aggressiveMode: false,
@@ -347,6 +352,8 @@ export function WebViewMap({
   onLocationUpdateRef.current = onLocationUpdate;
   onUserMapInteractRef.current = onUserMapInteract;
   onFollowPausedChangeRef.current = onFollowPausedChange;
+  const onReroutingChangeRef = useRef(onReroutingChange);
+  onReroutingChangeRef.current = onReroutingChange;
 
   const [, startMapTransition] = useTransition();
 
@@ -613,12 +620,14 @@ export function WebViewMap({
       action: 'reroute',
       generation: routeRequestSeqRef.current + 1,
     });
+    onReroutingChangeRef.current?.(true);
     rerouteGenerationRef.current += 1;
     setRerouteGeneration(rerouteGenerationRef.current);
   }, []);
 
   useEffect(() => {
     if (navigationFollow) return;
+    onReroutingChangeRef.current?.(false);
     if (rerouteGenerationRef.current === 0) return;
     rerouteGenerationRef.current = 0;
     lastRerouteAtRef.current = 0;
@@ -1011,6 +1020,7 @@ export function WebViewMap({
           onRouteReady,
           onRoutePresented,
           onOffRoute: (reason) => requestReroute(reason === 'resume'),
+          onReroutingChange: (active) => onReroutingChangeRef.current?.(active),
           activeRideId,
         });
       } catch (e) {

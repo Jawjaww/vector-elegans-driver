@@ -83,7 +83,7 @@ const ROAD_LINE: [number, number][] = [
 function navWith(line: [number, number][] | null, extra: Record<string, any> = {}) {
   return {
     line: line,
-    offRouteStreak: 0,
+    offRouteSince: null,
     awaitingReroute: false,
     ...extra,
   };
@@ -93,7 +93,7 @@ describe("reroute on return to foreground", () => {
   it("asks for a reroute when the driver is still adrift, and marks it as a resume", () => {
     // A latch already spent on a line the driver has since left must not swallow the resume: the
     // streak is meaningless across a screen-off.
-    const nav = navWith(ROAD_LINE, { awaitingReroute: true, offRouteStreak: 3 });
+    const nav = navWith(ROAD_LINE, { awaitingReroute: true, offRouteSince: 1 });
     const { posted } = rerouteResumeScope(nav, [2.3, 48.840539]);
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({ type: "offRoute", reason: "resume" });
@@ -101,11 +101,11 @@ describe("reroute on return to foreground", () => {
   });
 
   it("clears the latch and stays quiet when the driver is back on the line", () => {
-    const nav = navWith(ROAD_LINE, { awaitingReroute: true, offRouteStreak: 3 });
+    const nav = navWith(ROAD_LINE, { awaitingReroute: true, offRouteSince: 1 });
     const { posted } = rerouteResumeScope(nav, [2.3, 48.84]);
     expect(posted).toHaveLength(0);
     expect(nav.awaitingReroute).toBe(false);
-    expect(nav.offRouteStreak).toBe(0);
+    expect(nav.offRouteSince).toBeNull();
   });
 
   it("does nothing on a chord: a failed route is retried, never treated as a road", () => {
@@ -151,6 +151,12 @@ describe("reroute wiring", () => {
     expect(request).toContain("if (!force && now - lastRerouteAtRef.current");
     expect(map).toContain("const REROUTE_COOLDOWN_MS = 8000");
     expect(map).toContain("requestReroute(reason === 'resume')");
+    expect(map).toContain("onReroutingChangeRef.current?.(true)");
+    expect(map).toContain("case 'rerouteSettled'");
+    const html = mapHtml();
+    expect(html).toContain('type: "rerouteSettled"');
+    expect(html).toContain("function navDisplayTick(ts)");
+    expect(html).toContain("function ensureNavDisplayLoop()");
   });
 
   it("retries a failed leg with a bounded backoff, never on an abort", () => {
@@ -162,5 +168,16 @@ describe("reroute wiring", () => {
     expect(request).toContain("logOfferStage('nav_route_retry'");
     // A superseding route aborts the signal; the pending retry timer must go with it.
     expect(request).toContain("signal.addEventListener('abort'");
+  });
+
+  it("replaces the maneuver card with a reroute notice while the new line is in flight", () => {
+    const dashboard = source("app/(tabs)/index.tsx");
+    expect(dashboard).toContain("onReroutingChange={setRouteRecalculating}");
+    expect(dashboard).toContain("<TripRerouteNotice");
+    const slot = dashboard.slice(dashboard.indexOf("{routeRecalculating"));
+    expect(slot.indexOf("<TripRerouteNotice")).toBeGreaterThan(-1);
+    expect(slot.indexOf("<TripManeuverHud")).toBeGreaterThan(
+      slot.indexOf("<TripRerouteNotice"),
+    );
   });
 });

@@ -416,7 +416,8 @@
     "arrival": {
       "remaining": "left",
       "eta": "arrival"
-    }
+    },
+    "reroute": "Recalculating route"
   },
   "navigation": {
     "home": "Home",

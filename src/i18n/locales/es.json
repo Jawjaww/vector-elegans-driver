@@ -316,7 +316,8 @@
     "arrival": {
       "remaining": "restante",
       "eta": "llegada"
-    }
+    },
+    "reroute": "Recalculando la ruta"
   },
   "navigation": {
     "home": "Inicio",

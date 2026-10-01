@@ -454,7 +454,8 @@
     "arrival": {
       "remaining": "restant",
       "eta": "arrivée"
-    }
+    },
+    "reroute": "Recalcul de l'itinéraire"
   },
   "navigation": {
     "home": "Accueil",

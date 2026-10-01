@@ -829,10 +829,17 @@ export function buildMapHtmlTemplate(
       pitch: 50,
       speed: null,
       heading: null,
-      offRouteStreak: 0,
+      offRouteSince: null,
       awaitingReroute: false,
+      followCamera: true,
+      snapOk: false,
+      progressM: null,
+      gpsProgressM: null,
+      catchUpM: null,
+      lastPaintAt: 0,
     };
     window.__veLastGpsCoords = null;
+    window.__veLastRawGpsCoords = null;
     window.__veGpsMarker = null;
 
     /**
@@ -942,6 +949,10 @@ export function buildMapHtmlTemplate(
         );
         if (!snap || typeof snap.traveledMeters !== "number") {
           return "snapToNavLine answered " + JSON.stringify(snap);
+        }
+        const motion = correctNavProgress(emptyNavMotion(), 40);
+        if (!motion || motion.progressM !== 40) {
+          return "correctNavProgress answered " + JSON.stringify(motion);
         }
         return null;
       } catch (error) {
@@ -1273,11 +1284,11 @@ export function buildMapHtmlTemplate(
     }
 
     /* VE_OFF_ROUTE_GUARD_START */
-    var OFF_ROUTE_METERS = 45;
-    var OFF_ROUTE_FIXES = 3;
+    var OFF_ROUTE_METERS = 30;
+    var OFF_ROUTE_MS = 2500;
 
     function clearOffRouteLatch() {
-      window.__veNav.offRouteStreak = 0;
+      window.__veNav.offRouteSince = null;
       window.__veNav.awaitingReroute = false;
     }
 
@@ -1286,17 +1297,28 @@ export function buildMapHtmlTemplate(
       return !!(line && line.length > 2);
     }
 
-    /** True once the driver has stayed more than 45 m off a real road line for 3 fixes. */
-    function latchOffRoute(coords, dist) {
+    /**
+     * True once the driver has stayed more than 30 m off a real road line for 2.5 s.
+     *
+     * Time, not a fix count: the display loop and the GPS watch do not share a clock, and a
+     * streak of frames would latch in 50 ms. The now argument is injectable so a test can drive
+     * the window without sleeping. A resume check latches immediately — the screen-off gap is
+     * already the hysteresis.
+     */
+    function latchOffRoute(coords, dist, now) {
       if (!navLineIsRoad()) return false;
       const nav = window.__veNav;
       if (nav.awaitingReroute) return true;
+      var t = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
       if (!(dist > OFF_ROUTE_METERS)) {
-        nav.offRouteStreak = 0;
+        nav.offRouteSince = null;
         return false;
       }
-      nav.offRouteStreak = (nav.offRouteStreak || 0) + 1;
-      if (nav.offRouteStreak < OFF_ROUTE_FIXES) return false;
+      if (nav.offRouteSince == null) {
+        nav.offRouteSince = t;
+        return false;
+      }
+      if (t - nav.offRouteSince < OFF_ROUTE_MS) return false;
       nav.awaitingReroute = true;
       try {
         if (window.ReactNativeWebView) {
@@ -1326,14 +1348,14 @@ export function buildMapHtmlTemplate(
     function rerouteCheckNow() {
       const nav = window.__veNav;
       if (!nav || !navLineIsRoad()) return;
-      const coords = window.__veLastGpsCoords;
+      const coords = window.__veLastRawGpsCoords || window.__veLastGpsCoords;
       if (!coords) return;
       const dist = distanceToNavLine(coords, nav.line);
       clearOffRouteLatch();
       if (!(dist > OFF_ROUTE_METERS)) return;
-      // The driver is already off the drawn line: one fix is enough, this is not a new streak.
+      // The driver is already off the drawn line: the screen-off gap is the hysteresis.
       // The latch is spent here too, so the following ticks stay quiet until the new line lands.
-      nav.offRouteStreak = OFF_ROUTE_FIXES;
+      nav.offRouteSince = Date.now() - OFF_ROUTE_MS;
       nav.awaitingReroute = true;
       try {
         if (window.ReactNativeWebView) {
@@ -1429,6 +1451,144 @@ export function buildMapHtmlTemplate(
       }
     }
 
+    /* VE_NAV_DISPLAY_START */
+    var NAV_DISPLAY_MIN_MS = 50;
+
+    function resetNavMotion() {
+      const nav = window.__veNav;
+      nav.progressM = null;
+      nav.gpsProgressM = null;
+      nav.catchUpM = null;
+      nav.snapOk = false;
+      nav.lastPaintAt = 0;
+    }
+
+    function postRerouteSettled() {
+      try {
+        if (!window.ReactNativeWebView) return;
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: "rerouteSettled" })
+        );
+      } catch (e) {}
+    }
+
+    function stopNavDisplayLoop() {
+      if (window.__veNavDisplayRaf) {
+        try {
+          cancelAnimationFrame(window.__veNavDisplayRaf);
+        } catch (e) {}
+        window.__veNavDisplayRaf = 0;
+      }
+    }
+
+    function ensureNavDisplayLoop() {
+      if (window.__veNavDisplayRaf) return;
+      function frame(ts) {
+        if (!window.__veNav || !window.__veNav.navigating) {
+          window.__veNavDisplayRaf = 0;
+          return;
+        }
+        window.__veNavDisplayRaf = requestAnimationFrame(frame);
+        try {
+          navDisplayTick(ts);
+        } catch (error) {
+          postNavDiag({
+            error: navErrorMessage(error),
+            source: "navDisplayTick",
+          });
+        }
+      }
+      window.__veNavDisplayRaf = requestAnimationFrame(frame);
+    }
+
+    /**
+     * Paint the puck and camera from the motion model, not from a GPS teleport.
+     *
+     * GPS ticks correct progressM; this clock (~20 Hz) is what makes the arrow move between
+     * the watch's 8 m samples. A 900 ms easeTo on each fix is the thing this replaces: those
+     * overlapped and the bearing belonged to whichever glide had started last.
+     */
+    function navDisplayPaint(center, bearing, courseUp, followCamera) {
+      const nav = window.__veNav;
+      nav.courseUp = courseUp;
+      nav.bearing = bearing;
+      nav.coords = center;
+      const zoom = nav.zoom || 19;
+      const pitch = typeof nav.pitch === "number" ? nav.pitch : 50;
+      if (followCamera) {
+        jumpNavCamera({
+          center: center,
+          zoom: zoom,
+          bearing: bearing,
+          pitch: pitch,
+          padding: navLookaheadPadding({ navigation: true }),
+        });
+      }
+      syncGpsPuck(center, bearing, courseUp);
+    }
+
+    function navDisplayTick(ts) {
+      const nav = window.__veNav;
+      if (!nav || !nav.navigating) return;
+      var last = nav.lastPaintAt || 0;
+      if (last && ts - last < NAV_DISPLAY_MIN_MS) return;
+      var dt = last ? (ts - last) / 1000 : 0;
+      nav.lastPaintAt = ts;
+
+      var raw = window.__veLastRawGpsCoords;
+      var line = nav.line;
+      if (raw && line) {
+        latchOffRoute(raw, distanceToNavLine(raw, line));
+      }
+
+      var speculating = !!(nav.snapOk && !nav.awaitingReroute);
+      if (speculating) {
+        var next = advanceNavProgress(nav, dt, nav.speed);
+        nav.progressM = next.progressM;
+        nav.gpsProgressM = next.gpsProgressM;
+        nav.catchUpM = next.catchUpM;
+      }
+
+      var center = raw;
+      var bearing = nav.bearing;
+      var courseUp = false;
+      if (speculating && line && typeof nav.progressM === "number") {
+        var along = pointAlongNavLine(line, nav.progressM);
+        var snapped =
+          along && line.length > 1 ? snapToNavLine(along, line, 60) : null;
+        if (along && snapped) {
+          center = along;
+          bearing = snapped.bearing;
+          courseUp = true;
+        }
+      } else if (raw) {
+        var plan = planNavCamera({
+          traceBearing: null,
+          deviceHeading: nav.heading,
+          mapBearing: map.getBearing(),
+          lastBearing: nav.bearing,
+        });
+        center = raw;
+        bearing = plan.bearing;
+        courseUp = plan.courseUp;
+      }
+      if (!center) return;
+
+      var prev = nav.coords;
+      var speed = typeof nav.speed === "number" ? nav.speed : 0;
+      var moved = !prev || haversineMeters(prev, center) >= 0.05 || speed > 0.3;
+      var turned =
+        typeof nav.bearing !== "number" ||
+        headingDeltaDegrees(nav.bearing, bearing) > 0.4;
+      if (moved || turned || !prev) {
+        navDisplayPaint(center, bearing, courseUp, nav.followCamera !== false);
+      }
+      if (speculating) {
+        syncNavRouteStart(center);
+      }
+    }
+    /* VE_NAV_DISPLAY_END */
+
     /**
      * The single guidance entry point: one GPS fix in, one camera and puck decision out.
      *
@@ -1458,6 +1618,7 @@ export function buildMapHtmlTemplate(
     function guideTickPlanned(coords, opts) {
       const nav = window.__veNav;
       const line = nav.line;
+      window.__veLastRawGpsCoords = coords;
       // The off-route guard measures before anything else runs. It must not sit behind a helper
       // that can throw: a hollow snapToNavLine used to swallow the guard entirely, which is how
       // the driver stayed unguided with zero reroutes recorded.
@@ -1467,58 +1628,90 @@ export function buildMapHtmlTemplate(
       );
       const snapped =
         line && line.length > 1 ? snapToNavLine(coords, line, 60) : null;
-      const onLine = snapped && !offRoute;
-      const center = onLine ? snapped.point : coords;
-
-      const traceBearing = bearingAlongNavLine(coords);
-      const plan = planNavCamera({
-        traceBearing: traceBearing,
-        deviceHeading:
-          opts && typeof opts.heading === "number" ? opts.heading : nav.heading,
-        mapBearing: map.getBearing(),
-        lastBearing: nav.bearing,
-      });
-
       if (opts && typeof opts.zoom === "number") nav.zoom = opts.zoom;
       if (opts && typeof opts.pitch === "number") nav.pitch = opts.pitch;
       if (opts && typeof opts.speed === "number") nav.speed = opts.speed;
       if (opts && typeof opts.heading === "number") nav.heading = opts.heading;
-      nav.courseUp = plan.courseUp;
-      nav.bearing = plan.bearing;
-      nav.coords = center;
+      nav.followCamera = !(opts && opts.followCamera === false);
 
-      const zoom = (opts && opts.zoom) || nav.zoom || 19;
-      const pitch =
-        opts && typeof opts.pitch === "number"
-          ? opts.pitch
-          : typeof nav.pitch === "number"
-            ? nav.pitch
-            : 50;
+      const dist = snapped
+        ? haversineMeters(coords, snapped.point)
+        : Infinity;
+      const speed =
+        opts && typeof opts.speed === "number" ? opts.speed : nav.speed;
+      nav.snapOk = !!(
+        snapped &&
+        !offRoute &&
+        canSnapToNavLine(dist, nav.heading, snapped.bearing, speed)
+      );
+      if (nav.snapOk) {
+        var corrected = correctNavProgress(nav, snapped.traveledMeters);
+        nav.progressM = corrected.progressM;
+        nav.gpsProgressM = corrected.gpsProgressM;
+        nav.catchUpM = corrected.catchUpM;
+      }
 
-      jumpNavCamera({
-        center: center,
-        zoom: zoom,
-        bearing: plan.bearing,
-        pitch: pitch,
-        padding: navLookaheadPadding(opts),
-      });
-      syncGpsPuck(center, plan.bearing, plan.courseUp);
+      const onLine = nav.snapOk;
+      var paintPoint = coords;
+      var paintBearing = nav.bearing;
+      var paintCourseUp = false;
+      if (onLine && typeof nav.progressM === "number") {
+        var along = pointAlongNavLine(line, nav.progressM);
+        var alongSnap =
+          along && line && line.length > 1
+            ? snapToNavLine(along, line, 60)
+            : snapped;
+        if (along && alongSnap) {
+          paintPoint = along;
+          paintBearing = alongSnap.bearing;
+          paintCourseUp = true;
+        }
+      } else {
+        const plan = planNavCamera({
+          traceBearing: null,
+          deviceHeading:
+            opts && typeof opts.heading === "number"
+              ? opts.heading
+              : nav.heading,
+          mapBearing: map.getBearing(),
+          lastBearing: nav.bearing,
+        });
+        paintPoint = coords;
+        paintBearing = plan.bearing;
+        paintCourseUp = plan.courseUp;
+      }
+
+      navDisplayPaint(
+        paintPoint,
+        paintBearing,
+        paintCourseUp,
+        nav.followCamera
+      );
       // The drawn line starts under the arrow: on an active trip the puck is the departure.
-      const trimmed = syncNavRouteStart(coords);
-      postRouteProgress(center, onLine ? snapped.traveledMeters : undefined);
+      const trimmed = syncNavRouteStart(onLine ? paintPoint : coords);
+      postRouteProgress(
+        paintPoint,
+        onLine && typeof nav.progressM === "number"
+          ? nav.progressM
+          : undefined
+      );
+      if (nav.navigating) ensureNavDisplayLoop();
       postNavDiag({
         navigating: nav.navigating,
-        follow: !(opts && opts.followCamera === false),
+        follow: nav.followCamera,
         on_line: !!onLine,
-        trace_bearing: traceBearing,
-        bearing: plan.bearing,
-        course_up: plan.courseUp,
-        zoom: zoom,
-        pitch: pitch,
+        snap_ok: !!nav.snapOk,
+        trace_bearing: bearingAlongNavLine(coords),
+        bearing: paintBearing,
+        course_up: paintCourseUp,
+        zoom: nav.zoom || 19,
+        pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
         puck_y_ratio: navPuckYRatio(),
         distance_to_line_m: snapped
           ? Math.round(haversineMeters(coords, snapped.point))
           : null,
+        progress_m:
+          typeof nav.progressM === "number" ? Math.round(nav.progressM) : null,
         trimmed: trimmed,
       });
     }
@@ -1634,6 +1827,7 @@ export function buildMapHtmlTemplate(
 
     function updateGps(coords, opts) {
       const nav = window.__veNav;
+      window.__veLastRawGpsCoords = coords;
       // Accept posts navigation GPS before updateRoute can clear the offer lock. Without this,
       // every later tick hits the return below and the overview camera stays until the app
       // restarts. In-flight offer presentOnce already bails when nav.navigating is set.
@@ -1738,10 +1932,16 @@ export function buildMapHtmlTemplate(
       nav.bearing = null;
       nav.coords = null;
       nav.trimAnchor = null;
+      nav.progressM = null;
+      nav.gpsProgressM = null;
+      nav.catchUpM = null;
+      nav.snapOk = false;
+      nav.lastPaintAt = 0;
       window.__veApproachLine = null;
       // Unset so nothing can commit into a document that has no route any more.
       window.__veRouteCommit = null;
       clearOffRouteLatch();
+      stopNavDisplayLoop();
       [
         "route-line", "route-line-glow", "route-casing",
         "approach-line", "approach-line-glow", "approach-casing",
@@ -2165,6 +2365,7 @@ export function buildMapHtmlTemplate(
       // disarmed until the line has more than two points (navLineIsRoad).
       nav.line = [start, end];
       clearOffRouteLatch();
+      resetNavMotion();
       if (!isOffer) {
         // Drop the offer polyline (often off-screen once the camera locks on
         // the driver) and draw driver → destination immediately.
@@ -2187,11 +2388,11 @@ export function buildMapHtmlTemplate(
           postRouteProgress(window.__veLastGpsCoords || start, 0);
         } catch (e) {}
       }
-      if (nav.navigating && window.__veLastGpsCoords) {
+      if (nav.navigating && (window.__veLastRawGpsCoords || window.__veLastGpsCoords)) {
         // Lock the camera on the driver the moment the trip starts, before any line exists:
         // the acceptance must not leave the map in north-up overview. A fit is never what
         // guidance wants, so this no longer depends on the app having said fitBounds false.
-        guideTick(window.__veLastGpsCoords, {
+        guideTick(window.__veLastRawGpsCoords || window.__veLastGpsCoords, {
           navigation: true,
           zoom: nav.zoom || 19,
           pitch: typeof nav.pitch === "number" ? nav.pitch : 50,
@@ -2314,7 +2515,8 @@ export function buildMapHtmlTemplate(
       function recenterTripNavCamera() {
         if (!nav.navigating) return;
         clearOffRouteLatch();
-        const coords = window.__veLastGpsCoords;
+        resetNavMotion();
+        const coords = window.__veLastRawGpsCoords || window.__veLastGpsCoords;
         if (!coords) return;
         guideTick(coords, {
           zoom: nav.zoom || 19,
@@ -2401,9 +2603,9 @@ export function buildMapHtmlTemplate(
         // A new road line: cut it at the driver before the first frame, rather than leaving the
         // full geometry on screen until the next tick decides to re-point it.
         nav.trimAnchor = null;
-        syncNavRouteStart(window.__veLastGpsCoords || start);
+        syncNavRouteStart(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start);
         try {
-          postRouteProgress(window.__veLastGpsCoords || start, 0);
+          postRouteProgress(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start, 0);
         } catch (e) {}
 
         if (window.__veLastGpsCoords || driverMarker) {
@@ -2419,6 +2621,7 @@ export function buildMapHtmlTemplate(
           isOffer ? buildOfferFitCoordLists(tripCoords) : tripFitLists(tripCoords),
         );
         recenterTripNavCamera();
+        if (nav.navigating && nav.hasRoad) postRerouteSettled();
       }
 
       /**
@@ -2458,6 +2661,7 @@ export function buildMapHtmlTemplate(
             : tripFitLists([start, end]),
         );
         recenterTripNavCamera();
+        if (nav.navigating) postRerouteSettled();
         console.warn("[nav] route failed:", reason);
       }
 

@@ -147,7 +147,7 @@ export const OFFER_PIPELINE_STAGES = [
    */
   'nav_route_retry',
   /**
-   * The driver stayed more than 45 m off the line for three consecutive fixes. `action` is
+   * The driver stayed more than 30 m off the line for 2.5 s. `action` is
    * `reroute` when a new line was asked for, `cooldown` when the anti-flap window swallowed the
    * signal — the two look identical from the map, and only one of them explains a stale line.
    */

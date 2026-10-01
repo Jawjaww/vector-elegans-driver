@@ -62,7 +62,9 @@ describe('guidance map template', () => {
   it('cuts the drawn route at the driver', () => {
     expect(html).toContain('function trimNavLineFrom(coords)');
     expect(html).toContain('function syncNavRouteStart(coords)');
-    expect(html).toContain('const trimmed = syncNavRouteStart(coords);');
+    expect(html).toContain(
+      'const trimmed = syncNavRouteStart(onLine ? paintPoint : coords);',
+    );
     // The full geometry stays the reference for the bearing and the remaining distance.
     expect(html).toMatch(
       /nav\.trimAnchor = \{ coords: trimmed\[0\], generation: nav\.generation \};/,
@@ -74,6 +76,18 @@ describe('guidance map template', () => {
     expect(html).toContain('function guideTickFallback(coords, opts)');
     // The probe the app turns into `nav_tick` / `nav_tick_error` rows.
     expect(html).toContain('type: "navDiag"');
-    expect(html).toContain('course_up: plan.courseUp');
+    expect(html).toContain('course_up: paintCourseUp');
+  });
+
+  it('paints from a display clock, not from a GPS teleport', () => {
+    expect(html).toContain('function navDisplayTick(ts)');
+    expect(html).toContain('function advanceNavProgress(state, dt, speedMps)');
+    expect(html).toContain('window.__veLastRawGpsCoords');
+    // The 900 ms easeTo on each fix is what the loop replaces; it must not return as the
+    // guidance camera. Offer / idle follow still uses moveNavCamera.
+    const tick = html.slice(html.indexOf('function guideTickPlanned'));
+    const fallback = html.slice(html.indexOf('function guideTickFallback'));
+    expect(tick).toContain('navDisplayPaint(');
+    expect(fallback).toContain('jumpNavCamera({');
   });
 });

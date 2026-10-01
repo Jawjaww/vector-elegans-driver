@@ -39,6 +39,7 @@ const THEME = 'src/lib/theme.ts';
 const GUIDANCE_BAR = 'src/components/TripGuidanceBar.tsx';
 const ARRIVAL_HUD = 'src/components/TripArrivalHud.tsx';
 const MANEUVER_HUD = 'src/components/TripManeuverHud.tsx';
+const REROUTE_NOTICE = 'src/components/TripRerouteNotice.tsx';
 const RECENTER_BUTTON = 'src/components/MapRecenterButton.tsx';
 /** The one glass card drawn *outside* the map group, and the reason `GlassPanel` has two routes. */
 const NOTICE_OVERLAY = 'src/components/OfferNoticeOverlay.tsx';
@@ -53,6 +54,7 @@ const GLASS_CONSUMERS = [
   GUIDANCE_BAR,
   ARRIVAL_HUD,
   MANEUVER_HUD,
+  REROUTE_NOTICE,
   RECENTER_BUTTON,
   // The notice joined the family when it moved out of the sheet onto the map. It is the only
   // member drawn outside the map group, which is why the panel needs a second measuring route.

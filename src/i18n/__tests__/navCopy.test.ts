@@ -222,6 +222,15 @@ describe('the sentences the map cards show the driver', () => {
     ).toBe('llegada');
   });
 
+  it('translates the reroute banner in every shipped language', () => {
+    for (const lng of LOCALES) {
+      const t = makeI18n(lng).t;
+      const text = t('nav.reroute');
+      expect(text).not.toBe('nav.reroute');
+      expect(text.length).toBeGreaterThan(4);
+    }
+  });
+
   it('is configured for the plural form this test assumes', () => {
     // `_one` / `_two` / `_few` / `_other` are the v4 suffixes. Under the v3 format i18next looks
     // for `_1` / `_2`, finds none of them, and silently renders the *base* key — which for a
