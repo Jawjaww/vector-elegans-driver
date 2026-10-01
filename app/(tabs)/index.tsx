@@ -2024,30 +2024,26 @@ function DriverHomeSheetBody({
   const dropoffDest = tripActions.dropoffDest();
   const showActiveTrip = Boolean(activeRide && pickupDest && dropoffDest);
 
+  const slotChrome = {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.1)",
+    paddingTop: 12,
+    marginTop: 4,
+  } as const;
+
   return (
     <>
-      <View
-        className="mb-5"
-        style={{
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: "rgba(255,255,255,0.1)",
-          paddingTop: 12,
-          marginTop: 4,
-        }}
-      >
-        {!activeRide ? (
-          <Text
-            className="text-sm font-semibold mb-3"
-            style={{ color: "rgba(255,255,255,0.8)" }}
-          >
-            COURSES DISPONIBLES
-          </Text>
-        ) : null}
-        {showActiveTrip && activeRide && pickupDest && dropoffDest ? (
-          // Two different bodies in the same slot, so two different paliers: an active trip is the
-          // `trip` palier, and the offers standing in for it are `rides`. Only one is ever mounted,
-          // which is why each measures itself instead of the slot measuring both.
-          <SheetSection level="trip" onMeasure={onMeasure}>
+      {showActiveTrip && activeRide && pickupDest && dropoffDest ? (
+        // Two different bodies in the same slot, so two different paliers: an active trip is the
+        // `trip` palier, and the offers standing in for it are `rides`. Only one is ever mounted,
+        // which is why each measures itself instead of the slot measuring both.
+        //
+        // `SheetSection` must be a direct child of the sheet ScrollView (the fragment here does
+        // not create a native parent). A wrapper around it would make `onLayout.y` relative to
+        // that wrapper, so the trip palier would stop at the swipe's own height and clip
+        // « Je suis arrivé » — the only expanded snap during a ride.
+        <SheetSection level="trip" onMeasure={onMeasure}>
+          <View className="mb-5" style={slotChrome}>
             <ActiveTripSheet
               ride={activeRide}
               pickupDest={pickupDest}
@@ -2063,9 +2059,19 @@ function DriverHomeSheetBody({
               }}
               onCancel={tripActions.cancelTrip}
             />
-          </SheetSection>
-        ) : (
-          <SheetSection level="rides" onMeasure={onMeasure}>
+          </View>
+        </SheetSection>
+      ) : (
+        <SheetSection level="rides" onMeasure={onMeasure}>
+          <View className="mb-5" style={slotChrome}>
+            {!activeRide ? (
+              <Text
+                className="text-sm font-semibold mb-3"
+                style={{ color: "rgba(255,255,255,0.8)" }}
+              >
+                COURSES DISPONIBLES
+              </Text>
+            ) : null}
             <DashboardRidePreview
               activeRide={null}
               availableRide={availableRide}
@@ -2075,9 +2081,9 @@ function DriverHomeSheetBody({
               onPromoteDeferred={onPromoteDeferred}
               onDismissDeferred={onDismissDeferred}
             />
-          </SheetSection>
-        )}
-      </View>
+          </View>
+        </SheetSection>
+      )}
       {!activeRide ? (
         <SheetSection level="stats" onMeasure={onMeasure}>
           <DriverDayStatsRow stats={stats} />

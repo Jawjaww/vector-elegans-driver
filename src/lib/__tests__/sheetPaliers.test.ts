@@ -197,6 +197,14 @@ describe('the sheet snaps on the measured boundaries', () => {
     expect(sheet).toContain('bodies: Record<SheetBodyLevel, number>;');
     expect(sheet).toContain('return HANDLE_H + bodies[level];');
   });
+
+  it('scrolls on the last allowed palier, not only on stats', () => {
+    // During a ride the allowed set stops at `trip`. Enabling scroll only when `level === 'stats'`
+    // left the « Je suis arrivé » swipe unreachable if `TOP_MAP_REVEAL` capped the snap.
+    expect(sheet).toContain('const atExpanded = level === expandedSnapRef.current');
+    expect(sheet).not.toContain("const atStats = level === 'stats'");
+    expect(sheet).toContain('allowedOrder.at(-1)');
+  });
 });
 
 describe('the dashboard measures every palier, once', () => {
@@ -236,6 +244,21 @@ describe('the dashboard measures every palier, once', () => {
       'previous[level] === bottom ? previous : { ...previous, [level]: bottom }',
     );
   });
+
+  it('measures trip and rides against the scroll content, not a chrome wrapper', () => {
+    // The regression: a View (border, paddingTop) wrapped both SheetSections, so onLayout.y
+    // was ~0 and the trip palier snapped to the swipe's own height. During a ride that palier
+    // is as high as the sheet may go, so « Je suis arrivé » was clipped. The chrome belongs
+    // *inside* the section so y is counted from the ScrollView content.
+    const body = dashboard.slice(dashboard.indexOf('function DriverHomeSheetBody'));
+    const trip = body.indexOf('level="trip"');
+    const rides = body.indexOf('level="rides"');
+    const chrome = body.indexOf('className="mb-5"');
+    expect(trip).toBeGreaterThan(-1);
+    expect(chrome).toBeGreaterThan(trip);
+    expect(rides).toBeGreaterThan(chrome);
+    expect(body.lastIndexOf('className="mb-5"')).toBeGreaterThan(rides);
+  });
 });
 
 describe('SheetSection', () => {
@@ -246,6 +269,8 @@ describe('SheetSection', () => {
     // the same space the palier boundaries live in — padding included, margins above included.
     expect(section).toContain('measureRef.current(level, y + height);');
     expect(section).not.toContain('measureRef.current(level, height)');
+    expect(section).toContain('scroll content container');
+    expect(section).toContain('native wrapper');
   });
 
   it('holds the callback in a ref, so a render cannot clear a live measurement', () => {
