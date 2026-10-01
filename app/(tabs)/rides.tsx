@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,13 +11,22 @@ import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { FeatherGlyph } from "../../src/components/FeatherGlyph";
+import {
+  RideHistoryFilters,
+  type HistoryFilterChange,
+  type HistoryFilterMode,
+} from "../../src/components/RideHistoryFilters";
 import { MAP_PALETTE } from "../../src/lib/mapPalette";
 import { VE_BLUE } from "../../src/lib/theme";
 import type { Ride } from "../../src/lib/stores/driverStore";
 import {
+  defaultHistoryFilterRange,
+  formatHistoryFilterSummary,
+  isDefaultHistoryFilterRange,
   formatHistoryWhen,
   rideHistoryAmount,
   summarizeHistoryToday,
+  type HistoryDateRange,
 } from "../../src/lib/utils/rideHistory";
 import {
   formatMinutesCompact,
@@ -31,6 +40,8 @@ import {
 
 /** Stable identity for "no rows yet", so the memo below does not re-run on every render. */
 const NO_RIDES: readonly Ride[] = [];
+
+const COMPLETED_RIDES_PAGE = 50;
 
 /**
  * The driver's completed rides.
@@ -49,6 +60,10 @@ const NO_RIDES: readonly Ride[] = [];
 export default function RidesScreen() {
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
+  const [filterRange, setFilterRange] = useState<HistoryDateRange>(() =>
+    defaultHistoryFilterRange(),
+  );
+  const [filterMode, setFilterMode] = useState<HistoryFilterMode>("month");
   /**
    * `null` is "not answered yet", which is not the same as "no rides": the first is a spinner and
    * the second is the empty state, and the service returns a discriminated result for exactly
@@ -56,9 +71,12 @@ export default function RidesScreen() {
    */
   const [state, setState] = useState<CompletedRidesFetch | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const filterRangeRef = useRef(filterRange);
+  filterRangeRef.current = filterRange;
 
-  const load = useCallback(async () => {
-    setState(await rideService.fetchCompletedRides());
+  const load = useCallback(async (range?: HistoryDateRange) => {
+    const activeRange = range ?? filterRangeRef.current;
+    setState(await rideService.fetchCompletedRides(activeRange));
   }, []);
 
   // On focus rather than on mount: ending a ride is done on the map, and the tab stays mounted
@@ -78,11 +96,69 @@ export default function RidesScreen() {
     }
   }, [load]);
 
+  const onFilterChange = useCallback(
+    ({ range, mode }: HistoryFilterChange) => {
+      setFilterRange(range);
+      setFilterMode(mode);
+      void load(range);
+    },
+    [load],
+  );
+
+  const resetFilters = useCallback(() => {
+    const next = defaultHistoryFilterRange();
+    setFilterRange(next);
+    setFilterMode("month");
+    void load(next);
+  }, [load]);
+
   const rides = state?.ok ? state.rides : NO_RIDES;
   const today = useMemo(
     () => summarizeHistoryToday(rides, new Date()),
     [rides],
   );
+
+  const showFilteredEmpty = Boolean(
+    state?.ok &&
+      rides.length === 0 &&
+      !isDefaultHistoryFilterRange(filterRange),
+  );
+
+  const filterPeriod = formatHistoryFilterSummary(
+    filterRange,
+    i18n.language,
+    filterMode,
+  );
+
+  const listFooter =
+    state?.ok && rides.length > 0 ? (
+      <View
+        className="mt-2 mb-4 flex-row items-center justify-between rounded-xl px-3 py-2"
+        style={{
+          borderWidth: 1,
+          borderColor: "rgba(59, 130, 246, 0.1)",
+          backgroundColor: "rgba(255, 255, 255, 0.03)",
+        }}
+      >
+        <Text className="text-slate-300 text-sm flex-1 mr-2">
+          {t("ridesScreen.filterSummary", {
+            count: rides.length,
+            period: filterPeriod,
+          })}
+        </Text>
+        {!isDefaultHistoryFilterRange(filterRange) ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={resetFilters}
+            className="px-2 py-1"
+          >
+            <Text className="text-blue-300 text-xs font-bold uppercase">
+              {t("ridesScreen.clearFilters")}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    ) : null;
 
   return (
     <View className="flex-1 bg-transparent">
@@ -112,15 +188,34 @@ export default function RidesScreen() {
             <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
               {t("ridesScreen.subtitle")}
             </Text>
+            <RideHistoryFilters
+              locale={i18n.language}
+              range={filterRange}
+              mode={filterMode}
+              onRangeChange={onFilterChange}
+            />
             {state?.ok && today.rides > 0 ? (
               <TodaySummary rides={today.rides} earnings={today.earnings} />
+            ) : null}
+            {state?.ok && rides.length === COMPLETED_RIDES_PAGE ? (
+              <Text className="text-slate-500 text-xs mt-3 text-center">
+                {t("ridesScreen.limitReached")}
+              </Text>
             ) : null}
           </View>
         }
         renderItem={({ item }) => (
           <RideHistoryRow ride={item} locale={i18n.language} />
         )}
-        ListEmptyComponent={<HistoryPlaceholder state={state} onRetry={load} />}
+        ListEmptyComponent={
+          <HistoryPlaceholder
+            state={state}
+            onRetry={() => void load()}
+            showFilteredEmpty={showFilteredEmpty}
+            onClearFilters={resetFilters}
+          />
+        }
+        ListFooterComponent={listFooter}
       />
     </View>
   );
@@ -251,9 +346,13 @@ function RideHistoryRow({
 function HistoryPlaceholder({
   state,
   onRetry,
+  showFilteredEmpty,
+  onClearFilters,
 }: Readonly<{
   state: CompletedRidesFetch | null;
   onRetry: () => void;
+  showFilteredEmpty: boolean;
+  onClearFilters: () => void;
 }>) {
   const { t } = useTranslation();
 
@@ -284,6 +383,31 @@ function HistoryPlaceholder({
         >
           <Text className="text-white text-xs font-bold uppercase tracking-widest">
             {t("ridesScreen.retry")}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (showFilteredEmpty) {
+    return (
+      <View className="flex-1 justify-center items-center py-16 px-4">
+        <View className="w-20 h-20 rounded-full items-center justify-center border border-white/10 mb-6 bg-white/5">
+          <FeatherGlyph name="calendar" size={32} />
+        </View>
+        <Text className="text-xl font-black text-white uppercase tracking-tight mb-2 text-center">
+          {t("ridesScreen.emptyFilteredTitle")}
+        </Text>
+        <Text className="text-center text-slate-400 text-sm font-medium leading-5 mb-6">
+          {t("ridesScreen.emptyFilteredBody")}
+        </Text>
+        <Pressable
+          onPress={onClearFilters}
+          accessibilityRole="button"
+          className="px-6 py-3 rounded-xl border border-white/15 bg-white/5"
+        >
+          <Text className="text-white text-xs font-bold uppercase tracking-widest">
+            {t("ridesScreen.clearFilters")}
           </Text>
         </Pressable>
       </View>

@@ -94,3 +94,93 @@ export function formatHistoryWhen(
   });
   return `${day} · ${time}`;
 }
+
+/** Inclusive local bounds sent to PostgREST as ISO timestamps on `updated_at`. */
+export type HistoryDateRange = Readonly<{ start: Date; end: Date }>;
+
+/** Local midnight through end-of-day, matching the client reservations date picker. */
+export function localDayBounds(date: Date): HistoryDateRange {
+  const start = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const end = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    23,
+    59,
+    59,
+    999,
+  );
+  return { start, end };
+}
+
+/** First through last instant of a calendar month in the device timezone. */
+export function localMonthBounds(
+  year: number,
+  month: number,
+): HistoryDateRange {
+  const start = new Date(year, month, 1);
+  const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
+/** Default Courses tab filter: current month (web reservations default view). */
+export function defaultHistoryFilterRange(now: Date = new Date()): HistoryDateRange {
+  return localMonthBounds(now.getFullYear(), now.getMonth());
+}
+
+export function historyRangesEqual(
+  a: HistoryDateRange,
+  b: HistoryDateRange,
+): boolean {
+  return (
+    a.start.getTime() === b.start.getTime() &&
+    a.end.getTime() === b.end.getTime()
+  );
+}
+
+export function isDefaultHistoryFilterRange(
+  range: HistoryDateRange,
+  now: Date = new Date(),
+): boolean {
+  return historyRangesEqual(range, defaultHistoryFilterRange(now));
+}
+
+/** True when start and end fall on the same local calendar day. */
+export function isSingleLocalDayRange(range: HistoryDateRange): boolean {
+  return (
+    range.start.getFullYear() === range.end.getFullYear() &&
+    range.start.getMonth() === range.end.getMonth() &&
+    range.start.getDate() === range.end.getDate()
+  );
+}
+
+/**
+ * Human-readable period for filter summary copy (i18n `period` interpolation).
+ *
+ * Day mode: long date; month mode: month and year only.
+ */
+export function formatHistoryFilterSummary(
+  range: HistoryDateRange,
+  locale: string,
+  mode: "day" | "month",
+): string {
+  if (mode === "day" || isSingleLocalDayRange(range)) {
+    return range.start.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  return range.start.toLocaleDateString(locale, {
+    month: "long",
+    year: "numeric",
+  });
+}

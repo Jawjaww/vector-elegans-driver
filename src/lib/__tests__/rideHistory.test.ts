@@ -19,8 +19,15 @@ jest.mock("../supabase", () => ({
 }));
 
 import {
+  defaultHistoryFilterRange,
+  formatHistoryFilterSummary,
   formatHistoryWhen,
+  historyRangesEqual,
+  isDefaultHistoryFilterRange,
   isSameLocalDay,
+  isSingleLocalDayRange,
+  localDayBounds,
+  localMonthBounds,
   rideHistoryAmount,
   summarizeHistoryToday,
 } from "../utils/rideHistory";
@@ -197,6 +204,54 @@ describe("today's totals, from the rows the server sent", () => {
   });
 });
 
+describe("server date filter bounds", () => {
+  it("covers a full local day", () => {
+    const day = at(3, 15, 12, 0);
+    const { start, end } = localDayBounds(day);
+    expect(start).toEqual(new Date(2026, 2, 15, 0, 0, 0, 0));
+    expect(end).toEqual(new Date(2026, 2, 15, 23, 59, 59, 999));
+  });
+
+  it("covers a full local month including leap-year February", () => {
+    const feb = localMonthBounds(2024, 1);
+    expect(feb.start).toEqual(new Date(2024, 1, 1));
+    expect(feb.end).toEqual(new Date(2024, 1, 29, 23, 59, 59, 999));
+
+    const dec = localMonthBounds(2026, 11);
+    expect(dec.start).toEqual(new Date(2026, 11, 1));
+    expect(dec.end).toEqual(new Date(2026, 11, 31, 23, 59, 59, 999));
+  });
+
+  it("defaults to the current calendar month", () => {
+    const now = at(10, 1, 14, 30);
+    const range = defaultHistoryFilterRange(now);
+    expect(range).toEqual(localMonthBounds(2026, 9));
+    expect(isDefaultHistoryFilterRange(range, now)).toBe(true);
+    expect(isDefaultHistoryFilterRange(localMonthBounds(2026, 8), now)).toBe(
+      false,
+    );
+  });
+
+  it("detects a single-day range", () => {
+    expect(isSingleLocalDayRange(localDayBounds(at(6, 1, 0)))).toBe(true);
+    expect(isSingleLocalDayRange(localMonthBounds(2026, 5))).toBe(false);
+  });
+
+  it("compares ranges by instant", () => {
+    const a = localDayBounds(at(1, 1, 0));
+    const b = localDayBounds(at(1, 1, 12));
+    expect(historyRangesEqual(a, b)).toBe(true);
+    expect(historyRangesEqual(a, localDayBounds(at(1, 2, 0)))).toBe(false);
+  });
+
+  it("formats the period for filter summary copy", () => {
+    const day = localDayBounds(at(9, 30, 8, 0));
+    expect(formatHistoryFilterSummary(day, "fr", "day")).toMatch(/30/);
+    const month = localMonthBounds(2026, 8);
+    expect(formatHistoryFilterSummary(month, "fr", "month")).toMatch(/2026/);
+  });
+});
+
 describe("the timestamp a history row shows", () => {
   it("names the day and the clock time in the driver\u2019s locale", () => {
     // `formatPickupDateTime` beside it is French-only and says « Aujourd'hui »; reusing it would
@@ -224,19 +279,26 @@ describe("rideService.fetchCompletedRides", () => {
   function mockQuery(result: { data: unknown; error: unknown }) {
     const limit = jest.fn().mockResolvedValue(result);
     const order = jest.fn(() => ({ limit }));
-    const eq = jest.fn(() => ({ order }));
+    const lte = jest.fn(() => ({ order }));
+    const gte = jest.fn(() => ({ lte, order }));
+    const eq = jest.fn(() => ({ gte, lte, order }));
     const select = jest.fn(() => ({ eq }));
     mockFrom.mockReturnValue({ select });
-    return { select, eq, order, limit };
+    return { select, eq, gte, lte, order, limit };
   }
 
   it("asks for the driver\u2019s completed rides, newest first", async () => {
-    const { select, eq, order, limit } = mockQuery({ data: [], error: null });
+    const { select, eq, order, limit, gte, lte } = mockQuery({
+      data: [],
+      error: null,
+    });
 
     await rideService.fetchCompletedRides();
 
     expect(mockFrom).toHaveBeenCalledWith("rides");
     expect(eq).toHaveBeenCalledWith("status", "completed");
+    expect(gte).not.toHaveBeenCalled();
+    expect(lte).not.toHaveBeenCalled();
     expect(order).toHaveBeenCalledWith("updated_at", { ascending: false });
     expect(limit).toHaveBeenCalledWith(50);
     // Tenancy is the RLS policy, not a filter: a `driver_id` term here would be a second place
@@ -248,6 +310,17 @@ describe("rideService.fetchCompletedRides", () => {
     expect(select).toHaveBeenCalledWith(
       expect.not.stringContaining("pickup_lat"),
     );
+  });
+
+  it("bounds the read on updated_at when a range is passed", async () => {
+    const { gte, lte } = mockQuery({ data: [], error: null });
+    const start = new Date(2026, 8, 1, 0, 0, 0, 0);
+    const end = new Date(2026, 8, 30, 23, 59, 59, 999);
+
+    await rideService.fetchCompletedRides({ start, end });
+
+    expect(gte).toHaveBeenCalledWith("updated_at", start.toISOString());
+    expect(lte).toHaveBeenCalledWith("updated_at", end.toISOString());
   });
 
   it("maps rows to the app shape", async () => {
@@ -292,7 +365,8 @@ describe("the Courses tab", () => {
   it("reads from the server instead of mirroring the trip", () => {
     // The tab used to render the active ride's controls and an empty state pointing at the map,
     // both of which already exist on the Home screen.
-    expect(screen).toContain("rideService.fetchCompletedRides()");
+    expect(screen).toContain("rideService.fetchCompletedRides(");
+    expect(screen).toContain("RideHistoryFilters");
     expect(screen).not.toContain("ActiveTripSheet");
     expect(screen).not.toContain("useActiveTripActions");
     expect(screen).not.toContain("useDriverStore");
@@ -361,12 +435,23 @@ const RIDES_SCREEN_KEYS = [
   "subtitle",
   "emptyTitle",
   "emptyBody",
+  "emptyFilteredTitle",
+  "emptyFilteredBody",
   "errorTitle",
   "errorBody",
   "retry",
   "todaySummary",
   "rides",
   "earned",
+  "filterDay",
+  "filterMonth",
+  "filterPrev",
+  "filterNext",
+  "filterPrevYear",
+  "filterNextYear",
+  "clearFilters",
+  "filterSummary",
+  "limitReached",
 ];
 
 describe("the history tab copy, in the three languages", () => {
