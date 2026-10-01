@@ -107,6 +107,7 @@ import { pushRegisterFailureI18n } from "../../src/lib/notifications/pushStatusC
 import { usePushRegisterStatus } from "../../src/hooks/usePushRegisterStatus";
 import { ActiveTripSheet } from "../../src/components/ActiveTripSheet";
 import { TripManeuverHud } from "../../src/components/TripManeuverHud";
+import { TripRerouteNotice } from "../../src/components/TripRerouteNotice";
 import { TripArrivalHud } from "../../src/components/TripArrivalHud";
 import { TripGuidanceBar } from "../../src/components/TripGuidanceBar";
 import {
@@ -1204,6 +1205,7 @@ export default function DashboardScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
   const [mapFollowPaused, setMapFollowPaused] = useState(false);
+  const [routeRecalculating, setRouteRecalculating] = useState(false);
   const resumeMapFollowRef = useRef<(() => void) | null>(null);
   const mapControllerRef = useRef<MapControllerRef | null>(null);
   const mapHostViewRef = useRef<View>(null);
@@ -1894,6 +1896,7 @@ export default function DashboardScreen() {
               onLocationUpdate={onLocationUpdate}
               onRouteReady={handleRouteReady}
               onMapReady={handleMapReady}
+              onReroutingChange={setRouteRecalculating}
             />
 
             <MapRecenterButton
@@ -1925,7 +1928,8 @@ export default function DashboardScreen() {
               />
             ) : null}
 
-            {maneuverProgress ? (
+            {routeRecalculating ? <TripRerouteNotice /> : null}
+            {!routeRecalculating && maneuverProgress ? (
               <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
             ) : null}
             {shouldShowTripNavigationHud(tripStage, navProgress) && navProgress ? (
