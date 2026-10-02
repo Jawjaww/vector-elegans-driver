@@ -81,7 +81,7 @@ describe('guidance map template', () => {
 
   it('paints from a display clock, not from a GPS teleport', () => {
     expect(html).toContain('function navDisplayTick(ts)');
-    expect(html).toContain('function advanceNavProgress(state, dt, speedMps)');
+    expect(html).toContain('function stepNavMotion(state, dt, nowMs)');
     expect(html).toContain('window.__veLastRawGpsCoords');
     // The 900 ms easeTo on each fix is what the loop replaces; it must not return as the
     // guidance camera. Offer / idle follow still uses moveNavCamera.
@@ -89,5 +89,28 @@ describe('guidance map template', () => {
     const fallback = html.slice(html.indexOf('function guideTickFallback'));
     expect(tick).toContain('navDisplayPaint(');
     expect(fallback).toContain('jumpNavCamera({');
+  });
+
+  it('integrates its own speed instead of trusting the platform field', () => {
+    // The measured failure of #102: `coords.speed` null left the model at zero, so the arrow
+    // froze between fixes and jumped onto the next one.
+    expect(html).toContain(
+      'function estimateNavSpeed(state, gpsProgressM, nowMs, coordsSpeedMps)',
+    );
+    expect(html).toContain(
+      'function smoothNavBearing(prevBearing, targetBearing, dt, speedMps)',
+    );
+    expect(html).toContain('function shouldResyncNav(progressM, gpsProgressM)');
+    expect(html).toContain('function navCumulativeLengths(line)');
+    // A fix re-seats the arrow only across a gap wide enough to be a reroute.
+    const tick = html.slice(html.indexOf('function guideTickPlanned'));
+    const resyncAt = tick.indexOf('shouldResyncNav(nav.progressM, snapped.traveledMeters)');
+    expect(resyncAt).toBeGreaterThan(-1);
+  });
+
+  it('restarts the display clock when its frames stop arriving', () => {
+    expect(html).toContain('function navGeometry()');
+    expect(html).toContain('function ensureNavDisplayWatchdog()');
+    expect(html).toContain('window.__veNavDisplayGen');
   });
 });

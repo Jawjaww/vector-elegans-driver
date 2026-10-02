@@ -56,15 +56,22 @@ function navScope(): Record<string, any> {
       distanceToNavLine: distanceToNavLine,
       pointAlongNavLine: pointAlongNavLine,
       canSnapToNavLine: canSnapToNavLine,
-      correctNavProgress: correctNavProgress,
-      advanceNavProgress: advanceNavProgress,
       emptyNavMotion: emptyNavMotion,
+      estimateNavSpeed: estimateNavSpeed,
+      stepNavMotion: stepNavMotion,
+      smoothNavBearing: smoothNavBearing,
+      shouldResyncNav: shouldResyncNav,
+      navCumulativeLengths: navCumulativeLengths,
+      navPointAtDistance: navPointAtDistance,
+      navBearingAtDistance: navBearingAtDistance,
       headingDeltaDegrees: headingDeltaDegrees,
       NAV_SNAP_METERS: NAV_SNAP_METERS,
+      NAV_MAX_CATCHUP_METERS: NAV_MAX_CATCHUP_METERS,
       NAV_MAX_LEAD_METERS: NAV_MAX_LEAD_METERS,
-      NAV_CATCH_UP_MPS: NAV_CATCH_UP_MPS,
-      NAV_BACKWARD_IGNORE_M: NAV_BACKWARD_IGNORE_M,
-      NAV_BACKWARD_RESET_M: NAV_BACKWARD_RESET_M,
+      NAV_SPRING_PER_S: NAV_SPRING_PER_S,
+      NAV_RESYNC_METERS: NAV_RESYNC_METERS,
+      NAV_SPEED_MIN_MOVE_M: NAV_SPEED_MIN_MOVE_M,
+      NAV_GPS_STALE_MS: NAV_GPS_STALE_MS,
       NAV_MAX_DT_S: NAV_MAX_DT_S,
     };`,
   )();
@@ -132,8 +139,13 @@ describe("guidance fragment injection contract", () => {
       "distanceToNavLine",
       "pointAlongNavLine",
       "canSnapToNavLine",
-      "correctNavProgress",
-      "advanceNavProgress",
+      "estimateNavSpeed",
+      "stepNavMotion",
+      "smoothNavBearing",
+      "shouldResyncNav",
+      "navCumulativeLengths",
+      "navPointAtDistance",
+      "navBearingAtDistance",
     ]) {
       expect(typeof scope[name]).toBe("function");
     }
@@ -256,71 +268,126 @@ describe("snapToNavLine", () => {
 });
 
 describe("speculative display motion", () => {
-  it("seeds from the first GPS match and never jumps backward for a lagging fix", () => {
-    const { correctNavProgress, emptyNavMotion, NAV_BACKWARD_IGNORE_M } =
-      navScope();
-    const seeded = correctNavProgress(emptyNavMotion(), 100);
-    expect(seeded).toEqual({
+  const T0 = 1_700_000_000_000;
+
+  function moving(progressM: number, gpsProgressM: number) {
+    return {
+      progressM: progressM,
+      gpsProgressM: gpsProgressM,
+      vEst: 20,
+      lastGpsProgressM: gpsProgressM,
+      lastGpsAtMs: T0,
+    };
+  }
+
+  it("advances between fixes even when the platform reports no speed", () => {
+    // The measured failure: `coords.speed` null left the model at zero and the arrow frozen
+    // between two fixes, then teleported onto the next one.
+    const { estimateNavSpeed, stepNavMotion, emptyNavMotion } = navScope();
+    const seeded = {
+      ...emptyNavMotion(),
       progressM: 100,
       gpsProgressM: 100,
-      catchUpM: null,
-    });
-    const lagged = correctNavProgress(seeded, 100 - NAV_BACKWARD_IGNORE_M);
-    expect(lagged.progressM).toBe(100);
-    expect(lagged.gpsProgressM).toBe(100 - NAV_BACKWARD_IGNORE_M);
+      lastGpsProgressM: 100,
+      lastGpsAtMs: T0,
+    };
+    const estimate = estimateNavSpeed(seeded, 104, T0 + 1000, undefined);
+    expect(estimate.speedSource).toBe("derived");
+    expect(estimate.vEst).toBeGreaterThan(0);
+    const step = stepNavMotion(
+      { ...seeded, vEst: estimate.vEst },
+      0.05,
+      T0 + 1000,
+    );
+    expect(step.progressM).toBeGreaterThan(100);
   });
 
-  it("catches up forward instead of teleporting, and reseeds on a teleport", () => {
-    const { correctNavProgress, emptyNavMotion, NAV_BACKWARD_RESET_M } =
-      navScope();
-    const seeded = correctNavProgress(emptyNavMotion(), 50);
-    const ahead = correctNavProgress(seeded, 70);
-    expect(ahead.progressM).toBe(50);
-    expect(ahead.catchUpM).toBe(70);
-    const teleport = correctNavProgress(seeded, 50 + NAV_BACKWARD_RESET_M + 1);
-    expect(teleport.progressM).toBe(50 + NAV_BACKWARD_RESET_M + 1);
-    expect(teleport.catchUpM).toBeNull();
+  it("prefers the speed derived from two matches over the platform one", () => {
+    const { estimateNavSpeed, emptyNavMotion } = navScope();
+    const seeded = { ...emptyNavMotion(), lastGpsProgressM: 0, lastGpsAtMs: T0 };
+    const estimate = estimateNavSpeed(seeded, 20, T0 + 1000, 3);
+    expect(estimate.speedSource).toBe("derived");
+    // EMA toward 20 m/s, not toward the 3 m/s the platform reported.
+    expect(estimate.vEst).toBeGreaterThan(6);
   });
 
-  it("advances along the line at speed, capped by lead and by dt", () => {
-    const { advanceNavProgress, NAV_MAX_LEAD_METERS, NAV_MAX_DT_S } = navScope();
-    const moving = advanceNavProgress(
-      { progressM: 10, gpsProgressM: 10, catchUpM: null },
-      0.05,
-      20,
-    );
-    expect(moving.progressM).toBeCloseTo(11, 5);
-    const runaway = advanceNavProgress(
-      { progressM: 10 + NAV_MAX_LEAD_METERS, gpsProgressM: 10, catchUpM: null },
-      0.05,
-      20,
-    );
-    expect(runaway.progressM).toBe(10 + NAV_MAX_LEAD_METERS);
-    const hugeDt = advanceNavProgress(
-      { progressM: 0, gpsProgressM: 0, catchUpM: null },
-      5,
-      20,
-    );
-    expect(hugeDt.progressM).toBeCloseTo(20 * NAV_MAX_DT_S, 5);
+  it("reads a match that did not move as a stop", () => {
+    const { estimateNavSpeed, emptyNavMotion } = navScope();
+    const seeded = {
+      ...emptyNavMotion(),
+      lastGpsProgressM: 50,
+      lastGpsAtMs: T0,
+    };
+    const stopped = estimateNavSpeed(seeded, 50.2, T0 + 1000, undefined);
+    expect(stopped.speedSource).toBe("derived");
+    expect(stopped.vEst).toBeLessThan(1);
   });
 
-  it("lets a GPS that is ahead close the gap at the catch-up rate, then stops", () => {
-    const { advanceNavProgress, NAV_CATCH_UP_MPS } = navScope();
-    const step = advanceNavProgress(
-      { progressM: 10, gpsProgressM: 20, catchUpM: 20 },
-      0.05,
-      0,
-    );
-    expect(step.progressM).toBeCloseTo(10 + NAV_CATCH_UP_MPS * 0.05, 5);
-    const done = advanceNavProgress(
-      { progressM: 19.9, gpsProgressM: 20, catchUpM: 20 },
-      0.05,
-      0,
-    );
-    expect(done.progressM).toBe(20);
-    expect(done.catchUpM).toBeNull();
+  it("closes a correction over several frames instead of teleporting onto the fix", () => {
+    const { stepNavMotion } = navScope();
+    // A 30 m gap: one frame moves a fraction of it, never all of it.
+    const state = moving(100, 130);
+    const first = stepNavMotion(state, 0.05, T0);
+    expect(first.progressM).toBeGreaterThan(100);
+    expect(first.progressM - 100).toBeLessThan(5);
+    // It converges over the frames that follow, and never overshoots the clamp by much.
+    let cursor = state;
+    for (let i = 0; i < 40; i++) cursor = stepNavMotion(cursor, 0.05, T0);
+    expect(cursor.progressM).toBeGreaterThan(128);
   });
 
+  it("never drives the arrow backwards on a lagging fix", () => {
+    const { stepNavMotion } = navScope();
+    // Display 15 m ahead of the fix: the arrow slows, it does not rewind.
+    const step = stepNavMotion(moving(115, 100), 0.05, T0);
+    expect(step.progressM).toBeGreaterThanOrEqual(115);
+  });
+
+  it("freezes once the fixes stop arriving instead of extrapolating forever", () => {
+    const { stepNavMotion, NAV_GPS_STALE_MS } = navScope();
+    const state = moving(100, 100);
+    expect(stepNavMotion(state, 0.05, T0).progressM).toBeGreaterThan(100);
+    // A frozen GPS must freeze the arrow: extrapolating is how the displayed car ended up
+    // kilometres past the real one, and any correction then a teleport.
+    expect(
+      stepNavMotion(state, 0.05, T0 + NAV_GPS_STALE_MS + 1).progressM,
+    ).toBe(100);
+  });
+
+  it("clamps one frame's dt so a recovered clock cannot jump the arrow", () => {
+    const { stepNavMotion, NAV_MAX_DT_S } = navScope();
+    const huge = stepNavMotion(moving(0, 0), 5, T0);
+    expect(huge.progressM).toBeCloseTo(20 * NAV_MAX_DT_S, 5);
+  });
+
+  it("resyncs only on a gap wide enough to be a reroute, not on a correction", () => {
+    const { shouldResyncNav, NAV_RESYNC_METERS } = navScope();
+    expect(shouldResyncNav(100, 100 + NAV_RESYNC_METERS - 1)).toBe(false);
+    expect(shouldResyncNav(100, 100 + NAV_RESYNC_METERS + 1)).toBe(true);
+    expect(shouldResyncNav(null, 100)).toBe(false);
+  });
+
+  it("slews the bearing toward the route, and holds it below a walking pace", () => {
+    const { smoothNavBearing } = navScope();
+    const oneFrame = smoothNavBearing(0, 90, 0.05, 20);
+    expect(oneFrame).toBeGreaterThan(0);
+    expect(oneFrame).toBeLessThan(90);
+    let settled: number | null = 0;
+    for (let i = 0; i < 20; i++) settled = smoothNavBearing(settled, 90, 0.05, 20);
+    expect(settled).toBe(90);
+    // Parked heading is noise: the last bearing is held.
+    expect(smoothNavBearing(37, 300, 0.05, 0)).toBe(37);
+  });
+
+  it("takes the short way around the wrap", () => {
+    const { smoothNavBearing } = navScope();
+    const step = smoothNavBearing(350, 10, 0.05, 20);
+    expect(step).toBeGreaterThanOrEqual(350);
+    expect(step).toBeLessThanOrEqual(360);
+  });
+});
+
+describe("snap admission", () => {
   it("snaps only while close, and only trusts heading once the car is moving", () => {
     const { canSnapToNavLine, NAV_SNAP_METERS } = navScope();
     expect(canSnapToNavLine(NAV_SNAP_METERS, null, 90, 0)).toBe(true);
@@ -329,6 +396,39 @@ describe("speculative display motion", () => {
     expect(canSnapToNavLine(5, 180, 90, 0.5)).toBe(true);
     expect(canSnapToNavLine(5, 180, 90, 10)).toBe(false);
     expect(canSnapToNavLine(5, 95, 90, 10)).toBe(true);
+  });
+});
+
+describe("cached line geometry", () => {
+  it("resolves a point and a bearing without walking the whole line", () => {
+    const { navCumulativeLengths, navPointAtDistance, navBearingAtDistance } =
+      navScope();
+    const cum = navCumulativeLengths(ROAD_LINE);
+    expect(cum.length).toBe(ROAD_LINE.length);
+    expect(cum[0]).toBe(0);
+    const mid = navPointAtDistance(ROAD_LINE, cum, cum[1] / 2);
+    expect(mid[0]).toBeCloseTo(2.301, 4);
+    expect(mid[1]).toBeCloseTo(48.84, 4);
+    const bearing = navBearingAtDistance(ROAD_LINE, cum, 10, 15);
+    expect(bearing).toBeGreaterThan(70);
+    expect(bearing).toBeLessThan(110);
+  });
+
+  it("falls back to the final segment's bearing near the end of the line", () => {
+    const { navCumulativeLengths, navBearingAtDistance } = navScope();
+    const cum = navCumulativeLengths(ROAD_LINE);
+    const bearing = navBearingAtDistance(ROAD_LINE, cum, cum[cum.length - 1], 15);
+    expect(bearing).toBeCloseTo(90, 0);
+  });
+
+  it("returns null rather than a bearing for a degenerate line", () => {
+    const { navCumulativeLengths, navBearingAtDistance } = navScope();
+    const degenerate = [
+      [2.3, 48.84],
+      [2.3, 48.84],
+    ];
+    expect(navBearingAtDistance(degenerate, navCumulativeLengths(degenerate), 0, 15)).toBeNull();
+    expect(navBearingAtDistance(ROAD_LINE, [], 0, 15)).toBeNull();
   });
 });
 

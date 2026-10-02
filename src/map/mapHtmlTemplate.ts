@@ -835,7 +835,27 @@ export function buildMapHtmlTemplate(
       snapOk: false,
       progressM: null,
       gpsProgressM: null,
-      catchUpM: null,
+      /** Speed estimate, m/s, EMA over matched fixes. The display clock integrates it. */
+      vEst: 0,
+      /** Where the estimate came from on the last fix: derived | coords | none. */
+      speedSource: "none",
+      lastGpsProgressM: null,
+      lastGpsAtMs: null,
+      /**
+       * Cumulative distance at each vertex, paired with the line it was built from.
+       *
+       * Held by identity: the display loop paints every frame and must not walk the polyline
+       * twice per frame, so the table is rebuilt only when the line array itself changes.
+       */
+      cum: null,
+      cumLine: null,
+      /** Frames painted since the loop started, and its measured rate, for the diagnostic. */
+      displayFrames: 0,
+      displayStartedAt: 0,
+      displayFps: 0,
+      displayFpsAt: 0,
+      lastTickStalled: false,
+      lastFrameAt: 0,
       lastPaintAt: 0,
     };
     window.__veLastGpsCoords = null;
@@ -950,9 +970,19 @@ export function buildMapHtmlTemplate(
         if (!snap || typeof snap.traveledMeters !== "number") {
           return "snapToNavLine answered " + JSON.stringify(snap);
         }
-        const motion = correctNavProgress(emptyNavMotion(), 40);
-        if (!motion || motion.progressM !== 40) {
-          return "correctNavProgress answered " + JSON.stringify(motion);
+        const motion = stepNavMotion(
+          {
+            progressM: 40,
+            gpsProgressM: 40,
+            vEst: 10,
+            lastGpsProgressM: 40,
+            lastGpsAtMs: Date.now(),
+          },
+          0.05,
+          Date.now()
+        );
+        if (!motion || !(motion.progressM > 40)) {
+          return "stepNavMotion answered " + JSON.stringify(motion);
         }
         return null;
       } catch (error) {
@@ -1453,14 +1483,63 @@ export function buildMapHtmlTemplate(
 
     /* VE_NAV_DISPLAY_START */
     var NAV_DISPLAY_MIN_MS = 50;
+    /** A look-ahead this short follows the road's curve without lagging the corner. */
+    var NAV_PAINT_LOOKAHEAD_M = 15;
+    /** A frame gap past this means the display clock stopped, not that the driver did. */
+    var NAV_DISPLAY_STALL_MS = 600;
 
     function resetNavMotion() {
       const nav = window.__veNav;
       nav.progressM = null;
       nav.gpsProgressM = null;
-      nav.catchUpM = null;
+      nav.vEst = 0;
+      nav.speedSource = "none";
+      nav.lastGpsProgressM = null;
+      nav.lastGpsAtMs = null;
       nav.snapOk = false;
       nav.lastPaintAt = 0;
+    }
+
+    /**
+     * Cumulative table for the current line, rebuilt only when the line array itself changes.
+     *
+     * The display loop paints every frame and used to walk the whole polyline twice per frame
+     * (once for the point, once for the look-ahead bearing). The table is what lets both be a
+     * binary search, and it is keyed by identity because the route geometry is never mutated in
+     * place — a new line is a new array.
+     */
+    function navGeometry() {
+      const nav = window.__veNav;
+      const line = nav.line;
+      if (!line || line.length < 2) {
+        nav.cum = null;
+        nav.cumLine = null;
+        return null;
+      }
+      if (nav.cumLine === line && nav.cum && nav.cum.length === line.length) {
+        return nav.cum;
+      }
+      nav.cum = navCumulativeLengths(line);
+      nav.cumLine = line;
+      return nav.cum;
+    }
+
+    /**
+     * Restart the display clock if its frames stop arriving.
+     *
+     * A requestAnimationFrame callback that never fires — a backgrounded page, a swallowed
+     * throw — left the arrow frozen while the map still looked alive, and nothing reported it.
+     * Restarting is safe because the motion state lives on the nav object, not in the closure.
+     */
+    function ensureNavDisplayWatchdog() {
+      if (window.__veNavDisplayWatchdog) return;
+      window.__veNavDisplayWatchdog = setInterval(function () {
+        const nav = window.__veNav;
+        if (!nav || !nav.navigating) return;
+        if (Date.now() - (nav.lastFrameAt || 0) < NAV_DISPLAY_STALL_MS) return;
+        stopNavDisplayLoop();
+        ensureNavDisplayLoop();
+      }, 1000);
     }
 
     function postRerouteSettled() {
@@ -1473,6 +1552,9 @@ export function buildMapHtmlTemplate(
     }
 
     function stopNavDisplayLoop() {
+      // Bumping the generation retires any callback already queued: a throttled rAF that fires
+      // after a restart would otherwise re-arm a second loop alongside the new one.
+      window.__veNavDisplayGen = (window.__veNavDisplayGen || 0) + 1;
       if (window.__veNavDisplayRaf) {
         try {
           cancelAnimationFrame(window.__veNavDisplayRaf);
@@ -1483,12 +1565,16 @@ export function buildMapHtmlTemplate(
 
     function ensureNavDisplayLoop() {
       if (window.__veNavDisplayRaf) return;
+      var gen = (window.__veNavDisplayGen || 0) + 1;
+      window.__veNavDisplayGen = gen;
       function frame(ts) {
+        if (window.__veNavDisplayGen !== gen) return;
         if (!window.__veNav || !window.__veNav.navigating) {
           window.__veNavDisplayRaf = 0;
           return;
         }
         window.__veNavDisplayRaf = requestAnimationFrame(frame);
+        window.__veNav.lastFrameAt = Date.now();
         try {
           navDisplayTick(ts);
         } catch (error) {
@@ -1499,20 +1585,33 @@ export function buildMapHtmlTemplate(
         }
       }
       window.__veNavDisplayRaf = requestAnimationFrame(frame);
+      ensureNavDisplayWatchdog();
     }
 
     /**
      * Paint the puck and camera from the motion model, not from a GPS teleport.
      *
-     * GPS ticks correct progressM; this clock (~20 Hz) is what makes the arrow move between
-     * the watch's 8 m samples. A 900 ms easeTo on each fix is the thing this replaces: those
-     * overlapped and the bearing belonged to whichever glide had started last.
+     * GPS only corrects: this clock (~20 Hz) integrates the position between the watch's 8 m
+     * samples, so the arrow advances continuously instead of stepping from fix to fix. A 900 ms
+     * easeTo on each fix is the thing this replaced — those overlapped, and the bearing belonged
+     * to whichever glide had started last.
      */
     function navDisplayPaint(center, bearing, courseUp, followCamera) {
       const nav = window.__veNav;
+      var now = Date.now();
       nav.courseUp = courseUp;
       nav.bearing = bearing;
       nav.coords = center;
+      nav.displayFrames = (nav.displayFrames || 0) + 1;
+      if (!nav.displayStartedAt) nav.displayStartedAt = now;
+      var elapsed = now - nav.displayStartedAt;
+      if (elapsed >= 1000) {
+        nav.displayFps = Math.round(
+          ((nav.displayFrames - (nav.displayFpsAt || 0)) * 1000) / elapsed
+        );
+        nav.displayFpsAt = nav.displayFrames;
+        nav.displayStartedAt = now;
+      }
       const zoom = nav.zoom || 19;
       const pitch = typeof nav.pitch === "number" ? nav.pitch : 50;
       if (followCamera) {
@@ -1541,24 +1640,33 @@ export function buildMapHtmlTemplate(
         latchOffRoute(raw, distanceToNavLine(raw, line));
       }
 
-      var speculating = !!(nav.snapOk && !nav.awaitingReroute);
-      if (speculating) {
-        var next = advanceNavProgress(nav, dt, nav.speed);
+      // The arrow moves whenever there is a line and a seeded position. Whether the last fix
+      // matched (snapOk) decides whether it may *correct* the arrow, never whether it may
+      // move: gating the paint on the match is what made it alternate between the line and the
+      // raw fix, and stop dead the moment a heading disagreed.
+      var cum = navGeometry();
+      var hasTrack = !!(line && cum && typeof nav.progressM === "number");
+      if (hasTrack && !nav.awaitingReroute) {
+        var beforeStep = nav.progressM;
+        var next = stepNavMotion(nav, dt, Date.now());
         nav.progressM = next.progressM;
-        nav.gpsProgressM = next.gpsProgressM;
-        nav.catchUpM = next.catchUpM;
+        nav.lastTickStalled = next.progressM - beforeStep < 0.001;
       }
 
       var center = raw;
       var bearing = nav.bearing;
       var courseUp = false;
-      if (speculating && line && typeof nav.progressM === "number") {
-        var along = pointAlongNavLine(line, nav.progressM);
-        var snapped =
-          along && line.length > 1 ? snapToNavLine(along, line, 60) : null;
-        if (along && snapped) {
+      if (hasTrack) {
+        var along = navPointAtDistance(line, cum, nav.progressM);
+        var target = navBearingAtDistance(
+          line,
+          cum,
+          nav.progressM,
+          NAV_PAINT_LOOKAHEAD_M
+        );
+        if (along && typeof target === "number") {
           center = along;
-          bearing = snapped.bearing;
+          bearing = smoothNavBearing(nav.bearing, target, dt, nav.vEst);
           courseUp = true;
         }
       } else if (raw) {
@@ -1575,15 +1683,14 @@ export function buildMapHtmlTemplate(
       if (!center) return;
 
       var prev = nav.coords;
-      var speed = typeof nav.speed === "number" ? nav.speed : 0;
-      var moved = !prev || haversineMeters(prev, center) >= 0.05 || speed > 0.3;
+      var moved = !prev || haversineMeters(prev, center) >= 0.02;
       var turned =
         typeof nav.bearing !== "number" ||
-        headingDeltaDegrees(nav.bearing, bearing) > 0.4;
+        headingDeltaDegrees(nav.bearing, bearing) > 0.2;
       if (moved || turned || !prev) {
         navDisplayPaint(center, bearing, courseUp, nav.followCamera !== false);
       }
-      if (speculating) {
+      if (hasTrack) {
         syncNavRouteStart(center);
       }
     }
@@ -1639,31 +1746,56 @@ export function buildMapHtmlTemplate(
         : Infinity;
       const speed =
         opts && typeof opts.speed === "number" ? opts.speed : nav.speed;
+      // The snap guard reads the estimate, never the platform speed: on the devices measured
+      // that field comes back null often enough that a guard keyed on it stops guarding.
       nav.snapOk = !!(
         snapped &&
         !offRoute &&
-        canSnapToNavLine(dist, nav.heading, snapped.bearing, speed)
+        canSnapToNavLine(dist, nav.heading, snapped.bearing, nav.vEst)
       );
       if (nav.snapOk) {
-        var corrected = correctNavProgress(nav, snapped.traveledMeters);
-        nav.progressM = corrected.progressM;
-        nav.gpsProgressM = corrected.gpsProgressM;
-        nav.catchUpM = corrected.catchUpM;
+        var fixAt = Date.now();
+        var estimate = estimateNavSpeed(
+          nav,
+          snapped.traveledMeters,
+          fixAt,
+          speed
+        );
+        nav.vEst = estimate.vEst;
+        nav.speedSource = estimate.speedSource;
+        nav.lastGpsProgressM = estimate.lastGpsProgressM;
+        nav.lastGpsAtMs = estimate.lastGpsAtMs;
+        if (typeof nav.progressM !== "number" || !Number.isFinite(nav.progressM)) {
+          // The first match seeds the arrow; after that only the display clock moves it.
+          nav.progressM = snapped.traveledMeters;
+        } else if (shouldResyncNav(nav.progressM, snapped.traveledMeters)) {
+          // Not a correction: a gap this wide can only be a reroute or a GPS teleport, both
+          // moments where re-seating the arrow is expected rather than a jump to hide.
+          nav.progressM = snapped.traveledMeters;
+        }
+        nav.gpsProgressM = snapped.traveledMeters;
       }
 
       const onLine = nav.snapOk;
+      var cum = navGeometry();
       var paintPoint = coords;
       var paintBearing = nav.bearing;
       var paintCourseUp = false;
-      if (onLine && typeof nav.progressM === "number") {
-        var along = pointAlongNavLine(line, nav.progressM);
-        var alongSnap =
-          along && line && line.length > 1
-            ? snapToNavLine(along, line, 60)
-            : snapped;
-        if (along && alongSnap) {
+      // Painted from the track whenever one exists, matched or not: the display loop does the
+      // same, and letting this one fix fall back to the raw position would paint a one-frame
+      // teleport off the line and back, once per second.
+      if (line && cum && typeof nav.progressM === "number") {
+        var along = navPointAtDistance(line, cum, nav.progressM);
+        var target = navBearingAtDistance(
+          line,
+          cum,
+          nav.progressM,
+          NAV_PAINT_LOOKAHEAD_M
+        );
+        if (along && typeof target === "number") {
           paintPoint = along;
-          paintBearing = alongSnap.bearing;
+          // Slew, never adopt: the fix must not be the frame that snaps the bearing.
+          paintBearing = smoothNavBearing(nav.bearing, target, 0.05, nav.vEst);
           paintCourseUp = true;
         }
       } else {
@@ -1712,6 +1844,24 @@ export function buildMapHtmlTemplate(
           : null,
         progress_m:
           typeof nav.progressM === "number" ? Math.round(nav.progressM) : null,
+        gps_m:
+          typeof nav.gpsProgressM === "number"
+            ? Math.round(nav.gpsProgressM)
+            : null,
+        // What the spring is actually working against, and how fast it thinks the car goes.
+        offset_m:
+          typeof nav.gpsProgressM === "number" &&
+          typeof nav.progressM === "number"
+            ? Math.round(nav.gpsProgressM - nav.progressM)
+            : null,
+        speed_source: nav.speedSource || "none",
+        v_est_mps:
+          typeof nav.vEst === "number" ? Math.round(nav.vEst * 10) / 10 : null,
+        // The display clock's own evidence, so "the arrow jumps" can be split into "the loop
+        // stopped", "the loop runs slow", or "the loop runs and the correction is the jerk".
+        fps: nav.displayFps || 0,
+        frames: nav.displayFrames || 0,
+        stalled: !!nav.lastTickStalled,
         trimmed: trimmed,
       });
     }
@@ -1934,7 +2084,12 @@ export function buildMapHtmlTemplate(
       nav.trimAnchor = null;
       nav.progressM = null;
       nav.gpsProgressM = null;
-      nav.catchUpM = null;
+      nav.vEst = 0;
+      nav.speedSource = "none";
+      nav.lastGpsProgressM = null;
+      nav.lastGpsAtMs = null;
+      nav.cum = null;
+      nav.cumLine = null;
       nav.snapOk = false;
       nav.lastPaintAt = 0;
       window.__veApproachLine = null;

@@ -573,6 +573,7 @@ export function WebViewMap({
       followCamera: boolean,
       heading?: number,
       speed?: number,
+      withSpeed = true,
     ) => {
       if (typeof heading === 'number') {
         lastHeadingRef.current = heading;
@@ -588,8 +589,10 @@ export function WebViewMap({
         zoom: cam ? cam.zoom : 16,
         heading: heading ?? lastHeadingRef.current,
         pitch: cam ? cam.pitch : 0,
-        speed:
-          typeof lastSpeedRef.current === 'number' ? lastSpeedRef.current : null,
+        // Only a speed measured on this very fix reaches the document. A stale value from an
+        // earlier fix is exactly what the estimate is there to replace, and the zoom keeps
+        // reading `lastSpeedRef` locally.
+        speed: withSpeed && typeof speed === 'number' ? speed : null,
         navigation: nav,
         duration: nav ? 900 : 800,
         followCamera,
@@ -751,7 +754,8 @@ export function WebViewMap({
    * idle timer still resumes it; the heartbeat never fights a deliberate gesture. A fix older
    * than `NAV_CAMERA_STALE_FIX_MS` means the 8 m threshold has not been crossed, so the last
    * speed is dropped to zero — otherwise a driver who just stopped would keep the zoom of the
-   * speed they were doing.
+   * speed they were doing. That zero touches the zoom only: the heartbeat deliberately sends no
+   * speed to the map document, which integrates its own estimate between fixes.
    */
   useEffect(() => {
     if (!navigationFollow) return;
@@ -771,6 +775,8 @@ export function WebViewMap({
         latestFixRef.current ?? locationRef.current,
         true,
         lastHeadingRef.current,
+        undefined,
+        false,
       );
     }, NAV_CAMERA_KEEPALIVE_MS);
     return () => clearInterval(id);

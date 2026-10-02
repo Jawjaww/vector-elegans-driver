@@ -170,6 +170,16 @@ describe("reroute wiring", () => {
     expect(request).toContain("signal.addEventListener('abort'");
   });
 
+  it("keeps the heartbeat camera-only: no speed reaches the motion model", () => {
+    const map = source(MAP);
+    // The map document integrates its own estimate; a stale speed pushed from the heartbeat is
+    // one more way for a frozen value to reach it. The zoom still reads `lastSpeedRef`.
+    expect(map).toMatch(
+      /postGpsCamera\(\s*latestFixRef\.current \?\? locationRef\.current,\s*true,\s*lastHeadingRef\.current,\s*undefined,\s*false,?\s*\)/,
+    );
+    expect(map).toContain("withSpeed = true");
+  });
+
   it("replaces the maneuver card with a reroute notice while the new line is in flight", () => {
     const dashboard = source("app/(tabs)/index.tsx");
     expect(dashboard).toContain("onReroutingChange={setRouteRecalculating}");
