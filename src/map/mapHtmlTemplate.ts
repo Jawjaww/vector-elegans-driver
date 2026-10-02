@@ -1525,6 +1525,41 @@ export function buildMapHtmlTemplate(
     }
 
     /**
+     * The road's direction under the driver, or null when the fix is too far to be that road.
+     *
+     * The tolerance is the off-route guard's own OFF_ROUTE_METERS: while the fix is within it
+     * the driver is considered to be on this road, so the arrow points along it. Past that the
+     * car is on another street and its own heading is the truth, not the route left behind.
+     */
+    function routeBearingNearFix(coords) {
+      const nav = window.__veNav;
+      const line = nav.line;
+      var cum = navGeometry();
+      if (!line || !cum || !coords) return null;
+      var near = navBearingNearFix(coords, line, cum, NAV_PAINT_LOOKAHEAD_M);
+      if (!near || near.distanceMeters > OFF_ROUTE_METERS) return null;
+      return near.bearing;
+    }
+
+    /**
+     * Point the arrow along the route the moment the route is known.
+     *
+     * Guidance starts with the driver parked at the pickup, often before a single fix has been
+     * judged admissible. Without this seed there was no bearing at all in that window, so the
+     * camera asked the last resort in planNavCamera — the map's own bearing — and the arrow
+     * pointed north on a road going east. The first segment *is* the road ahead, so it is the
+     * direction the arrow must show; from there the motion model slews it and never snaps.
+     */
+    function seedNavBearingFromLine() {
+      const nav = window.__veNav;
+      const line = nav.line;
+      var cum = navGeometry();
+      if (!line || !cum) return;
+      var bearing = navBearingAtDistance(line, cum, 0, NAV_PAINT_LOOKAHEAD_M);
+      if (typeof bearing === "number") nav.bearing = bearing;
+    }
+
+    /**
      * Restart the display clock if its frames stop arriving.
      *
      * A requestAnimationFrame callback that never fires — a backgrounded page, a swallowed
@@ -1671,13 +1706,16 @@ export function buildMapHtmlTemplate(
         }
       } else if (raw) {
         var plan = planNavCamera({
-          traceBearing: null,
+          // No track to paint from, but a road may still be known: the arrow follows it rather
+          // than the device heading or the map's own north. Null past the off-route tolerance,
+          // where the car is on a street this route does not know.
+          traceBearing: routeBearingNearFix(raw),
           deviceHeading: nav.heading,
           mapBearing: map.getBearing(),
           lastBearing: nav.bearing,
         });
         center = raw;
-        bearing = plan.bearing;
+        bearing = smoothNavBearing(nav.bearing, plan.bearing, dt, nav.vEst);
         courseUp = plan.courseUp;
       }
       if (!center) return;
@@ -1800,7 +1838,9 @@ export function buildMapHtmlTemplate(
         }
       } else {
         const plan = planNavCamera({
-          traceBearing: null,
+          // Same rule as the display loop: the road under the driver orients the arrow, and the
+          // device heading only takes over once the fix is too far from this route to be it.
+          traceBearing: routeBearingNearFix(coords),
           deviceHeading:
             opts && typeof opts.heading === "number"
               ? opts.heading
@@ -1809,7 +1849,7 @@ export function buildMapHtmlTemplate(
           lastBearing: nav.bearing,
         });
         paintPoint = coords;
-        paintBearing = plan.bearing;
+        paintBearing = smoothNavBearing(nav.bearing, plan.bearing, 0.05, nav.vEst);
         paintCourseUp = plan.courseUp;
       }
 
@@ -1963,6 +2003,9 @@ export function buildMapHtmlTemplate(
         nav.hasRoad = false;
         nav.pending = true;
         nav.steps = null;
+        // The offer closure left the puck pointing along the approach; the adopted drawing is a
+        // chord to the pickup, so that is the direction to show while the road line is fetched.
+        seedNavBearingFromLine();
         setOrAddLine(
           "route",
           "route-casing",
@@ -2496,6 +2539,10 @@ export function buildMapHtmlTemplate(
       window.__veOfferPickup = start;
       window.__veOfferDropoff = end;
       window.__veUseCanvasGpsPuck = Boolean(isOffer);
+      // The new chord replaces the line *before* the puck is drawn: the puck's bearing is read
+      // from the line, so drawing it first gave one frame of the previous route's direction —
+      // the arrow pointing at the last road it knew instead of this one.
+      nav.line = [start, end];
       syncGpsPuck(window.__veLastGpsCoords || driverMarker || null);
 
       nav.generation = routeGeneration == null ? 0 : routeGeneration;
@@ -2518,9 +2565,12 @@ export function buildMapHtmlTemplate(
 
       // Chord is enough to aim the camera and the arrow. Off-route stays
       // disarmed until the line has more than two points (navLineIsRoad).
-      nav.line = [start, end];
+      // (nav.line was already set to this chord, above, so the puck draw saw it.)
       clearOffRouteLatch();
       resetNavMotion();
+      // Guidance only: an offer's chord runs pickup → drop-off, which is not the driver's own
+      // heading and must never be the arrow's direction.
+      if (!isOffer) seedNavBearingFromLine();
       if (!isOffer) {
         // Drop the offer polyline (often off-screen once the camera locks on
         // the driver) and draw driver → destination immediately.
@@ -2671,6 +2721,9 @@ export function buildMapHtmlTemplate(
         if (!nav.navigating) return;
         clearOffRouteLatch();
         resetNavMotion();
+        // The line just changed: re-point the arrow along the new first segment before the tick
+        // reads it, so a reroute never shows the previous road's direction.
+        seedNavBearingFromLine();
         const coords = window.__veLastRawGpsCoords || window.__veLastGpsCoords;
         if (!coords) return;
         guideTick(coords, {

@@ -386,6 +386,40 @@ function navBearingAtDistance(line, cum, meters, lookAheadM) {
   return bearingDegrees(tailFrom, tailTo);
 }
 
+/**
+ * Direction of the road the driver is on, for a fix that is not necessarily an admissible match.
+ *
+ * snapToNavLine answers "does this fix belong to the line" with a 60 m look-ahead — the right
+ * horizon for that question, the wrong one for the arrow: 60 m through a bend points at the next
+ * street. This walks the same segments but reports the short-horizon bearing and the distance to
+ * the line, so the caller decides whether to trust it. Deliberately not an admission gate: this
+ * is what orients the arrow at the very start of guidance, when the driver is parked on the
+ * road, no fix has matched yet, and the only alternative left to the camera is north.
+ */
+function navBearingNearFix(coords, line, cum, lookAheadM) {
+  if (!line || line.length < 2 || !cum || cum.length !== line.length) return null;
+  if (!coords) return null;
+  var bestTraveled = null;
+  var bestDistance = Infinity;
+  for (var i = 0; i < line.length - 1; i++) {
+    var seg = cum[i + 1] - cum[i];
+    var proj = navSegmentProjection(coords, line[i], line[i + 1]);
+    var d = haversineMeters(coords, proj.point);
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestTraveled = cum[i] + proj.t * seg;
+    }
+  }
+  if (bestTraveled === null) return null;
+  var bearing = navBearingAtDistance(line, cum, bestTraveled, lookAheadM);
+  if (typeof bearing !== "number") return null;
+  return {
+    bearing: bearing,
+    traveledMeters: bestTraveled,
+    distanceMeters: bestDistance,
+  };
+}
+
 function normaliseBearing(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return ((value % 360) + 360) % 360;
