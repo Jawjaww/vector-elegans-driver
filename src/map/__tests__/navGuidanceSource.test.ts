@@ -64,6 +64,7 @@ function navScope(): Record<string, any> {
       navCumulativeLengths: navCumulativeLengths,
       navPointAtDistance: navPointAtDistance,
       navBearingAtDistance: navBearingAtDistance,
+      navBearingNearFix: navBearingNearFix,
       headingDeltaDegrees: headingDeltaDegrees,
       NAV_SNAP_METERS: NAV_SNAP_METERS,
       NAV_MAX_CATCHUP_METERS: NAV_MAX_CATCHUP_METERS,
@@ -146,6 +147,7 @@ describe("guidance fragment injection contract", () => {
       "navCumulativeLengths",
       "navPointAtDistance",
       "navBearingAtDistance",
+      "navBearingNearFix",
     ]) {
       expect(typeof scope[name]).toBe("function");
     }
@@ -396,6 +398,49 @@ describe("snap admission", () => {
     expect(canSnapToNavLine(5, 180, 90, 0.5)).toBe(true);
     expect(canSnapToNavLine(5, 180, 90, 10)).toBe(false);
     expect(canSnapToNavLine(5, 95, 90, 10)).toBe(true);
+  });
+});
+
+describe("arrow orientation at the start of guidance", () => {
+  // A line whose second segment turns hard: 36 m east, then north.
+  const BEND: [number, number][] = [
+    [2.3, 48.84],
+    [2.3005, 48.84],
+    [2.3005, 48.8405],
+  ];
+
+  it("reads the road under the driver, not where the road goes in 60 m", () => {
+    const { navCumulativeLengths, navBearingNearFix, bearingDegrees } = navScope();
+    const cum = navCumulativeLengths(BEND);
+    // Parked on the first segment: the arrow must show the first route, which is the complaint
+    // this answers — it used to have no bearing here and the camera fell back to north.
+    const first = bearingDegrees(BEND[0], BEND[1]);
+    const near = navBearingNearFix(BEND[0], BEND, cum, 15);
+    expect(near.bearing).toBeCloseTo(first, 0);
+    // Non-vacuity: the 60 m horizon the match uses crosses the bend and disagrees, which is why
+    // the arrow cannot reuse snapToNavLine's bearing.
+    const far = navBearingNearFix(BEND[0], BEND, cum, 60);
+    expect(Math.abs(far.bearing - first)).toBeGreaterThan(30);
+  });
+
+  it("reports how far the fix is from the line, so the caller can refuse it", () => {
+    const { navCumulativeLengths, navBearingNearFix } = navScope();
+    const cum = navCumulativeLengths(BEND);
+    // On the road: within the tolerance, so the arrow follows it.
+    const onLine = navBearingNearFix([2.3002, 48.84], BEND, cum, 15);
+    expect(onLine.distanceMeters).toBeLessThan(1);
+    // ~50 m off the drawn route: still answers a bearing, and a distance the caller must weigh
+    // against the off-route tolerance before trusting that direction.
+    const off = navBearingNearFix([2.3, 48.8408], BEND, cum, 15);
+    expect(off.distanceMeters).toBeGreaterThan(40);
+    expect(typeof off.bearing).toBe("number");
+  });
+
+  it("returns null rather than inventing a direction", () => {
+    const { navCumulativeLengths, navBearingNearFix } = navScope();
+    expect(navBearingNearFix([2.3, 48.84], BEND, [], 15)).toBeNull();
+    expect(navBearingNearFix(null, BEND, navCumulativeLengths(BEND), 15)).toBeNull();
+    expect(navBearingNearFix([2.3, 48.84], [[2.3, 48.84]], [0], 15)).toBeNull();
   });
 });
 

@@ -113,4 +113,37 @@ describe('guidance map template', () => {
     expect(html).toContain('function ensureNavDisplayWatchdog()');
     expect(html).toContain('window.__veNavDisplayGen');
   });
+
+  it('points the arrow along the route before any fix has been matched', () => {
+    // The complaint this answers: guidance starts with the driver parked, no fix is admissible
+    // yet, and the arrow used to point north because planNavCamera's last resort is the map's
+    // own bearing.
+    expect(html).toContain('function routeBearingNearFix(coords)');
+    expect(html).toContain('function seedNavBearingFromLine()');
+    const tick = html.slice(html.indexOf('function navDisplayTick(ts)'));
+    expect(tick).toContain('traceBearing: routeBearingNearFix(raw)');
+    const planned = html.slice(html.indexOf('function guideTickPlanned'));
+    expect(planned).toContain('traceBearing: routeBearingNearFix(coords)');
+    // Both fallbacks slew rather than adopt, so the first frame is not a snap either.
+    expect(tick).toContain('smoothNavBearing(nav.bearing, plan.bearing, dt, nav.vEst)');
+    expect(planned).toContain(
+      'smoothNavBearing(nav.bearing, plan.bearing, 0.05, nav.vEst)',
+    );
+  });
+
+  it('seeds that bearing whenever a guidance line is set', () => {
+    const displayed = html.slice(
+      html.indexOf('function seedNavBearingFromLine'),
+      html.indexOf('/* VE_NAV_DISPLAY_END */'),
+    );
+    expect(displayed).toContain('navBearingAtDistance(line, cum, 0, NAV_PAINT_LOOKAHEAD_M)');
+    // The chord updateRoute draws before the road line lands, but only when not an offer: an
+    // offer's chord runs pickup -> drop-off, which is not the driver's heading.
+    expect(html).toMatch(/if \(!isOffer\) seedNavBearingFromLine\(\);/);
+    // A reroute re-points the arrow at the new first segment.
+    const recenter = html.slice(html.indexOf('function recenterTripNavCamera'));
+    expect(recenter.indexOf('seedNavBearingFromLine()')).toBeGreaterThan(
+      recenter.indexOf('resetNavMotion()'),
+    );
+  });
 });
