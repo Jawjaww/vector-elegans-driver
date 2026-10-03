@@ -982,6 +982,7 @@ export type Database = {
           created_at: string
           id: number
           min_price: number
+          operator_id: string | null
           price_per_km: number
           updated_at: string
           vehicle_type: Database["public"]["Enums"]["vehicle_type_enum"]
@@ -991,6 +992,7 @@ export type Database = {
           created_at?: string
           id?: number
           min_price?: number
+          operator_id?: string | null
           price_per_km: number
           updated_at?: string
           vehicle_type: Database["public"]["Enums"]["vehicle_type_enum"]
@@ -1000,11 +1002,20 @@ export type Database = {
           created_at?: string
           id?: number
           min_price?: number
+          operator_id?: string | null
           price_per_km?: number
           updated_at?: string
           vehicle_type?: Database["public"]["Enums"]["vehicle_type_enum"]
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "rates_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "operators"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reviews: {
         Row: {
