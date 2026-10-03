@@ -2200,6 +2200,7 @@ export type Database = {
         }[]
       }
       get_auth_role: { Args: never; Returns: string }
+      get_current_operator_id: { Args: never; Returns: string }
       get_driver_completeness_details: {
         Args: { target_user_id?: string }
         Returns: {
@@ -2287,6 +2288,8 @@ export type Database = {
       is_customer: { Args: never; Returns: boolean }
       is_driver: { Args: never; Returns: boolean }
       is_driver_phone_filled: { Args: { p_phone: string }; Returns: boolean }
+      is_operator: { Args: never; Returns: boolean }
+      is_operator_member: { Args: { p_operator_id: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       list_own_driver_documents: {
         Args: { p_driver_id: string }
