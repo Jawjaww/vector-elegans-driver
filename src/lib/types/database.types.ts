@@ -1488,6 +1488,7 @@ export type Database = {
           operator_share: number | null
           options: string[] | null
           override_vehicle_id: string | null
+          payment_method: string | null
           pickup_address: string
           pickup_lat: number | null
           pickup_lon: number | null
@@ -1535,6 +1536,7 @@ export type Database = {
           operator_share?: number | null
           options?: string[] | null
           override_vehicle_id?: string | null
+          payment_method?: string | null
           pickup_address: string
           pickup_lat?: number | null
           pickup_lon?: number | null
@@ -1582,6 +1584,7 @@ export type Database = {
           operator_share?: number | null
           options?: string[] | null
           override_vehicle_id?: string | null
+          payment_method?: string | null
           pickup_address?: string
           pickup_lat?: number | null
           pickup_lon?: number | null
@@ -2395,6 +2398,10 @@ export type Database = {
         Args: { notification_uuid: string }
         Returns: undefined
       }
+      mark_ride_paid_on_board: {
+        Args: { p_method?: string; p_ride_id: string }
+        Returns: Json
+      }
       operator_cancel_ride: {
         Args: { p_reason?: string; p_ride_id: string }
         Returns: Json
@@ -2409,6 +2416,10 @@ export type Database = {
       prune_notifications: { Args: never; Returns: Json }
       prune_offer_pipeline_events: { Args: never; Returns: Json }
       record_ride_offer: { Args: { p_ride_id: string }; Returns: Json }
+      record_stripe_test_payment: {
+        Args: { p_payment_intent_id: string; p_ride_id: string }
+        Returns: Json
+      }
       reopen_driver_dossier: {
         Args: { p_driver_id: string; p_reason?: string }
         Returns: Json
@@ -2457,6 +2468,10 @@ export type Database = {
       ride_offer_push_copy: {
         Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
         Returns: Json
+      }
+      ride_payment_guard: {
+        Args: { p_ride_id: string }
+        Returns: Record<string, unknown>
       }
       ride_snapshot_int: {
         Args: { p_fallback: number; p_key: string; p_snap: Json }
