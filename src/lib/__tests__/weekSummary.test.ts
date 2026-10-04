@@ -192,13 +192,13 @@ describe("earnings screen wiring", () => {
     expect(screen).toContain("isWeekSummaryConsistent");
   });
 
-  it("ne déverse pas la liste des courses : un lien vers l'historique filtré", () => {
-    // Retour du propriétaire : « la liste de courses dans la page gains, personne ne fait ça ».
-    // Une synthèse qui déverse les courses, sans borne, noie le chiffre qu'on venait lire et
-    // double un écran qui existe déjà.
+  it("ne déverse pas la liste des courses, et ne renvoie pas vers l'onglet Courses", () => {
+    // Deux retours du propriétaire, dans cet ordre : « la liste de courses dans la page gains,
+    // personne ne fait ça », puis « il n'y a pas besoin de ce lien, puisqu'il y a déjà la tab
+    // course ». Le second annule le premier : un onglet ne renvoie pas vers un autre onglet.
     expect(screen).not.toContain("summary.rides.map");
-    expect(screen).toContain("seeWeekRides");
-    expect(screen).toContain("mode: 'week'");
+    expect(screen).not.toContain("seeWeekRides");
+    expect(screen).not.toContain("router.push");
   });
 
   it("l'historique honore l'intention de filtre venue du lien", () => {
