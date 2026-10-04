@@ -169,7 +169,11 @@
     "loading": "Loading statement…",
     "retry": "Try again",
     "paid": "Paid",
-    "unpaid": "To collect"
+    "unpaid": "To collect",
+    "unclassified": "Not recorded (earlier rides)",
+    "notADriver": "This account is not linked to a driver.",
+    "notAuthenticated": "Session expired. Please sign in again.",
+    "unreadable": "Statement unavailable right now. Try again in a moment."
   },
   "ridesScreen": {
     "title": "Rides",

@@ -281,7 +281,11 @@
     "loading": "Cargando el resumen…",
     "retry": "Reintentar",
     "paid": "Pagada",
-    "unpaid": "Por cobrar"
+    "unpaid": "Por cobrar",
+    "unclassified": "Sin registrar (carreras anteriores)",
+    "notADriver": "Esta cuenta no está vinculada a un conductor.",
+    "notAuthenticated": "Sesión caducada. Vuelve a iniciar sesión.",
+    "unreadable": "Resumen no disponible ahora mismo. Inténtalo en un momento."
   },
   "ridesScreen": {
     "title": "Viajes",
