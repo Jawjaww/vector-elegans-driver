@@ -173,7 +173,8 @@
     "unclassified": "Not recorded (earlier rides)",
     "notADriver": "This account is not linked to a driver.",
     "notAuthenticated": "Session expired. Please sign in again.",
-    "unreadable": "Statement unavailable right now. Try again in a moment."
+    "unreadable": "Statement unavailable right now. Try again in a moment.",
+    "seeWeekRides": "See this week’s rides ({{count}})"
   },
   "ridesScreen": {
     "title": "Rides",

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { FeatherGlyph } from "../../src/components/FeatherGlyph";
@@ -21,6 +21,9 @@ import { VE_BLUE } from "../../src/lib/theme";
 import type { Ride } from "../../src/lib/stores/driverStore";
 import {
   defaultHistoryFilterRange,
+  localDayBounds,
+  localMonthBounds,
+  localWeekBounds,
   formatHistoryFilterSummary,
   isDefaultHistoryFilterRange,
   formatHistoryWhen,
@@ -63,6 +66,25 @@ export default function RidesScreen() {
   );
   const [filterMode, setFilterMode] = useState<HistoryFilterMode>("week");
   const [page, setPage] = useState(0);
+  // Le lien depuis les Gains arrive avec une intention de filtre : on l'applique au lieu d'ouvrir
+  // l'historique sur une plage que le chauffeur n'a pas demandee. Le défaut reste la semaine.
+  const params = useLocalSearchParams<{ mode?: string }>();
+
+  useEffect(() => {
+    const wanted = params.mode;
+    if (wanted !== "day" && wanted !== "week" && wanted !== "month") return;
+
+    const now = new Date();
+    setFilterMode((current) => (current === wanted ? current : wanted));
+    setFilterRange(
+      wanted === "day"
+        ? localDayBounds(now)
+        : wanted === "month"
+          ? localMonthBounds(now.getFullYear(), now.getMonth())
+          : localWeekBounds(now),
+    );
+    setPage(0);
+  }, [params.mode]);
   /**
    * `null` is "not answered yet", which is not the same as "no rides": the first is a spinner and
    * the second is the empty state, and the service returns a discriminated result for exactly
