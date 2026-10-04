@@ -1252,6 +1252,10 @@ export type Database = {
           max_open_offers: number
           max_ride_open_offers: number
           name: string
+          nav_catchup_max_dv: number
+          nav_catchup_share: number
+          nav_max_catchup_m: number
+          nav_spring_per_s: number
           no_show_flat: number
           offer_batch_size: number
           offer_driver_cooldown_seconds: number
@@ -1290,6 +1294,10 @@ export type Database = {
           max_open_offers?: number
           max_ride_open_offers?: number
           name: string
+          nav_catchup_max_dv?: number
+          nav_catchup_share?: number
+          nav_max_catchup_m?: number
+          nav_spring_per_s?: number
           no_show_flat?: number
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
@@ -1328,6 +1336,10 @@ export type Database = {
           max_open_offers?: number
           max_ride_open_offers?: number
           name?: string
+          nav_catchup_max_dv?: number
+          nav_catchup_share?: number
+          nav_max_catchup_m?: number
+          nav_spring_per_s?: number
           no_show_flat?: number
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
