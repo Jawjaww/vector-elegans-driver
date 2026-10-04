@@ -4,6 +4,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   Text,
   View,
 } from "react-native";
@@ -11,6 +12,12 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { FeatherGlyph } from "../../src/components/FeatherGlyph";
+import {
+  currentWeekEntry,
+  toWeekIndex,
+  weekEntryFor,
+  type WeekIndexEntry,
+} from "../../src/lib/utils/weekIndex";
 import {
   RideHistoryFilters,
   type HistoryFilterChange,
@@ -58,6 +65,20 @@ const NO_RIDES: readonly Ride[] = [];
  * page (10 rows) plus an exact count for the filtered period, and a focus arriving while the
  * previous read is in flight simply issues another.
  */
+/**
+ * « Cette semaine » pour la semaine en cours, sinon les dates. Un libelle court, parce que le
+ * bandeau defile horizontalement : « semaine du 14 septembre » y prendrait toute la largeur.
+ */
+function weekShortLabel(week: WeekIndexEntry): string {
+  if (weekEntryFor([week], new Date())?.startsOn === week.startsOn) {
+    return "Cette semaine";
+  }
+
+  const [, month, day] = week.startsOn.split("-");
+  const [, endMonth, endDay] = (week.endsOn || "").split("-");
+  return `${day}/${month} – ${endDay ?? "?"}/${endMonth ?? "?"}`;
+}
+
 export default function RidesScreen() {
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -91,6 +112,9 @@ export default function RidesScreen() {
    * this reason (`CompletedRidesFetch`).
    */
   const [state, setState] = useState<CompletedRidesFetch | null>(null);
+  // L'index des semaines : UNE requete agregee, aucune course. Le detail reste la requete paginee,
+  // declenchee seulement quand une semaine est choisie.
+  const [weekIndex, setWeekIndex] = useState<WeekIndexEntry[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const filterRangeRef = useRef(filterRange);
   filterRangeRef.current = filterRange;
@@ -110,6 +134,23 @@ export default function RidesScreen() {
 
   // On focus rather than on mount: ending a ride is done on the map, and the tab stays mounted
   // between visits — a mount-only read would show the ride before last.
+  const loadWeekIndex = useCallback(async () => {
+    try {
+      const payload = await rideService.fetchWeekIndex(8);
+      setWeekIndex(toWeekIndex(payload));
+    } catch {
+      // Un index illisible n'empeche pas la liste de s'afficher : on ne montre pas le tableau de
+      // bord, plutot que de bloquer l'ecran sur une donnee secondaire.
+      setWeekIndex(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadWeekIndex();
+    }, [loadWeekIndex]),
+  );
+
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -262,6 +303,8 @@ export default function RidesScreen() {
       </View>
     ) : null;
 
+  const selectedWeek = weekEntryFor(weekIndex ?? [], filterRange.start);
+
   return (
     <View className="flex-1 bg-transparent">
       <FlatList
@@ -290,6 +333,89 @@ export default function RidesScreen() {
             <Text className="text-sm text-slate-400 font-bold tracking-[0.2em] uppercase">
               {t("ridesScreen.subtitle")}
             </Text>
+            {/* Le recap de la semaine affichee suit la plage DEJA selectionnee : il ne coute
+                aucune requete supplementaire. Le bandeau, lui, vient de l'index (une requete). */}
+            {selectedWeek ? (
+              <View
+                className="rounded-2xl p-4 mb-4"
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255, 255, 255, 0.05)",
+                }}
+              >
+                <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+                  {t("ridesScreen.weekNet")}
+                </Text>
+                <Text className="text-white text-3xl font-black tracking-tighter mt-1">
+                  €{selectedWeek.netEarnings.toFixed(2)}
+                </Text>
+                <View className="flex-row mt-2">
+                  <Text className="text-slate-400 text-xs mr-4">
+                    {t("ridesScreen.weekRides", { count: selectedWeek.rides })}
+                  </Text>
+                  {selectedWeek.cashCollected > 0 ? (
+                    <Text className="text-emerald-400/80 text-xs mr-4">
+                      {t("ridesScreen.weekCash")} €{selectedWeek.cashCollected.toFixed(2)}
+                    </Text>
+                  ) : null}
+                  {selectedWeek.cardDue > 0 ? (
+                    <Text className="text-sky-400/80 text-xs">
+                      {t("ridesScreen.weekCard")} €{selectedWeek.cardDue.toFixed(2)}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
+            {weekIndex && weekIndex.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                className="mb-4"
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {weekIndex.map((week) => {
+                  const active = selectedWeek?.startsOn === week.startsOn;
+                  return (
+                    <Pressable
+                      key={week.startsOn}
+                      onPress={() =>
+                        onFilterChange({
+                          range: localWeekBounds(new Date(`${week.startsOn}T12:00:00`)),
+                          mode: "week",
+                        })
+                      }
+                      accessibilityRole="button"
+                      className="rounded-xl px-3 py-2"
+                      style={{
+                        backgroundColor: active
+                          ? "rgba(52, 211, 153, 0.12)"
+                          : "rgba(255, 255, 255, 0.03)",
+                        borderWidth: 1,
+                        borderColor: active
+                          ? "rgba(52, 211, 153, 0.35)"
+                          : "rgba(255, 255, 255, 0.05)",
+                      }}
+                    >
+                      <Text
+                        className={
+                          active
+                            ? "text-emerald-300 text-xs font-bold"
+                            : "text-slate-300 text-xs font-bold"
+                        }
+                      >
+                        {weekShortLabel(week)}
+                      </Text>
+                      <Text className="text-slate-500 text-[11px] mt-0.5">
+                        €{week.netEarnings.toFixed(2)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+
             <RideHistoryFilters
               locale={i18n.language}
               range={filterRange}

@@ -491,6 +491,13 @@ const RIDES_SCREEN_KEYS = [
   "paginationPrev",
   "paginationNext",
   "paginationPage",
+  // Le tableau de bord de la semaine (F-03) : le recap, et le bandeau qui permet de choisir une
+  // semaine. Cette liste est la declaration de ce que l'onglet dit — une cle sans libelle, ou un
+  // libelle sans cle, doit echouer ici.
+  "weekNet",
+  "weekRides",
+  "weekCash",
+  "weekCard",
 ];
 
 describe("the history tab copy, in the three languages", () => {

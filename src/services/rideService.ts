@@ -441,6 +441,19 @@ class RideService {
    *
    * Cancellations and no-shows are excluded by decision: this tab is "rides carried out".
    */
+  /**
+   * L'index des semaines (F-03) : les totaux des N dernieres semaines, et AUCUNE course.
+   *
+   * C'est ce qui permet a l'onglet Courses de proposer « semaine en cours / semaine precedente »
+   * sans telecharger l'historique : le detail reste `fetchCompletedRides`, appele seulement quand
+   * une semaine est choisie.
+   */
+  async fetchWeekIndex(weeks = 8): Promise<unknown> {
+    const { data, error } = await supabase.rpc("driver_week_index", { p_weeks: weeks });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   async fetchCompletedRides(
     range: HistoryDateRange,
     page = 0,
