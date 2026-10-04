@@ -2359,6 +2359,10 @@ export type Database = {
       }
       driver_on_ride: { Args: { p_driver_id: string }; Returns: boolean }
       driver_owns_driver_id: { Args: { p_driver_id: string }; Returns: boolean }
+      driver_week_index: {
+        Args: { p_driver_id?: string; p_weeks?: number }
+        Returns: Json
+      }
       driver_week_summary: {
         Args: { p_driver_id?: string; p_week_start?: string }
         Returns: Json
