@@ -138,6 +138,24 @@ var NAV_MAX_CATCHUP_METERS = 25;
 var NAV_MAX_LEAD_METERS = 12;
 /** Proportional correction, 1/s. An offset closes over ~1 s, never inside a single frame. */
 var NAV_SPRING_PER_S = 1.4;
+/**
+ * LA BORNE QUI REND LE RATTRAPAGE INVISIBLE : la correction ne peut pas depasser cette PART de la
+ * vitesse courante.
+ *
+ * Sans elle, la correction vaut 1,4 x l'ecart — soit, pour un ecart de 25 m, 35 m/s : 126 km/h EN
+ * PLUS de la vitesse reelle. La fleche ne se teleporte pas, elle RUGE pour rattraper son retard, et
+ * tant que l'ecart n'est pas nul elle n'avance pas a la vitesse du vehicule. C'est ce que le
+ * chauffeur voit, et c'est ce que ce plafond supprime : une variation de quelques pour cent est
+ * indistinguable de la vitesse reelle.
+ *
+ * La contrainte n'est donc pas la DUREE mais la VITESSE APPARENTE : l'ecart decroit en consequence
+ * — un petit ecart disparait vite, un gros prend quelques secondes, sans ruer ni a-coup.
+ */
+var NAV_CATCHUP_SHARE = 0.15;
+/** Un plancher, sinon une part d'une vitesse nulle vaut zero et la fleche ne revient jamais. */
+var NAV_CATCHUP_MIN_MPS = 0.35;
+/** La correction entre elle-meme progressivement : un saut de vitesse est un coup visible. */
+var NAV_CATCHUP_MAX_DV_MPS2 = 0.6;
 /** A gap this wide is not a correction to apply: only a new line (reroute) re-seats the arrow. */
 var NAV_RESYNC_METERS = 120;
 /** Speed estimate: EMA over matched fixes, clamped to a plausible road speed. */
@@ -178,6 +196,9 @@ function emptyNavMotion() {
     progressM: null,
     gpsProgressM: null,
     vEst: 0,
+    /** La correction en cours, en m/s : borner sa variation demande de la garder d'un tick a
+     *  l'autre, sinon chaque tick repart de zero et le plafond d'acceleration ne sert a rien. */
+    correctionMps: 0,
     lastGpsProgressM: null,
     lastGpsAtMs: null,
   };
@@ -278,12 +299,33 @@ function stepNavMotion(state, dt, nowMs) {
     typeof gps === "number" && Number.isFinite(gps) ? gps - progress : 0;
   if (offset > NAV_MAX_CATCHUP_METERS) offset = NAV_MAX_CATCHUP_METERS;
   if (offset < -NAV_MAX_LEAD_METERS) offset = -NAV_MAX_LEAD_METERS;
-  var v = vEst + NAV_SPRING_PER_S * offset;
+  // La correction voulue par le ressort...
+  var wanted = NAV_SPRING_PER_S * offset;
+  // ...bornee en PART de la vitesse courante : c'est la que le rattrapage cesse d'etre visible.
+  var maxCorrection = Math.max(
+    NAV_CATCHUP_MIN_MPS,
+    NAV_CATCHUP_SHARE * Math.abs(vEst)
+  );
+  if (wanted > maxCorrection) wanted = maxCorrection;
+  if (wanted < -maxCorrection) wanted = -maxCorrection;
+
+  // ...et atteinte progressivement : passer de 0 a la correction maximale en un tick est un coup.
+  var previous =
+    typeof seed.correctionMps === "number" && Number.isFinite(seed.correctionMps)
+      ? seed.correctionMps
+      : 0;
+  var maxDelta = NAV_CATCHUP_MAX_DV_MPS2 * step;
+  var correction = wanted;
+  if (correction > previous + maxDelta) correction = previous + maxDelta;
+  if (correction < previous - maxDelta) correction = previous - maxDelta;
+
+  var v = vEst + correction;
   if (v < 0) v = 0;
   return {
     progressM: progress + v * step,
     gpsProgressM: seed.gpsProgressM,
     vEst: seed.vEst,
+    correctionMps: correction,
     lastGpsProgressM: seed.lastGpsProgressM,
     lastGpsAtMs: seed.lastGpsAtMs,
   };

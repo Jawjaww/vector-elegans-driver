@@ -70,6 +70,9 @@ function navScope(): Record<string, any> {
       NAV_MAX_CATCHUP_METERS: NAV_MAX_CATCHUP_METERS,
       NAV_MAX_LEAD_METERS: NAV_MAX_LEAD_METERS,
       NAV_SPRING_PER_S: NAV_SPRING_PER_S,
+      NAV_CATCHUP_SHARE: NAV_CATCHUP_SHARE,
+      NAV_CATCHUP_MIN_MPS: NAV_CATCHUP_MIN_MPS,
+      NAV_CATCHUP_MAX_DV_MPS2: NAV_CATCHUP_MAX_DV_MPS2,
       NAV_RESYNC_METERS: NAV_RESYNC_METERS,
       NAV_SPEED_MIN_MOVE_M: NAV_SPEED_MIN_MOVE_M,
       NAV_GPS_STALE_MS: NAV_GPS_STALE_MS,
@@ -563,5 +566,128 @@ describe("planNavCamera", () => {
       planNavCamera({ traceBearing: -90, deviceHeading: null, mapBearing: 0 })
         .bearing,
     ).toBe(270);
+  });
+});
+
+/**
+ * LE RATTRAPAGE EST UNE VITESSE, ET IL DOIT ÊTRE INVISIBLE.
+ *
+ * Retour du propriétaire : « la correction ne devrait pas provoquer de saut mais seulement une
+ * subtile accélération imperceptible », puis « un rattrapage en une seconde risque d'être trop
+ * brutal, il faut que ce soit un rattrapage invisible ».
+ *
+ * La ligne en cause est celle-ci, dans `stepNavMotion` :
+ *
+ *     var v = vEst + NAV_SPRING_PER_S * offset;      // 1.4 x l'écart, non borné
+ *
+ * Avec un écart de 25 m (le plafond), la correction vaut 35 m/s — 126 km/h **en plus** de la
+ * vitesse réelle. La flèche ne se téléporte pas : elle RUGE pour rattraper son retard, et tant que
+ * l'écart n'est pas nul elle n'avance pas à la vitesse du véhicule. C'est ce que le chauffeur voit.
+ *
+ * La contrainte n'est donc pas la DURÉE mais la VITESSE APPARENTE : la correction reste dans une
+ * bande bornée autour de la vitesse réelle, et l'écart décroît alors en conséquence — un petit
+ * écart disparaît vite, un gros prend quelques secondes, sans jamais de ruée ni de coup.
+ *
+ * Les bornes ci-dessous sont l'EXIGENCE, pas la valeur de l'implémentation : si quelqu'un relève la
+ * constante au-delà, ce test doit échouer.
+ */
+describe("the catch-up is a speed, bounded and imperceptible", () => {
+  /** L'exigence : la vitesse apparente ne dépasse pas la vitesse réelle de plus de 15 %. */
+  const MAX_APPARENT_OVERSPEED = 0.15;
+  /** Et l'entrée en correction est progressive : pas de coup au premier tick. */
+  const MAX_FIRST_TICK_OVERSHOOT = 0.05;
+  const DT = 0.05;
+
+  function runCatchup(
+    offsetM: number,
+    vEst: number,
+    ticks: number,
+    refreshGps: boolean,
+    // La cible avance avec le vehicule : un GPS fixe pendant que l'estimation avance decrirait une
+    // voiture qui roule sans bouger — un scenario qui n'existe pas, et qui faisait echouer ce test
+    // sur une cible que rien ne pouvait rattraper.
+    targetMoves = false,
+  ) {
+    const scope = navScope();
+    let state = {
+      ...scope.emptyNavMotion(),
+      progressM: 1000,
+      vEst,
+      lastGpsAtMs: 0,
+      gpsProgressM: 1000 + offsetM,
+    };
+    const speeds: number[] = [];
+    const steps: number[] = [];
+
+    for (let i = 1; i <= ticks; i += 1) {
+      const nowMs = i * DT * 1000;
+      // Une correction qui « revient » à chaque tick : l'écart est maintenu, donc la correction
+      // reste à son plafond. C'est le pire cas, et c'est celui qui rugissait.
+      if (refreshGps) state.gpsProgressM = state.progressM + offsetM;
+      else if (targetMoves) state.gpsProgressM = (state.gpsProgressM ?? 0) + vEst * DT;
+      state.lastGpsAtMs = nowMs;
+
+      const next = scope.stepNavMotion(state, DT, nowMs);
+      steps.push(next.progressM - state.progressM);
+      speeds.push((next.progressM - state.progressM) / DT);
+      state = next;
+    }
+
+    return { speeds, steps, finalOffset: state.progressM - (state.gpsProgressM ?? 0), state };
+  }
+
+  it("ne dépasse jamais la bande de vitesse apparente, écart constant", () => {
+    const vEst = 10; // 36 km/h
+    const { speeds } = runCatchup(20, vEst, 200, true);
+    const maxAllowed = vEst * (1 + MAX_APPARENT_OVERSPEED) + 0.01;
+
+    // C'est ici que le code actuel échoue : 10 + 1.4 x 20 = 38 m/s, soit presque QUATRE fois.
+    expect(Math.max(...speeds)).toBeLessThanOrEqual(maxAllowed);
+  });
+
+  it("ne fait aucun saut de position : le pas d'un tick reste celui d'un tick", () => {
+    const vEst = 10;
+    const { steps } = runCatchup(20, vEst, 200, true);
+    const maxStep = vEst * (1 + MAX_APPARENT_OVERSPEED) * DT + 0.01;
+
+    expect(Math.max(...steps)).toBeLessThanOrEqual(maxStep);
+  });
+
+  it("n'entre pas dans la correction d'un coup", () => {
+    const vEst = 10;
+    const { speeds } = runCatchup(20, vEst, 3, true);
+
+    expect(speeds[0]).toBeLessThanOrEqual(vEst * (1 + MAX_FIRST_TICK_OVERSHOOT));
+  });
+
+  it("rattrape quand même : invisible ne veut pas dire immobile", () => {
+    const vEst = 10;
+    const { finalOffset } = runCatchup(20, vEst, 400, false, true); // 20 s, le vehicule roule
+
+    // Un rattrapage trop doux ne rattrape rien : l'ecart doit etre absorbe, pas entretenu.
+    expect(Math.abs(finalOffset)).toBeLessThan(1);
+  });
+
+  it("garde la correction nulle sur un écart nul", () => {
+    const vEst = 10;
+    const { speeds } = runCatchup(0, vEst, 20, true);
+
+    for (const speed of speeds) {
+      expect(speed).toBeCloseTo(vEst, 1);
+    }
+  });
+
+  it("ne contient aucun backtick dans le fragment", () => {
+    // PIEGE MESURE : ce fichier porte les helpers comme TEXTE LITTERAL. Un backtick dans un
+    // commentaire ne termine pas le commentaire, il termine la CHAINE — et le module ne se charge
+    // plus du tout. Je l'ai fait en ecrivant ce lot : la suite entiere est tombee sur un
+    // « Cannot find name x », a des dizaines de lignes du vrai probleme.
+    const fragment = extractBetween(
+      mapHtml(),
+      "/* VE_NAV_HELPERS_START */",
+      "/* VE_NAV_HELPERS_END */",
+    );
+
+    expect(fragment.includes("`")).toBe(false);
   });
 });
