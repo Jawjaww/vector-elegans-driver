@@ -1959,6 +1959,10 @@ export type Database = {
       }
     }
     Functions: {
+      _cancel_ride_core: {
+        Args: { p_actor: string; p_reason: string; p_ride_id: string }
+        Returns: Json
+      }
       _insert_client_push_notification: {
         Args: {
           p_data?: Json
@@ -1973,6 +1977,10 @@ export type Database = {
       _notify_driver_dossier_action: {
         Args: { p_user_id: string }
         Returns: undefined
+      }
+      _reassign_ride_core: {
+        Args: { p_driver_id: string; p_ride_id: string }
+        Returns: Json
       }
       _ride_offer_snapshot: {
         Args: { p_ride: Database["public"]["Tables"]["rides"]["Row"] }
@@ -2329,6 +2337,14 @@ export type Database = {
       mark_notification_read: {
         Args: { notification_uuid: string }
         Returns: undefined
+      }
+      operator_cancel_ride: {
+        Args: { p_reason?: string; p_ride_id: string }
+        Returns: Json
+      }
+      operator_reassign_ride: {
+        Args: { p_driver_id: string; p_ride_id: string }
+        Returns: Json
       }
       platform_fee_policy_id: { Args: never; Returns: string }
       preview_ride_cancel_quote: { Args: { p_ride_id: string }; Returns: Json }
