@@ -353,5 +353,31 @@
     "locationError": "No se puede obtener la ubicación. Activa el GPS.",
     "permissionDenied": "Permiso denegado",
     "unknownError": "Ha ocurrido un error desconocido"
+  },
+  "rideDocuments": {
+    "title": "Factura / recibo",
+    "open": "Factura o recibo",
+    "invoice": "Factura",
+    "receipt": "Recibo",
+    "issuer": "Emisor",
+    "siret": "SIRET",
+    "client": "Cliente",
+    "ride": "Trayecto",
+    "total": "Total",
+    "driverEarning": "Tu ganancia",
+    "method": "Pago",
+    "cash": "Efectivo",
+    "card": "Tarjeta",
+    "noInvoice": "La factura de esta carrera aún no se ha emitido.",
+    "noReceipt": "El recibo de esta carrera aún no se ha emitido.",
+    "askInvoice": "Pedir la factura",
+    "askReceipt": "Pedir el recibo",
+    "issuing": "Emitiendo…",
+    "issuerNotConfigured": "La plataforma aún no ha registrado su identidad legal, así que la factura no puede emitirse. Avísalo: tú no puedes hacer nada.",
+    "wrongKind": "No es el documento de esta carrera.",
+    "notPaid": "Esta carrera aún no se ha cobrado: no hay nada que constatar.",
+    "rideNotFound": "Carrera no encontrada.",
+    "notYours": "Esta carrera no es tuya.",
+    "unknownError": "No se ha podido obtener el documento. Inténtalo más tarde."
   }
 }

@@ -453,5 +453,31 @@
     "locationError": "Unable to get location. Please enable GPS.",
     "permissionDenied": "Permission denied",
     "unknownError": "An unknown error occurred"
+  },
+  "rideDocuments": {
+    "title": "Invoice / receipt",
+    "open": "Invoice or receipt",
+    "invoice": "Invoice",
+    "receipt": "Receipt",
+    "issuer": "Issuer",
+    "siret": "SIRET",
+    "client": "Customer",
+    "ride": "Trip",
+    "total": "Total",
+    "driverEarning": "Your earning",
+    "method": "Payment",
+    "cash": "Cash",
+    "card": "Card",
+    "noInvoice": "The invoice for this ride has not been issued yet.",
+    "noReceipt": "The receipt for this ride has not been issued yet.",
+    "askInvoice": "Request the invoice",
+    "askReceipt": "Request the receipt",
+    "issuing": "Issuing…",
+    "issuerNotConfigured": "The platform has not filled in its legal identity yet, so the invoice cannot be issued. Report it — there is nothing you can do.",
+    "wrongKind": "This is not the document for that ride.",
+    "notPaid": "This ride has not been paid yet: there is nothing to record.",
+    "rideNotFound": "Ride not found.",
+    "notYours": "This ride is not yours.",
+    "unknownError": "The document could not be retrieved. Try again later."
   }
 }

@@ -491,5 +491,31 @@
     "locationError": "Impossible d'obtenir la position. Activez le GPS.",
     "permissionDenied": "Permission refusée",
     "unknownError": "Une erreur inconnue s'est produite"
+  },
+  "rideDocuments": {
+    "title": "Facture / reçu",
+    "open": "Facture ou reçu",
+    "invoice": "Facture",
+    "receipt": "Reçu",
+    "issuer": "Émetteur",
+    "siret": "SIRET",
+    "client": "Client",
+    "ride": "Trajet",
+    "total": "Total",
+    "driverEarning": "Votre gain",
+    "method": "Paiement",
+    "cash": "Espèces",
+    "card": "Carte",
+    "noInvoice": "La facture de cette course n'a pas encore été émise.",
+    "noReceipt": "Le reçu de cette course n'a pas encore été émis.",
+    "askInvoice": "Demander la facture",
+    "askReceipt": "Demander le reçu",
+    "issuing": "Émission…",
+    "issuerNotConfigured": "La plateforme n'a pas encore renseigné son identité légale : la facture ne peut pas être émise. Signalez-le, vous n'y pouvez rien.",
+    "wrongKind": "Ce n'est pas le document de cette course.",
+    "notPaid": "Cette course n'est pas encore encaissée : il n'y a rien à constater.",
+    "rideNotFound": "Course introuvable.",
+    "notYours": "Cette course n'est pas la vôtre.",
+    "unknownError": "Le document n'a pas pu être obtenu. Réessayez plus tard."
   }
 }
