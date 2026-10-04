@@ -671,6 +671,42 @@ export type Database = {
           },
         ]
       }
+      operator_favorites: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          operator_id: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          operator_id: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          operator_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operator_favorites_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operator_favorites_operator_id_fkey"
+            columns: ["operator_id"]
+            isOneToOne: false
+            referencedRelation: "operators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       operator_members: {
         Row: {
           created_at: string
@@ -1081,8 +1117,10 @@ export type Database = {
           cancel_after_arrival_flat: number
           commission_percent: number
           created_at: string
+          dispatch_favorites_from_wave: number
           dispatch_include_offline_from_wave: number
           dispatch_lead_minutes: number
+          dispatch_platform_from_wave: number
           dispatch_weight_accept: number
           dispatch_weight_distance: number
           dispatch_weight_online: number
@@ -1116,8 +1154,10 @@ export type Database = {
           cancel_after_arrival_flat?: number
           commission_percent?: number
           created_at?: string
+          dispatch_favorites_from_wave?: number
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
+          dispatch_platform_from_wave?: number
           dispatch_weight_accept?: number
           dispatch_weight_distance?: number
           dispatch_weight_online?: number
@@ -1151,8 +1191,10 @@ export type Database = {
           cancel_after_arrival_flat?: number
           commission_percent?: number
           created_at?: string
+          dispatch_favorites_from_wave?: number
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
+          dispatch_platform_from_wave?: number
           dispatch_weight_accept?: number
           dispatch_weight_distance?: number
           dispatch_weight_online?: number
