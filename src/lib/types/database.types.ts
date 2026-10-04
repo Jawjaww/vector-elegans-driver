@@ -1142,6 +1142,7 @@ export type Database = {
           offer_batch_size: number
           offer_driver_cooldown_seconds: number
           offer_ttl_seconds: number
+          online_payment_enabled: boolean
           operator_share_percent: number
           scope_id: string | null
           scope_kind: string
@@ -1179,6 +1180,7 @@ export type Database = {
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
           offer_ttl_seconds?: number
+          online_payment_enabled?: boolean
           operator_share_percent?: number
           scope_id?: string | null
           scope_kind?: string
@@ -1216,6 +1218,7 @@ export type Database = {
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
           offer_ttl_seconds?: number
+          online_payment_enabled?: boolean
           operator_share_percent?: number
           scope_id?: string | null
           scope_kind?: string
