@@ -266,7 +266,22 @@
     "ridesChip": "+{{count}} VIAJES",
     "completedToday": "completados hoy",
     "weekEst": "Esta semana (est.)",
-    "monthEst": "Este mes (est.)"
+    "monthEst": "Este mes (est.)",
+    "week": "Esta semana",
+    "netEarnings": "Neto ganado",
+    "cashCollected": "Efectivo cobrado",
+    "cashToCollect": "Por cobrar",
+    "cardDue": "Tarjeta — a cargo de la plataforma",
+    "cardPending": "Tarjeta no cobrada",
+    "dueByPlatform": "La plataforma te debe",
+    "ridesThisWeek": "carreras esta semana",
+    "detail": "Detalle de carreras",
+    "empty": "Ninguna carrera terminada esta semana.",
+    "inconsistent": "Resumen incoherente. Actualiza para recargarlo.",
+    "loading": "Cargando el resumen…",
+    "retry": "Reintentar",
+    "paid": "Pagada",
+    "unpaid": "Por cobrar"
   },
   "ridesScreen": {
     "title": "Viajes",
