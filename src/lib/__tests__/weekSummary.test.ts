@@ -1,6 +1,7 @@
 import {
   cashInHand,
   isWeekSummaryConsistent,
+  readWeekSummaryRefusal,
   stillToCollect,
   toWeekSummary,
 } from "../utils/weekSummary";
@@ -189,5 +190,81 @@ describe("earnings screen wiring", () => {
 
   it("refuse d'afficher un relevé incohérent", () => {
     expect(screen).toContain("isWeekSummaryConsistent");
+  });
+});
+
+/**
+ * LE CAS QUI A CASSÉ LA PRODUCTION.
+ *
+ * `rides.payment_method` est postérieur à tout l'historique : sur le cloud, 119 courses terminées
+ * sur 119 l'ont à NULL. Le net les comptait, les quatre compartiments non — le relevé ne
+ * s'additionnait donc pas, et l'écran refusait de s'afficher (« relevé incohérent »), sur des
+ * données parfaitement justes.
+ *
+ * Ma fixture ne contenait que des courses AVEC un mode : elle était plus propre que la production,
+ * et c'est précisément pour cela qu'elle n'a rien vu.
+ */
+describe("rides whose payment method was never recorded", () => {
+  const payload = {
+    success: true,
+    week: {},
+    totals: {
+      rides: 2,
+      net_earnings: 100,
+      cash_collected: 40,
+      cash_to_collect: 0,
+      card_due: 0,
+      card_pending: 0,
+      unclassified: 60,
+      due_by_platform: 0,
+    },
+    rides: [
+      { ride_id: "r1", driver_earning: 40, payment_method: "cash", payment_status: "paid" },
+      { ride_id: "r2", driver_earning: 60, payment_method: null, payment_status: "pending" },
+    ],
+  };
+
+  it("compte ces gains dans un compartiment, au lieu de les perdre", () => {
+    const summary = toWeekSummary(payload);
+    expect(summary?.totals.unclassified).toBe(60);
+  });
+
+  it("tient l'invariant avec ce compartiment en plus", () => {
+    const summary = toWeekSummary(payload);
+    expect(summary && isWeekSummaryConsistent(summary)).toBe(true);
+  });
+
+  it("refuse toujours un relevé qui ne s'additionne pas vraiment", () => {
+    const summary = toWeekSummary({
+      ...payload,
+      totals: { ...payload.totals, unclassified: 0 },
+    });
+    expect(summary && isWeekSummaryConsistent(summary)).toBe(false);
+  });
+
+  it("range un mode inconnu dans `unknown` sans le confondre avec espèces ou carte", () => {
+    const summary = toWeekSummary(payload);
+    expect(summary?.rides[1].paymentMethod).toBe("unknown");
+  });
+});
+
+/**
+ * Le MOTIF d'un refus. L'écran affichait « relevé incohérent » pour toutes les causes, y compris
+ * une session expirée : un message qui ne distingue pas les causes envoie au mauvais endroit.
+ */
+describe("readWeekSummaryRefusal", () => {
+  it("rend le code d'erreur du serveur", () => {
+    expect(readWeekSummaryRefusal({ success: false, error: "not_a_driver" })).toBe("not_a_driver");
+    expect(readWeekSummaryRefusal({ success: false, error: "not_authenticated" })).toBe(
+      "not_authenticated",
+    );
+  });
+
+  it("ne crie pas au refus sur un relevé valide", () => {
+    expect(readWeekSummaryRefusal({ success: true, totals: {} })).toBeNull();
+  });
+
+  it("rend null sur une charge utile qui n'est même pas un objet", () => {
+    expect(readWeekSummaryRefusal(null)).toBeNull();
   });
 });

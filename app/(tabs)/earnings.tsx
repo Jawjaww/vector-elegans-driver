@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { supabase } from '../../src/lib/supabase';
 import {
   isWeekSummaryConsistent,
+  readWeekSummaryRefusal,
   toWeekSummary,
   type WeekSummary,
 } from '../../src/lib/utils/weekSummary';
@@ -27,24 +28,31 @@ export default function EarningsScreen() {
   const { t } = useTranslation();
   const [summary, setSummary] = useState<WeekSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
+  // Le MOTIF du refus, pas un booleen : « incohérent », « pas un chauffeur » et « session expirée »
+  // demandent trois gestes differents au chauffeur.
+  const [problem, setProblem] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setFailed(false);
+    setProblem(null);
 
     try {
       const { data, error } = await supabase.rpc('driver_week_summary');
       if (error) throw error;
 
       const parsed = toWeekSummary(data);
-      // Un relevé qui ne s'additionne pas n'est pas affiché : c'est le seul cas où se taire vaut
-      // mieux que montrer un chiffre, parce qu'un chiffre faux ne se voit pas.
-      setSummary(parsed && isWeekSummaryConsistent(parsed) ? parsed : null);
-      setFailed(parsed === null);
+
+      if (parsed && isWeekSummaryConsistent(parsed)) {
+        setSummary(parsed);
+      } else {
+        // Un relevé qui ne s'additionne pas n'est pas affiché : un chiffre faux ne se voit pas.
+        // Mais on dit POURQUOI, et un refus du serveur n'est pas une incoherence.
+        setSummary(null);
+        setProblem(parsed ? 'inconsistent' : (readWeekSummaryRefusal(data) ?? 'unreadable'));
+      }
     } catch {
       setSummary(null);
-      setFailed(true);
+      setProblem('unreadable');
     } finally {
       setLoading(false);
     }
@@ -58,6 +66,15 @@ export default function EarningsScreen() {
       void load();
     }, [load]),
   );
+
+  const problemLabel =
+    problem === 'inconsistent'
+      ? t('earningsScreen.inconsistent')
+      : problem === 'not_a_driver'
+        ? t('earningsScreen.notADriver')
+        : problem === 'not_authenticated'
+          ? t('earningsScreen.notAuthenticated')
+          : t('earningsScreen.unreadable');
 
   const card = 'overflow-hidden rounded-2xl mb-4';
   const cardStyle = {
@@ -83,12 +100,12 @@ export default function EarningsScreen() {
             <ActivityIndicator color="#34d399" />
             <Text className="text-slate-400 mt-3 text-sm">{t('earningsScreen.loading')}</Text>
           </View>
-        ) : failed || !summary ? (
+        ) : problem || !summary ? (
           <View className={card} style={cardStyle}>
             <View className="p-6 items-center">
               <Feather name="alert-triangle" size={20} color="#fbbf24" />
               <Text className="text-slate-300 text-center mt-3 text-sm">
-                {t('earningsScreen.inconsistent')}
+                {problemLabel}
               </Text>
               <Pressable
                 onPress={() => void load()}
@@ -153,6 +170,14 @@ export default function EarningsScreen() {
                     tone="#fbbf24"
                     label={t('earningsScreen.cashToCollect')}
                     value={summary.totals.cashToCollect}
+                  />
+                ) : null}
+                {summary.totals.unclassified > 0 ? (
+                  <Line
+                    icon="help-circle"
+                    tone="#c4b5fd"
+                    label={t('earningsScreen.unclassified')}
+                    value={summary.totals.unclassified}
                   />
                 ) : null}
                 {summary.totals.cardPending > 0 ? (

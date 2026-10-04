@@ -34,6 +34,11 @@ export interface WeekSummaryTotals {
   cashToCollect: number;
   cardDue: number;
   cardPending: number;
+  /**
+   * Gains dont le mode de paiement n'a JAMAIS ete enregistre (courses anterieures a F-01). Le net
+   * les compte, donc l'ecran doit les compter aussi — sinon il refuse d'afficher un releve juste.
+   */
+  unclassified: number;
   dueByPlatform: number;
 }
 
@@ -110,6 +115,7 @@ export function toWeekSummary(payload: unknown): WeekSummary | null {
       cashToCollect: num(totals.cash_to_collect),
       cardDue: num(totals.card_due),
       cardPending: num(totals.card_pending),
+      unclassified: num(totals.unclassified),
       dueByPlatform: num(totals.due_by_platform),
     },
     rides,
@@ -123,7 +129,8 @@ export function toWeekSummary(payload: unknown): WeekSummary | null {
  */
 export function isWeekSummaryConsistent(summary: WeekSummary): boolean {
   const t = summary.totals;
-  const buckets = t.cashCollected + t.cashToCollect + t.cardDue + t.cardPending;
+  const buckets =
+    t.cashCollected + t.cashToCollect + t.cardDue + t.cardPending + t.unclassified;
   return (
     Math.abs(buckets - t.netEarnings) < 0.01 &&
     Math.abs(t.dueByPlatform - t.cardDue) < 0.01
@@ -138,4 +145,18 @@ export function cashInHand(summary: WeekSummary): number {
 /** Ce qu'il lui reste à réclamer à des clients. */
 export function stillToCollect(summary: WeekSummary): number {
   return summary.totals.cashToCollect;
+}
+
+/**
+ * Le MOTIF d'un refus, quand la charge utile n'est pas un relevé exploitable.
+ *
+ * Sans cela, l'écran affichait « relevé incohérent » pour **toutes** les causes — y compris une
+ * session expirée ou un compte sans chauffeur. Le propriétaire a cherché un bug de cohérence qui
+ * n'existait pas : un message qui ne distingue pas les causes envoie au mauvais endroit.
+ */
+export function readWeekSummaryRefusal(payload: unknown): string | null {
+  const raw = asRecord(payload);
+  if (!raw) return null;
+  if (raw.success === true) return null;
+  return typeof raw.error === "string" ? raw.error : "unknown";
 }

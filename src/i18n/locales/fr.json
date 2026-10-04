@@ -175,7 +175,11 @@
     "loading": "Chargement du relevé…",
     "retry": "Réessayer",
     "paid": "Payée",
-    "unpaid": "À encaisser"
+    "unpaid": "À encaisser",
+    "unclassified": "Non renseigné (courses antérieures)",
+    "notADriver": "Ce compte n'est pas rattaché à un chauffeur.",
+    "notAuthenticated": "Session expirée. Reconnectez-vous.",
+    "unreadable": "Relevé indisponible pour le moment. Réessayez dans un instant."
   },
   "ridesScreen": {
     "title": "Courses",
