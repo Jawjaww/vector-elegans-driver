@@ -478,6 +478,8 @@
     "notPaid": "This ride has not been paid yet: there is nothing to record.",
     "rideNotFound": "Ride not found.",
     "notYours": "This ride is not yours.",
-    "unknownError": "The document could not be retrieved. Try again later."
+    "unknownError": "The document could not be retrieved. Try again later.",
+    "seeSpecimen": "See a specimen",
+    "specimenNotice": "Sample: this document has no value, and no real document carries this number."
   }
 }

@@ -378,6 +378,8 @@
     "notPaid": "Esta carrera aún no se ha cobrado: no hay nada que constatar.",
     "rideNotFound": "Carrera no encontrada.",
     "notYours": "Esta carrera no es tuya.",
-    "unknownError": "No se ha podido obtener el documento. Inténtalo más tarde."
+    "unknownError": "No se ha podido obtener el documento. Inténtalo más tarde.",
+    "seeSpecimen": "Ver un ejemplo",
+    "specimenNotice": "Ejemplo: este documento no tiene valor y ningún documento real lleva este número."
   }
 }
