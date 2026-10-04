@@ -200,7 +200,11 @@
     "filterSummary": "{{count}} ride(s) — {{period}}",
     "paginationPrev": "Prev",
     "paginationNext": "Next",
-    "paginationPage": "{{from}}–{{to}} of {{total}} · p. {{page}}/{{pages}}"
+    "paginationPage": "{{from}}–{{to}} of {{total}} · p. {{page}}/{{pages}}",
+    "weekNet": "Week net",
+    "weekRides": "{{count}} rides",
+    "weekCash": "Cash",
+    "weekCard": "Card"
   },
   "profile": {
     "title": "Profile",

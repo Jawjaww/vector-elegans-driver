@@ -206,7 +206,11 @@
     "filterSummary": "{{count}} course(s) — {{period}}",
     "paginationPrev": "Préc.",
     "paginationNext": "Suiv.",
-    "paginationPage": "{{from}}–{{to}} sur {{total}} · p. {{page}}/{{pages}}"
+    "paginationPage": "{{from}}–{{to}} sur {{total}} · p. {{page}}/{{pages}}",
+    "weekNet": "Net de la semaine",
+    "weekRides": "{{count}} courses",
+    "weekCash": "Espèces",
+    "weekCard": "Carte"
   },
   "profile": {
     "title": "Profil",

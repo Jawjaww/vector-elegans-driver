@@ -312,7 +312,11 @@
     "filterSummary": "{{count}} viaje(s) — {{period}}",
     "paginationPrev": "Ant.",
     "paginationNext": "Sig.",
-    "paginationPage": "{{from}}–{{to}} de {{total}} · p. {{page}}/{{pages}}"
+    "paginationPage": "{{from}}–{{to}} de {{total}} · p. {{page}}/{{pages}}",
+    "weekNet": "Neto de la semana",
+    "weekRides": "{{count}} carreras",
+    "weekCash": "Efectivo",
+    "weekCard": "Tarjeta"
   },
   "nav": {
     "distance": {
