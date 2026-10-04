@@ -134,6 +134,12 @@
     "offerNoticeCta": {
       "profile": "Completar mi expediente",
       "currentRide": "Ver mi carrera"
+    },
+    "payment": {
+      "cashToCollect": "Efectivo a cobrar",
+      "cashCollected": "Efectivo ya cobrado",
+      "cardNoCash": "Tarjeta — nada que cobrar",
+      "cardPaid": "Ya pagado en línea"
     }
   },
   "profile": {

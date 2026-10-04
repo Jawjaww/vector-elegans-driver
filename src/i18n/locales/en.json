@@ -139,6 +139,12 @@
     "offerNoticeCta": {
       "profile": "Complete my file",
       "currentRide": "View my ride"
+    },
+    "payment": {
+      "cashToCollect": "Cash to collect",
+      "cashCollected": "Cash already collected",
+      "cardNoCash": "Card — nothing to collect",
+      "cardPaid": "Already paid online"
     }
   },
   "earningsScreen": {

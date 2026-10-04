@@ -145,6 +145,12 @@
     "offerNoticeCta": {
       "profile": "Compléter mon dossier",
       "currentRide": "Voir ma course"
+    },
+    "payment": {
+      "cashToCollect": "Espèces à encaisser",
+      "cashCollected": "Espèces déjà encaissées",
+      "cardNoCash": "Carte — rien à encaisser",
+      "cardPaid": "Déjà payé en ligne"
     }
   },
   "earningsScreen": {

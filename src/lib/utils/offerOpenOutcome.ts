@@ -240,6 +240,10 @@ type RawOfferRidePayload = {
     responded_at?: string | null;
     alive?: boolean;
   } | null;
+  /** F-01 : bloc derive du snapshot par la RPC. */
+  payment?: { method?: string | null; status?: string | null } | null;
+  /** F-01 : le snapshot complet, qui porte aussi payment_status. */
+  snapshot?: { payment_status?: string | null } | null;
 };
 
 /**
@@ -253,9 +257,16 @@ export function toOfferOpenFetch(data: unknown): OfferOpenFetch {
   }
 
   const offer = raw.offer ?? {};
+  const ride = toAppRide(raw.ride as Partial<RideRow> & Pick<RideRow, 'id'>);
+
+  // F-01 : le mode vient de la colonne (deja mappee), le statut du bloc `payment` — ou, a defaut,
+  // du snapshot. Sans statut, la carte affichera « a encaisser » : jamais « deja paye ».
+  const paymentMethod = raw.payment?.method ?? ride.payment_method ?? null;
+  const paymentStatus = raw.payment?.status ?? raw.snapshot?.payment_status ?? null;
+
   return {
     ok: true,
-    ride: toAppRide(raw.ride as Partial<RideRow> & Pick<RideRow, 'id'>),
+    ride: { ...ride, payment_method: paymentMethod, payment_status: paymentStatus },
     offer: {
       status: offer.status ?? '',
       waveN: offer.wave_n ?? null,
