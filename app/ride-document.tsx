@@ -11,6 +11,11 @@ import {
   RIDE_DOCUMENT_LABEL_KEYS,
   type RideDocument,
 } from '../src/lib/utils/rideDocument';
+import {
+  isSpecimen,
+  SPECIMEN_DOCUMENT,
+  SPECIMEN_MARKER,
+} from '../src/lib/utils/documentSpecimen';
 
 /**
  * La facture ou le reçu d'une course (F-02), ouverte depuis l'historique.
@@ -30,6 +35,7 @@ export default function RideDocumentScreen() {
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [showSpecimen, setShowSpecimen] = useState(false);
 
   const load = useCallback(async () => {
     if (!rideId) {
@@ -39,13 +45,27 @@ export default function RideDocumentScreen() {
 
     setLoading(true);
     try {
-      const [rideResult, docResult] = await Promise.all([
-        supabase.from('rides').select('payment_method').eq('id', rideId).maybeSingle(),
-        supabase.from('ride_documents').select('*').eq('ride_id', rideId).limit(1).maybeSingle(),
-      ]);
+      // UNE requête tant qu'il y a quelque chose à montrer. Le mode de paiement ne sert qu'à
+      // choisir QUEL document demander : il ne se lit donc que s'il n'y a rien à afficher. Une
+      // lecture à deux branches coûtait une requête sur chaque ouverture d'écran pour rien.
+      const docResult = await supabase
+        .from('ride_documents')
+        .select('*')
+        .eq('ride_id', rideId)
+        .limit(1)
+        .maybeSingle();
 
-      setPaymentMethod(rideResult.data?.payment_method ?? null);
-      setDocument(docResult.data ? toRideDocument(docResult.data) : null);
+      const parsed = docResult.data ? toRideDocument(docResult.data) : null;
+      setDocument(parsed);
+
+      if (!parsed) {
+        const rideResult = await supabase
+          .from('rides')
+          .select('payment_method')
+          .eq('id', rideId)
+          .maybeSingle();
+        setPaymentMethod(rideResult.data?.payment_method ?? null);
+      }
     } catch {
       setMessage(t('rideDocuments.unknownError'));
     } finally {
@@ -60,6 +80,8 @@ export default function RideDocumentScreen() {
   // Le bon document pour le bon encaissement : la plateforme facture ce qu'elle a encaissé, le
   // chauffeur reçoit un reçu pour ce qu'il a encaissé lui-même.
   const kind = paymentMethod === 'card' ? 'invoice' : 'receipt';
+  // Le spécimen n'existe que dans l'affichage : aucune requête, et rien en base.
+  const shown = document ?? SPECIMEN_DOCUMENT;
 
   const issue = useCallback(async () => {
     if (!rideId) return;
@@ -109,7 +131,7 @@ export default function RideDocumentScreen() {
           <View className="py-10 items-center">
             <ActivityIndicator color="#34d399" />
           </View>
-        ) : document ? (
+        ) : document || showSpecimen ? (
           <View
             className="rounded-2xl p-5"
             style={{
@@ -118,48 +140,60 @@ export default function RideDocumentScreen() {
               borderColor: 'rgba(255, 255, 255, 0.05)',
             }}
           >
+            {isSpecimen(shown) ? (
+              <View className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 self-start">
+                <Text className="text-amber-300 text-xs font-black tracking-wider">
+                  {SPECIMEN_MARKER}
+                </Text>
+              </View>
+            ) : null}
             <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-              {t(RIDE_DOCUMENT_LABEL_KEYS[document.kind])}
+              {t(RIDE_DOCUMENT_LABEL_KEYS[shown.kind])}
             </Text>
             <Text className="text-white text-2xl font-black tracking-tight mt-1">
-              {document.number}
+              {shown.number}
             </Text>
-            {document.issuedAt ? (
+            {isSpecimen(shown) ? (
+              <Text className="text-amber-200/80 text-xs mt-2">
+                {t('rideDocuments.specimenNotice')}
+              </Text>
+            ) : null}
+            {shown.issuedAt ? (
               <Text className="text-slate-500 text-xs mt-1">
-                {new Date(document.issuedAt).toLocaleString()}
+                {new Date(shown.issuedAt).toLocaleString()}
               </Text>
             ) : null}
 
             <View className="mt-4 pt-4 border-t border-white/10">
-              <Row label={t('rideDocuments.issuer')} value={document.issuer.name} />
-              {document.issuer.siret ? (
-                <Row label={t('rideDocuments.siret')} value={document.issuer.siret} />
+              <Row label={t('rideDocuments.issuer')} value={shown.issuer.name} />
+              {shown.issuer.siret ? (
+                <Row label={t('rideDocuments.siret')} value={shown.issuer.siret} />
               ) : null}
-              {document.clientName ? (
-                <Row label={t('rideDocuments.client')} value={document.clientName} />
+              {shown.clientName ? (
+                <Row label={t('rideDocuments.client')} value={shown.clientName} />
               ) : null}
-              {document.ridePickup ? (
-                <Row label={t('rideDocuments.ride')} value={document.ridePickup} />
+              {shown.ridePickup ? (
+                <Row label={t('rideDocuments.ride')} value={shown.ridePickup} />
               ) : null}
             </View>
 
             <View className="mt-4 pt-4 border-t border-white/10">
               <Row
                 label={t('rideDocuments.total')}
-                value={`€${document.totalAmount.toFixed(2)}`}
+                value={`€${shown.totalAmount.toFixed(2)}`}
                 strong
               />
-              {document.driverEarning !== null ? (
+              {shown.driverEarning !== null ? (
                 <Row
                   label={t('rideDocuments.driverEarning')}
-                  value={`€${document.driverEarning.toFixed(2)}`}
+                  value={`€${shown.driverEarning.toFixed(2)}`}
                 />
               ) : null}
-              {document.paymentMethod ? (
+              {shown.paymentMethod ? (
                 <Row
                   label={t('rideDocuments.method')}
                   value={
-                    document.paymentMethod === 'cash'
+                    shown.paymentMethod === 'cash'
                       ? t('rideDocuments.cash')
                       : t('rideDocuments.card')
                   }
@@ -179,11 +213,12 @@ export default function RideDocumentScreen() {
             <Text className="text-slate-300 text-sm">
               {t(kind === 'invoice' ? 'rideDocuments.noInvoice' : 'rideDocuments.noReceipt')}
             </Text>
+            <View className="flex-row gap-3 mt-4">
             <Pressable
               onPress={() => void issue()}
               disabled={issuing}
               accessibilityRole="button"
-              className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 self-start"
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5"
             >
               <Text className="text-emerald-300 text-sm font-bold">
                 {issuing
@@ -191,6 +226,16 @@ export default function RideDocumentScreen() {
                   : t(kind === 'invoice' ? 'rideDocuments.askInvoice' : 'rideDocuments.askReceipt')}
               </Text>
             </Pressable>
+            <Pressable
+              onPress={() => setShowSpecimen(true)}
+              accessibilityRole="button"
+              className="rounded-lg border border-white/15 px-4 py-2.5"
+            >
+              <Text className="text-slate-300 text-sm font-bold">
+                {t('rideDocuments.seeSpecimen')}
+              </Text>
+            </Pressable>
+            </View>
           </View>
         )}
 

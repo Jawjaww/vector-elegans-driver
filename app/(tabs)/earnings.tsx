@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -49,9 +50,14 @@ export default function EarningsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Rechargé à CHAQUE venue sur l'onglet, et pas au montage : un onglet reste monté, donc un
+  // chargement au montage laisserait un relevé périmé au retour du chauffeur. Une requête par
+  // visite, aucun sondage — c'est de l'argent, il doit être juste au moment où il le regarde.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const card = 'overflow-hidden rounded-2xl mb-4';
   const cardStyle = {

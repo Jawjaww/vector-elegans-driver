@@ -516,6 +516,8 @@
     "notPaid": "Cette course n'est pas encore encaissée : il n'y a rien à constater.",
     "rideNotFound": "Course introuvable.",
     "notYours": "Cette course n'est pas la vôtre.",
-    "unknownError": "Le document n'a pas pu être obtenu. Réessayez plus tard."
+    "unknownError": "Le document n'a pas pu être obtenu. Réessayez plus tard.",
+    "seeSpecimen": "Voir un spécimen",
+    "specimenNotice": "Exemple : ce document n'a aucune valeur, et aucun vrai document ne porte ce numéro."
   }
 }
