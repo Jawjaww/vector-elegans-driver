@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { FeatherGlyph } from "../../src/components/FeatherGlyph";
@@ -351,6 +351,8 @@ function RideHistoryRow({
   ride,
   locale,
 }: Readonly<{ ride: Ride; locale: string }>) {
+  const { t } = useTranslation();
+  const router = useRouter();
   const { distanceKm, durationMin } = resolveRideTripMetrics(ride);
   const amount = rideHistoryAmount(ride);
   const when = formatHistoryWhen(ride.updated_at, locale);
@@ -373,6 +375,19 @@ function RideHistoryRow({
             {amount != null ? `€${amount.toFixed(2)}` : "—"}
           </Text>
         </View>
+
+        {/* F-02 : la facture ou le reçu de la course, sur place. */}
+        <Pressable
+          onPress={() =>
+            router.push({ pathname: '/ride-document', params: { rideId: ride.id } })
+          }
+          accessibilityRole="button"
+          className="self-start mb-3"
+        >
+          <Text className="text-slate-400 text-xs font-bold">
+            {t('rideDocuments.open')} ›
+          </Text>
+        </Pressable>
 
         <View className="flex-row items-center mb-2">
           <View
