@@ -160,7 +160,22 @@
     "ridesChip": "+{{count}} COURSES",
     "completedToday": "terminées aujourd'hui",
     "weekEst": "Cette semaine (estim.)",
-    "monthEst": "Ce mois (estim.)"
+    "monthEst": "Ce mois (estim.)",
+    "week": "Cette semaine",
+    "netEarnings": "Net gagné",
+    "cashCollected": "Espèces encaissées",
+    "cashToCollect": "Reste à encaisser",
+    "cardDue": "Carte — dû par la plateforme",
+    "cardPending": "Carte non débitée",
+    "dueByPlatform": "La plateforme vous doit",
+    "ridesThisWeek": "courses cette semaine",
+    "detail": "Détail des courses",
+    "empty": "Aucune course terminée cette semaine.",
+    "inconsistent": "Relevé incohérent. Rafraîchissez pour le recharger.",
+    "loading": "Chargement du relevé…",
+    "retry": "Réessayer",
+    "paid": "Payée",
+    "unpaid": "À encaisser"
   },
   "ridesScreen": {
     "title": "Courses",

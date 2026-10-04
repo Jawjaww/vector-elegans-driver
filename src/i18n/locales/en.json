@@ -154,7 +154,22 @@
     "ridesChip": "+{{count}} RIDES",
     "completedToday": "completed today",
     "weekEst": "This week (est.)",
-    "monthEst": "This month (est.)"
+    "monthEst": "This month (est.)",
+    "week": "This week",
+    "netEarnings": "Net earned",
+    "cashCollected": "Cash collected",
+    "cashToCollect": "Still to collect",
+    "cardDue": "Card — owed by the platform",
+    "cardPending": "Card not charged",
+    "dueByPlatform": "The platform owes you",
+    "ridesThisWeek": "rides this week",
+    "detail": "Ride detail",
+    "empty": "No completed ride this week.",
+    "inconsistent": "Inconsistent statement. Refresh to reload.",
+    "loading": "Loading statement…",
+    "retry": "Try again",
+    "paid": "Paid",
+    "unpaid": "To collect"
   },
   "ridesScreen": {
     "title": "Rides",
