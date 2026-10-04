@@ -179,7 +179,8 @@
     "unclassified": "Non renseigné (courses antérieures)",
     "notADriver": "Ce compte n'est pas rattaché à un chauffeur.",
     "notAuthenticated": "Session expirée. Reconnectez-vous.",
-    "unreadable": "Relevé indisponible pour le moment. Réessayez dans un instant."
+    "unreadable": "Relevé indisponible pour le moment. Réessayez dans un instant.",
+    "seeWeekRides": "Voir les courses de la semaine ({{count}})"
   },
   "ridesScreen": {
     "title": "Courses",

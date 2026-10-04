@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ import {
  */
 export default function EarningsScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const [summary, setSummary] = useState<WeekSummary | null>(null);
   const [loading, setLoading] = useState(true);
   // Le MOTIF du refus, pas un booleen : « incohérent », « pas un chauffeur » et « session expirée »
@@ -206,48 +207,29 @@ export default function EarningsScreen() {
               </View>
             </View>
 
-            {/* Le détail, course par course */}
-            {summary.rides.length === 0 ? (
-              <Text className="text-slate-500 text-sm text-center py-6">
-                {t('earningsScreen.empty')}
-              </Text>
-            ) : (
-              summary.rides.map((ride) => (
-                <View key={ride.rideId} className={card} style={cardStyle}>
-                  <View className="p-4">
-                    <View className="flex-row justify-between items-center">
-                      <Text className="text-slate-400 text-xs">
-                        {ride.pickupAt ? new Date(ride.pickupAt).toLocaleString() : '—'}
-                      </Text>
-                      <View className="flex-row items-center">
-                        <Feather
-                          name={ride.paymentMethod === 'cash' ? 'dollar-sign' : 'credit-card'}
-                          size={13}
-                          color={ride.paid ? '#4ade80' : '#fbbf24'}
-                        />
-                        <Text className="text-slate-400 text-xs ml-1">
-                          {ride.paid ? t('earningsScreen.paid') : t('earningsScreen.unpaid')}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text className="text-slate-200 text-sm mt-2" numberOfLines={1}>
-                      {ride.pickupAddress || '—'}
-                    </Text>
-                    <Text className="text-slate-500 text-xs" numberOfLines={1}>
-                      → {ride.dropoffAddress || '—'}
-                    </Text>
-                    <View className="flex-row justify-between items-center mt-2">
-                      <Text className="text-white font-bold">
-                        €{ride.driverEarning.toFixed(2)}
-                      </Text>
-                      {ride.hasDocument && ride.documentNumber ? (
-                        <Text className="text-slate-500 text-xs">{ride.documentNumber}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-              ))
-            )}
+            {/*
+              Un LIEN, pas une liste. Le relevé est une synthèse : y déverser les courses, sans
+              borne, noie le chiffre qu'on venait lire et double un écran qui existe déjà. Le lien
+              mène à l'historique DÉJÀ filtré sur la semaine du relevé, ce qui est la seule chose
+              que la synthèse a à dire sur les courses.
+            */}
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/rides', params: { mode: 'week' } })
+              }
+              accessibilityRole="button"
+              className="rounded-2xl border border-white/10 px-4 py-4 mb-4 flex-row items-center justify-between"
+              style={{ backgroundColor: 'rgba(255, 255, 255, 0.03)' }}
+            >
+              <View className="flex-row items-center">
+                <Feather name="list" size={15} color="#94a3b8" />
+                <Text className="text-slate-200 text-sm font-bold ml-2">
+                  {t('earningsScreen.seeWeekRides', { count: summary.totals.rides })}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={16} color="#64748b" />
+            </Pressable>
+
           </>
         )}
       </ScrollView>

@@ -285,7 +285,8 @@
     "unclassified": "Sin registrar (carreras anteriores)",
     "notADriver": "Esta cuenta no está vinculada a un conductor.",
     "notAuthenticated": "Sesión caducada. Vuelve a iniciar sesión.",
-    "unreadable": "Resumen no disponible ahora mismo. Inténtalo en un momento."
+    "unreadable": "Resumen no disponible ahora mismo. Inténtalo en un momento.",
+    "seeWeekRides": "Ver las carreras de la semana ({{count}})"
   },
   "ridesScreen": {
     "title": "Viajes",
