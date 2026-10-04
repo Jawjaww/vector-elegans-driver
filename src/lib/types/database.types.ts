@@ -876,6 +876,42 @@ export type Database = {
           },
         ]
       }
+      platform_legal_identity: {
+        Row: {
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
+          id: boolean
+          legal_name: string | null
+          postal_code: string | null
+          siret: string | null
+          updated_at: string
+          vat_number: string | null
+        }
+        Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          id?: boolean
+          legal_name?: string | null
+          postal_code?: string | null
+          siret?: string | null
+          updated_at?: string
+          vat_number?: string | null
+        }
+        Update: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
+          id?: boolean
+          legal_name?: string | null
+          postal_code?: string | null
+          siret?: string | null
+          updated_at?: string
+          vat_number?: string | null
+        }
+        Relationships: []
+      }
       promo_codes: {
         Row: {
           active: boolean
@@ -1105,6 +1141,84 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "reviews_ride_id_fkey"
+            columns: ["ride_id"]
+            isOneToOne: false
+            referencedRelation: "rides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ride_documents: {
+        Row: {
+          client: Json
+          client_user_id: string | null
+          driver_earning: number | null
+          driver_id: string | null
+          exercise: number
+          id: string
+          issued_at: string
+          issuer: Json
+          kind: string
+          number: string
+          operator_share: number | null
+          payment_method: string | null
+          platform_share: number | null
+          ride: Json
+          ride_id: string
+          seq: number
+          series: string
+          total_amount: number
+        }
+        Insert: {
+          client: Json
+          client_user_id?: string | null
+          driver_earning?: number | null
+          driver_id?: string | null
+          exercise: number
+          id?: string
+          issued_at?: string
+          issuer: Json
+          kind: string
+          number: string
+          operator_share?: number | null
+          payment_method?: string | null
+          platform_share?: number | null
+          ride: Json
+          ride_id: string
+          seq: number
+          series: string
+          total_amount: number
+        }
+        Update: {
+          client?: Json
+          client_user_id?: string | null
+          driver_earning?: number | null
+          driver_id?: string | null
+          exercise?: number
+          id?: string
+          issued_at?: string
+          issuer?: Json
+          kind?: string
+          number?: string
+          operator_share?: number | null
+          payment_method?: string | null
+          platform_share?: number | null
+          ride?: Json
+          ride_id?: string
+          seq?: number
+          series?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ride_documents_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ride_documents_ride_id_fkey"
             columns: ["ride_id"]
             isOneToOne: false
             referencedRelation: "rides"
@@ -2373,6 +2487,10 @@ export type Database = {
       is_operator: { Args: never; Returns: boolean }
       is_operator_member: { Args: { p_operator_id: string }; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      issue_ride_document: {
+        Args: { p_kind?: string; p_ride_id: string }
+        Returns: Json
+      }
       list_own_driver_documents: {
         Args: { p_driver_id: string }
         Returns: {
