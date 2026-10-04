@@ -1079,6 +1079,7 @@ export type Database = {
       ride_fee_policies: {
         Row: {
           cancel_after_arrival_flat: number
+          commission_percent: number
           created_at: string
           dispatch_include_offline_from_wave: number
           dispatch_lead_minutes: number
@@ -1103,6 +1104,7 @@ export type Database = {
           offer_batch_size: number
           offer_driver_cooldown_seconds: number
           offer_ttl_seconds: number
+          operator_share_percent: number
           scope_id: string | null
           scope_kind: string
           silence_expire_minutes: number
@@ -1112,6 +1114,7 @@ export type Database = {
         }
         Insert: {
           cancel_after_arrival_flat?: number
+          commission_percent?: number
           created_at?: string
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
@@ -1136,6 +1139,7 @@ export type Database = {
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
           offer_ttl_seconds?: number
+          operator_share_percent?: number
           scope_id?: string | null
           scope_kind?: string
           silence_expire_minutes?: number
@@ -1145,6 +1149,7 @@ export type Database = {
         }
         Update: {
           cancel_after_arrival_flat?: number
+          commission_percent?: number
           created_at?: string
           dispatch_include_offline_from_wave?: number
           dispatch_lead_minutes?: number
@@ -1169,6 +1174,7 @@ export type Database = {
           offer_batch_size?: number
           offer_driver_cooldown_seconds?: number
           offer_ttl_seconds?: number
+          operator_share_percent?: number
           scope_id?: string | null
           scope_kind?: string
           silence_expire_minutes?: number
@@ -1420,6 +1426,7 @@ export type Database = {
           dispatch_wave: number
           distance: number | null
           driver_arrived_at: string | null
+          driver_earning: number | null
           driver_id: string | null
           dropoff_address: string
           dropoff_lat: number | null
@@ -1436,6 +1443,7 @@ export type Database = {
           matching_paused_at: string | null
           nav_updated_at: string | null
           operator_id: string | null
+          operator_share: number | null
           options: string[] | null
           override_vehicle_id: string | null
           pickup_address: string
@@ -1443,6 +1451,7 @@ export type Database = {
           pickup_lon: number | null
           pickup_notes: string | null
           pickup_time: string
+          platform_share: number | null
           price: number | null
           status: Database["public"]["Enums"]["ride_status"]
           updated_at: string
@@ -1464,6 +1473,7 @@ export type Database = {
           dispatch_wave?: number
           distance?: number | null
           driver_arrived_at?: string | null
+          driver_earning?: number | null
           driver_id?: string | null
           dropoff_address: string
           dropoff_lat?: number | null
@@ -1480,6 +1490,7 @@ export type Database = {
           matching_paused_at?: string | null
           nav_updated_at?: string | null
           operator_id?: string | null
+          operator_share?: number | null
           options?: string[] | null
           override_vehicle_id?: string | null
           pickup_address: string
@@ -1487,6 +1498,7 @@ export type Database = {
           pickup_lon?: number | null
           pickup_notes?: string | null
           pickup_time: string
+          platform_share?: number | null
           price?: number | null
           status?: Database["public"]["Enums"]["ride_status"]
           updated_at?: string
@@ -1508,6 +1520,7 @@ export type Database = {
           dispatch_wave?: number
           distance?: number | null
           driver_arrived_at?: string | null
+          driver_earning?: number | null
           driver_id?: string | null
           dropoff_address?: string
           dropoff_lat?: number | null
@@ -1524,6 +1537,7 @@ export type Database = {
           matching_paused_at?: string | null
           nav_updated_at?: string | null
           operator_id?: string | null
+          operator_share?: number | null
           options?: string[] | null
           override_vehicle_id?: string | null
           pickup_address?: string
@@ -1531,6 +1545,7 @@ export type Database = {
           pickup_lon?: number | null
           pickup_notes?: string | null
           pickup_time?: string
+          platform_share?: number | null
           price?: number | null
           status?: Database["public"]["Enums"]["ride_status"]
           updated_at?: string
@@ -2374,6 +2389,14 @@ export type Database = {
       }
       respond_ride_offer: {
         Args: { p_response: string; p_ride_id: string }
+        Returns: Json
+      }
+      ride_amount_split: {
+        Args: {
+          p_client_price: number
+          p_commission_percent: number
+          p_operator_share_percent: number
+        }
         Returns: Json
       }
       ride_dispatch_starts_at: {
