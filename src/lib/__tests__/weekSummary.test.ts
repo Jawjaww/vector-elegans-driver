@@ -191,6 +191,25 @@ describe("earnings screen wiring", () => {
   it("refuse d'afficher un relevé incohérent", () => {
     expect(screen).toContain("isWeekSummaryConsistent");
   });
+
+  it("ne déverse pas la liste des courses : un lien vers l'historique filtré", () => {
+    // Retour du propriétaire : « la liste de courses dans la page gains, personne ne fait ça ».
+    // Une synthèse qui déverse les courses, sans borne, noie le chiffre qu'on venait lire et
+    // double un écran qui existe déjà.
+    expect(screen).not.toContain("summary.rides.map");
+    expect(screen).toContain("seeWeekRides");
+    expect(screen).toContain("mode: 'week'");
+  });
+
+  it("l'historique honore l'intention de filtre venue du lien", () => {
+    const history = readFileSync(
+      join(process.cwd(), "app", "(tabs)", "rides.tsx"),
+      "utf8",
+    );
+
+    expect(history).toContain("useLocalSearchParams");
+    expect(history).toMatch(/params\.mode/);
+  });
 });
 
 /**
@@ -266,24 +285,5 @@ describe("readWeekSummaryRefusal", () => {
 
   it("rend null sur une charge utile qui n'est même pas un objet", () => {
     expect(readWeekSummaryRefusal(null)).toBeNull();
-  });
-
-  it("ne déverse pas la liste des courses : un lien vers l'historique filtré", () => {
-    // Retour du propriétaire : « la liste de courses dans la page gains, personne ne fait ça ».
-    // Une synthèse qui déverse les courses, sans borne, noie le chiffre qu'on venait lire et
-    // double un écran qui existe déjà.
-    expect(screen).not.toContain("summary.rides.map");
-    expect(screen).toContain("seeWeekRides");
-    expect(screen).toContain("mode: 'week'");
-  });
-
-  it("l'historique honore l'intention de filtre venue du lien", () => {
-    const history = readFileSync(
-      join(process.cwd(), "app", "(tabs)", "rides.tsx"),
-      "utf8",
-    );
-
-    expect(history).toContain("useLocalSearchParams");
-    expect(history).toMatch(/params\.mode/);
   });
 });
