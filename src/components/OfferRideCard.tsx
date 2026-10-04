@@ -19,6 +19,7 @@ import { formatIncentiveBonusLabel } from '../lib/utils/ridePickup';
 import { NeonSwipeButton } from './NeonSwipeButton';
 import { NeonProgress } from './NeonProgress';
 import { RideOfferExtras } from './RideOfferExtras';
+import { OfferPaymentBadge } from './OfferPaymentBadge';
 import {
   resolveRideTripMetrics,
   formatPickupDateTime,
@@ -145,6 +146,8 @@ function OfferCardPriceHeader({
   startKey,
   onExpire,
   instantEntry,
+  paymentMethod,
+  paymentStatus,
 }: Readonly<{
   visible: boolean;
   offerPrice: number;
@@ -155,6 +158,9 @@ function OfferCardPriceHeader({
   startKey: number;
   onExpire?: () => void;
   instantEntry: boolean;
+  /** F-01 : comment le client paie, et si c'est deja regle. */
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
 }>) {
   if (!visible) {
     return <View style={styles.headerPlaceholder} />;
@@ -189,6 +195,7 @@ function OfferCardPriceHeader({
         <View style={styles.rentabilityBadgeInline}>
           <RentabilityBadge distance={tripDistKm} price={offerPrice} />
         </View>
+        <OfferPaymentBadge method={paymentMethod} status={paymentStatus} />
       </View>
       {showProgress ? (
         <NeonProgress
@@ -383,6 +390,8 @@ export function OfferRideCard({
           startKey={startKey}
           onExpire={onTimeout || onDecline}
           instantEntry={instantEntry}
+          paymentMethod={ride.payment_method}
+          paymentStatus={ride.payment_status}
         />
 
         <OfferCardApproach

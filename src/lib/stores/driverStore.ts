@@ -38,6 +38,13 @@ export interface Ride {
   client_incentive?: number | null;
   matching_deadline_at?: string | null;
   matching_paused_at?: string | null;
+  /** Mode choisi par le client a la reservation : 'cash' ou 'card'. Colonne de `rides`. */
+  payment_method?: string | null;
+  /**
+   * 'paid' ou 'pending' (F-01). Ne vient PAS de `rides` : il est derive de la ligne `payments`
+   * par l'offre. Absent => non paye : ne jamais supposer le contraire.
+   */
+  payment_status?: string | null;
   /**
    * Painted from a push / Realtime snapshot before `get_driver_offer_ride` confirms.
    * Cleared on the server merge so a later snapshot cannot un-confirm a live card.
