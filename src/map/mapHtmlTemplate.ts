@@ -2181,7 +2181,21 @@ export function buildMapHtmlTemplate(
     }
 
     /** A re-cut is worth one setData; GPS jitter of a few metres is not. */
-    var ROUTE_TRIM_MIN_METERS = 25;
+    /**
+     * Le tracé est rogné derrière la flèche : « la flèche doit donner l'impression de bouffer le
+     * tracé comme Pac-Man, on ne doit même pas voir de tracé bleu derrière ».
+     *
+     * syncNavRouteStart recoit deja le point AFFICHE (la position interpolee de la fleche) et
+     * tourne a la frequence d'affichage — la geometrie etait donc juste. Le defaut etait cet
+     * etranglement : a 25 m, la ligne n'etait recoupee qu'une fois la fleche ayant roule 25 m
+     * au-delà de son départ, et elle restait dessinée sous elle tout ce temps. D'où ces bouts de
+     * bleu qui ne s'effaçaient qu'avec 25 m de retard.
+     *
+     * 2 m : à l'échelle du guidage, la flèche couvre une dizaine de mètres à l'écran — le reste de
+     * ligne est donc caché SOUS elle, et non visible derrière. Plus petit, on recouperait la
+     * géométrie à chaque image pour un gain invisible.
+     */
+    var ROUTE_TRIM_MIN_METERS = 2;
 
     /**
      * The drawn route starts at the driver, not at the router's first vertex.
