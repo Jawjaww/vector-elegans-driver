@@ -171,6 +171,22 @@ var NAV_BEARING_MIN_SPEED_MPS = 0.5;
 /** One frame's dt is clamped, so a recovered loop cannot jump the arrow forward. */
 var NAV_MAX_DT_S = 0.1;
 
+/**
+ * La politique de rattrapage, posee par le document.
+ *
+ * Le document recoit window.__veNavPolicy : les reglages viennent de la base (D-23), donc d'un
+ * reglage ajustable sans redeployer l'application. Sans lui — dans un test, ou sur un document plus
+ * ancien — les constantes ci-dessus s'appliquent.
+ *
+ * On lit a l'APPEL et non au chargement : un document qui pose sa politique apres le fragment, ou
+ * qui la change en cours de route, reste honore. Le cout est de quatre lectures par tick.
+ */
+function navPolicyNumber(name, fallback) {
+  if (typeof window === "undefined" || !window || !window.__veNavPolicy) return fallback;
+  var value = window.__veNavPolicy[name];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function headingDeltaDegrees(a, b) {
   const na = normaliseBearing(a);
   const nb = normaliseBearing(b);
@@ -297,14 +313,15 @@ function stepNavMotion(state, dt, nowMs) {
   var gps = seed.gpsProgressM;
   var offset =
     typeof gps === "number" && Number.isFinite(gps) ? gps - progress : 0;
-  if (offset > NAV_MAX_CATCHUP_METERS) offset = NAV_MAX_CATCHUP_METERS;
+  var maxCatchupM = navPolicyNumber("maxCatchupM", NAV_MAX_CATCHUP_METERS);
+  if (offset > maxCatchupM) offset = maxCatchupM;
   if (offset < -NAV_MAX_LEAD_METERS) offset = -NAV_MAX_LEAD_METERS;
   // La correction voulue par le ressort...
-  var wanted = NAV_SPRING_PER_S * offset;
+  var wanted = navPolicyNumber("springPerS", NAV_SPRING_PER_S) * offset;
   // ...bornee en PART de la vitesse courante : c'est la que le rattrapage cesse d'etre visible.
   var maxCorrection = Math.max(
     NAV_CATCHUP_MIN_MPS,
-    NAV_CATCHUP_SHARE * Math.abs(vEst)
+    navPolicyNumber("catchupShare", NAV_CATCHUP_SHARE) * Math.abs(vEst)
   );
   if (wanted > maxCorrection) wanted = maxCorrection;
   if (wanted < -maxCorrection) wanted = -maxCorrection;
@@ -314,7 +331,7 @@ function stepNavMotion(state, dt, nowMs) {
     typeof seed.correctionMps === "number" && Number.isFinite(seed.correctionMps)
       ? seed.correctionMps
       : 0;
-  var maxDelta = NAV_CATCHUP_MAX_DV_MPS2 * step;
+  var maxDelta = navPolicyNumber("catchupMaxDv", NAV_CATCHUP_MAX_DV_MPS2) * step;
   var correction = wanted;
   if (correction > previous + maxDelta) correction = previous + maxDelta;
   if (correction < previous - maxDelta) correction = previous - maxDelta;

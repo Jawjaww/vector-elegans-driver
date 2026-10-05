@@ -691,3 +691,81 @@ describe("the catch-up is a speed, bounded and imperceptible", () => {
     expect(fragment.includes("`")).toBe(false);
   });
 });
+
+/**
+ * LA POLITIQUE VIENT DU DOCUMENT, PAS DU CODE.
+ *
+ * D-23 : les quatre reglages vivent en base, et le proprietaire doit pouvoir ajuster le ressenti
+ * SANS redeployer l'application. Cela n'a de sens que si le document les lit vraiment — et c'est
+ * exactement ce que ce test verifie : la MEME rafale, avec deux politiques differentes, doit donner
+ * deux mouvements differents. Sans cela, la fonctionnalite est decorative.
+ */
+describe("the catch-up policy comes from the document", () => {
+  function policyScope(policy: Record<string, number> | null) {
+    const fragment = extractBetween(
+      mapHtml(),
+      "/* VE_NAV_HELPERS_START */",
+      "/* VE_NAV_HELPERS_END */",
+    );
+    const scope = globalThis as unknown as { window?: unknown };
+    if (policy) scope.window = { __veNavPolicy: policy };
+    else delete scope.window;
+
+    // eslint-disable-next-line no-new-func
+    return new Function(
+      `${fragment}
+      return { stepNavMotion: stepNavMotion, emptyNavMotion: emptyNavMotion };`,
+    )();
+  }
+
+  /** La vitesse apparente maximale sur une rafale ou l'ecart est maintenu. */
+  function maxApparentSpeed(policy: Record<string, number> | null): number {
+    const api = policyScope(policy);
+    let state = {
+      ...api.emptyNavMotion(),
+      progressM: 1000,
+      vEst: 10,
+      lastGpsAtMs: 0,
+      gpsProgressM: 1020,
+    };
+    let max = 0;
+
+    for (let i = 1; i <= 200; i += 1) {
+      const nowMs = i * 50;
+      state.gpsProgressM = state.progressM + 20;
+      state.lastGpsAtMs = nowMs;
+      const next = api.stepNavMotion(state, 0.05, nowMs);
+      max = Math.max(max, (next.progressM - state.progressM) / 0.05);
+      state = next;
+    }
+
+    return max;
+  }
+
+  it("lit la politique posee par le document", () => {
+    try {
+      const tight = maxApparentSpeed({ catchupShare: 0.05 });
+      const loose = maxApparentSpeed({ catchupShare: 0.5 });
+
+      // 5 % de 10 m/s -> 10,5 ; 50 % -> 15. Si la politique n'etait pas lue, les deux vaudraient
+      // 11,5 et la seconde assertion tomberait.
+      expect(tight).toBeLessThanOrEqual(10 * 1.05 + 0.01);
+      expect(loose).toBeGreaterThan(13);
+      expect(loose).toBeGreaterThan(tight);
+    } finally {
+      delete (globalThis as unknown as { window?: unknown }).window;
+    }
+  });
+
+  it("sans politique posee, les constantes par defaut s'appliquent", () => {
+    try {
+      const max = maxApparentSpeed(null);
+
+      // La correction existe (elle n'est pas nulle)... et reste dans la bande de 15 %.
+      expect(max).toBeGreaterThan(10);
+      expect(max).toBeLessThanOrEqual(10 * 1.15 + 0.01);
+    } finally {
+      delete (globalThis as unknown as { window?: unknown }).window;
+    }
+  });
+});

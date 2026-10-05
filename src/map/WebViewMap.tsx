@@ -274,6 +274,8 @@ function dispatchWebViewMapMessage(
 export function WebViewMap({
   initialCenter,
   initialZoom = 14,
+  /** Reglages du rattrapage de la fleche (D-23), venus du snapshot de la course. */
+  navPolicy,
   start,
   end,
   approachFrom,
@@ -307,6 +309,7 @@ export function WebViewMap({
 }: MapProps & {
   drivers?: DriverMarker[];
   prefetchConfig?: PrefetchConfig;
+  navPolicy?: Record<string, number>;
 }) {
   const webViewRef = useRef<WebView>(null);
   const hostRef = useRef<View>(null);
@@ -358,11 +361,11 @@ export function WebViewMap({
   const [, startMapTransition] = useTransition();
 
   const htmlContent = useMemo(
-    () => buildMapHtmlTemplate(seedCenter, prefetchConfig, initialZoom),
+    () => buildMapHtmlTemplate(seedCenter, prefetchConfig, initialZoom, navPolicy),
     // Offer: remount HTML per mapInstanceKey + seed. Default home: stable HTML once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     mapInstanceKey != null
-      ? [mapInstanceKey, seedCenter.lat, seedCenter.lng, initialZoom]
+      ? [mapInstanceKey, seedCenter.lat, seedCenter.lng, initialZoom, navPolicy]
       : [],
   );
 
