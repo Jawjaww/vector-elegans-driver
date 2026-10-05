@@ -59,3 +59,47 @@ describe("navPolicyPayload", () => {
     });
   });
 });
+
+/**
+ * LA POLITIQUE DOIT ATTEINDRE LE DOCUMENT, MAILLON PAR MAILLON.
+ *
+ * D-23 n'a de sens que si le proprietaire peut ajuster le ressenti depuis la base. Un seul maillon
+ * manquant et tout le reste devient decor : une colonne que personne ne lit ressemble exactement a
+ * une constante, sauf qu'elle coute une migration.
+ *
+ * C'est precisement ce qui manquait : `select('*')` ramenait deja le snapshot, mais le mapping le
+ * jetait. Chaque maillon est donc verrouille ici — ligne de base, course de l'app, ecran, modele.
+ */
+describe("the policy reaches the map document", () => {
+  const { readFileSync } = require("fs") as {
+    readFileSync: (path: string, encoding: string) => string;
+  };
+  const { join } = require("path") as { join: (...parts: string[]) => string };
+  const read = (relative: string) =>
+    readFileSync(join(process.cwd(), relative), "utf8");
+
+  it("le mapping de course transporte le snapshot de frais", () => {
+    expect(read(join("src", "lib", "utils", "toAppRide.ts"))).toContain(
+      "fee_policy_snapshot: row.fee_policy_snapshot",
+    );
+  });
+
+  it("l'ecran de navigation passe la politique a la carte", () => {
+    const screen = read(join("app", "(tabs)", "index.tsx"));
+
+    expect(screen).toContain("navPolicy={navPolicyPayload(");
+    expect(screen).toContain("navPolicyFromSnapshot(activeRide?.fee_policy_snapshot)");
+  });
+
+  it("le modele de carte pose la politique dans le document", () => {
+    expect(read(join("src", "map", "mapHtmlTemplate.ts"))).toContain(
+      "window.__veNavPolicy = ${JSON.stringify(navPolicy ?? {})}",
+    );
+  });
+
+  it("le fragment lit cette politique", () => {
+    expect(read(join("src", "map", "navGuidanceSource.ts"))).toContain(
+      'navPolicyNumber("catchupShare", NAV_CATCHUP_SHARE)',
+    );
+  });
+});

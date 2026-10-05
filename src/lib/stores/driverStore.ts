@@ -36,6 +36,8 @@ export interface Ride {
   driver_arrived_at?: string | null;
   accepted_at?: string | null;
   client_incentive?: number | null;
+  /** D-23 : les reglages du rattrapage de la fleche, figes a la creation de la course. */
+  fee_policy_snapshot?: unknown | null;
   matching_deadline_at?: string | null;
   matching_paused_at?: string | null;
   /** Mode choisi par le client a la reservation : 'cash' ou 'card'. Colonne de `rides`. */
