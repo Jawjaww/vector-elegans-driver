@@ -29,6 +29,8 @@ export function buildMapHtmlTemplate(
   initialLocation: LatLng,
   prefetchConfig: PrefetchConfig = DEFAULT_PREFETCH_CONFIG,
   initialZoom = 14,
+  /** Les reglages du rattrapage de la fleche (D-23), venus de la politique de la course. */
+  navPolicy?: Record<string, number>,
 ) {
   const {
     enabled: prefetchEnabled,
@@ -904,6 +906,9 @@ export function buildMapHtmlTemplate(
         );
       } catch (e) {}
     }
+
+    /* La politique de rattrapage, avant les helpers : posee par l'app, ajustable en base. */
+    window.__veNavPolicy = ${JSON.stringify(navPolicy ?? {})};
 
     /* VE_NAV_HELPERS_START */
     function haversineMeters(a, b) {
