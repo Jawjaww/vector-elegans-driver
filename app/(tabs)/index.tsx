@@ -26,7 +26,6 @@ import {
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
 import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
 import { localDayBounds, summarizeHistoryToday } from "../../src/lib/utils/rideHistory";
-import { rideService } from "../../src/services/rideService";
 import {
   OFFER_CATCHUP_INTERVAL_MS,
   OFFER_CHANNEL_RETRY_MS,
