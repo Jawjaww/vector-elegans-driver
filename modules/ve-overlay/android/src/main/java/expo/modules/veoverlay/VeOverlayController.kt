@@ -31,8 +31,18 @@ import expo.modules.notifications.service.NotificationsService
 import expo.modules.notifications.service.delegates.FirebaseMessagingDelegate
 import kotlin.math.abs
 
-private const val BUBBLE_WIDTH_DP = 52f
-private const val BUBBLE_HEIGHT_DP = 32f
+/**
+ * La pastille est un DISQUE, pas une pilule.
+ *
+ * Retour du proprietaire : « une pastille noire qui devrait etre ronde mais la elle est seulement
+ * arrondie sur les cotes tandis qu'en haut et en bas c'est plat ». Le defaut etait arithmetique :
+ * une boite de 52x32 avec un rayon de `height / 2` arrondit les cotes et laisse le haut et le bas
+ * droits. Une boite carree et le meme rayon donnent un cercle.
+ *
+ * 48 dp : la taille minimale d'une cible tactile, et la dimension des pastilles de Bolt et Uber.
+ */
+private const val BUBBLE_WIDTH_DP = 48f
+private const val BUBBLE_HEIGHT_DP = 48f
 
 /**
  * What the FCM service should do after [VeOverlayController.onRideOfferPush].
@@ -1037,11 +1047,6 @@ object VeOverlayController {
       color = Color.parseColor("#3B82F6")
       style = Paint.Style.FILL
     }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.parseColor("#10B981")
-      style = Paint.Style.FILL
-    }
-
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
       setMeasuredDimension(widthPx, heightPx)
     }
@@ -1060,7 +1065,8 @@ object VeOverlayController {
 
       // Downward chevron: the wings sit at the top and the point at the bottom,
       // so the glyph reads as a V.
-      val cx = w * 0.40f
+      // Centre : le V etait a 40 % de la largeur uniquement pour degager le voyant vert.
+      val cx = w / 2f
       val cy = h / 2f
       val halfWidth = 6.5f * density
       val top = cy - 7f * density
@@ -1074,8 +1080,6 @@ object VeOverlayController {
       arrow.close()
       canvas.drawPath(arrow, arrowPaint)
 
-      // Online dot.
-      canvas.drawCircle(w * 0.72f, cy, 3.5f * density, dotPaint)
     }
   }
 }
