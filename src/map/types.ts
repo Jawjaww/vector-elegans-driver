@@ -90,6 +90,8 @@ export interface MapProps {
   mapControllerRef?: RefObject<MapControllerRef | null>;
   /** Active ride id, attached to the guidance diagnostic rows (`nav_tick`). */
   activeRideId?: string;
+  /** D-23 : les reglages du rattrapage de la fleche, venus du snapshot de la course. */
+  navPolicy?: Record<string, number>;
   /** True while a reroute is in flight, so the dashboard can replace the stale maneuver card. */
   onReroutingChange?: (active: boolean) => void;
 }

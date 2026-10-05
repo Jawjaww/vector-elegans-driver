@@ -35,6 +35,9 @@ export function toAppRide(row: Partial<RideRow> & Pick<RideRow, 'id'>): Ride {
     accepted_at: row.accepted_at ?? null,
     client_incentive: row.client_incentive ?? null,
     payment_method: row.payment_method ?? null,
+    // D-23 : le snapshot de frais porte les reglages du rattrapage de la fleche. `select('*')` le
+    // ramenait deja, mais le mapping le jetait — donc la politique n'atteignait jamais la carte.
+    fee_policy_snapshot: row.fee_policy_snapshot ?? null,
     matching_deadline_at: row.matching_deadline_at ?? null,
     matching_paused_at: row.matching_paused_at ?? null,
     offerUnconfirmed: false,

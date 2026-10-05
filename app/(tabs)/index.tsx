@@ -19,6 +19,10 @@ import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
 import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState, type ProvisionalOffer } from "../../src/lib/stores/driverStore";
+import {
+  navPolicyFromSnapshot,
+  navPolicyPayload,
+} from "../../src/lib/utils/navCatchupPolicy";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
 import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
 import {
@@ -1887,6 +1891,11 @@ export default function DashboardScreen() {
               followUser={!activeRide && !mapRouteRide}
               navigationFollow={!!activeRide}
               activeRideId={activeRide?.id}
+              // D-23 : les reglages de rattrapage viennent du snapshot de la course, donc d'un
+              // reglage en base — ajustable sans redeployer l'application.
+              navPolicy={navPolicyPayload(
+                navPolicyFromSnapshot(activeRide?.fee_policy_snapshot),
+              )}
               idleRecenterMs={8000}
               onFollowPausedChange={setMapFollowPaused}
               resumeFollowRef={resumeMapFollowRef}
