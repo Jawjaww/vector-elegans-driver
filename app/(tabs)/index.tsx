@@ -25,6 +25,8 @@ import {
 } from "../../src/lib/utils/navCatchupPolicy";
 import { hydratePendingOffers } from "../../src/lib/utils/offerHydrate";
 import { toAppRide, type RideRow } from "../../src/lib/utils/toAppRide";
+import { localDayBounds, summarizeHistoryToday } from "../../src/lib/utils/rideHistory";
+import { rideService } from "../../src/services/rideService";
 import {
   OFFER_CATCHUP_INTERVAL_MS,
   OFFER_CHANNEL_RETRY_MS,
@@ -2099,14 +2101,55 @@ function DriverHomeSheetBody({
       )}
       {!activeRide ? (
         <SheetSection level="stats" onMeasure={onMeasure}>
-          <DriverDayStatsRow stats={stats} />
+          <DriverDayStatsRow />
         </SheetSection>
       ) : null}
     </>
   );
 }
 
-function DriverDayStatsRow({ stats }: Readonly<{ stats: DriverStats }>) {
+/**
+ * La journee du chauffeur, derivee des COURSES et non du store.
+ *
+ * `stats.todayEarnings` / `stats.todayRides` sont persistes dans AsyncStorage et incrementes a
+ * chaque fin de course, sans rien qui les remette a zero a minuit : le chiffre reste donc « vrai »
+ * tant que le telephone n'est pas laisse passer une nuit. Mesure du proprietaire : la carte
+ * annoncait plus de 6 000 EUR sous le mot JOURNEE — un cumul de plusieurs mois.
+ *
+ * Les lignes du serveur sont le seul compteur qui se remet a zero tout seul. La lecture est la
+ * meme que celle de l'onglet Courses (`summarizeHistoryToday`), et un echec de chargement NE
+ * remplace PAS le chiffre par zero : « je n'ai pas encore lu » et « tu n'as rien gagne » ne sont
+ * pas la meme phrase.
+ */
+function DriverDayStatsRow() {
+  const { t } = useTranslation();
+  const activeRideId = useDriverStore((state) => state.activeRide?.id ?? null);
+  const [today, setToday] = useState<{ rides: number; earnings: number } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const fetched = await rideService.fetchCompletedRides(localDayBounds(new Date()), 0, 100);
+      if (!fetched.ok) return;
+      setToday(summarizeHistoryToday(fetched.rides, new Date()));
+    } catch {
+      // Un diagnostic ne doit pas casser l'ecran : on garde ce qui est affiche.
+    }
+  }, []);
+
+  // Au montage, a chaque venue sur l'onglet, et quand une course se termine (l'identifiant de la
+  // course active retombe a null) — c'est-a-dire exactement quand le chiffre change.
+  useEffect(() => {
+    void load();
+  }, [load, activeRideId]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const amount = today ? `€${today.earnings.toFixed(2)}` : "—";
+  const count = today ? String(today.rides) : "—";
+
   return (
     <View className="flex-row justify-between mb-4 mt-1">
       <View
@@ -2124,10 +2167,10 @@ function DriverDayStatsRow({ stats }: Readonly<{ stats: DriverStats }>) {
           className="text-xs font-bold tracking-wider"
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
-          JOURNÉE
+          {t("ridesScreen.earned").toUpperCase()}
         </Text>
         <Text className="text-2xl font-black mt-1" style={{ color: "#fff" }}>
-          €{Number(stats.todayEarnings).toFixed(2)}
+          {amount}
         </Text>
       </View>
       <View
@@ -2145,10 +2188,10 @@ function DriverDayStatsRow({ stats }: Readonly<{ stats: DriverStats }>) {
           className="text-xs font-bold tracking-wider"
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
-          COURSES
+          {t("ridesScreen.rides").toUpperCase()}
         </Text>
         <Text className="text-2xl font-black mt-1" style={{ color: "#fff" }}>
-          {stats.todayRides}
+          {count}
         </Text>
       </View>
     </View>
