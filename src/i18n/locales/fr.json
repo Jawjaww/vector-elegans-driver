@@ -210,7 +210,8 @@
     "weekNet": "Net de la semaine",
     "weekRides": "{{count}} courses",
     "weekCash": "Espèces",
-    "weekCard": "Carte"
+    "weekCard": "Carte",
+    "weekOf": "Semaine du {{start}} au {{end}}"
   },
   "profile": {
     "title": "Profil",

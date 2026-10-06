@@ -316,7 +316,8 @@
     "weekNet": "Neto de la semana",
     "weekRides": "{{count}} carreras",
     "weekCash": "Efectivo",
-    "weekCard": "Tarjeta"
+    "weekCard": "Tarjeta",
+    "weekOf": "Semana del {{start}} al {{end}}"
   },
   "nav": {
     "distance": {
