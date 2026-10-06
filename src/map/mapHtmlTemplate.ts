@@ -196,6 +196,9 @@ export function buildMapHtmlTemplate(
     ${BASEMAP_TONE_JS}
 
     function __veBoot(mapStyle) {
+    // Ask the source for the tile path it actually serves (it is versioned). Fire and forget:
+    // while the template is unknown, prefetching is skipped rather than guessed.
+    resolveTileUrlTemplate(mapStyle);
     const map = new maplibregl.Map({
       container: "map",
       style: mapStyle,
@@ -263,6 +266,8 @@ export function buildMapHtmlTemplate(
     });
 
     // --- Tile prefetch (aggressive + débounce) ---
+    // VE_TILE_PREFETCH_START
+    // tilePrefetch.test.ts extracts this block, markers included, and evaluates it on its own.
     function long2tile(lon, zoom) {
       return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
     }
@@ -295,10 +300,56 @@ export function buildMapHtmlTemplate(
       [-10.5, 35.0],
       [12.5, 55.0],
     ];
-    const TILE_URL =
-      "https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf";
+
+    // The tile path is VERSIONED and only the source's TileJSON knows the version.
+    // Measured 2026-10-06 on the style this document loads (tiles.openfreemap.org/styles/liberty,
+    // source openmaptiles -> https://tiles.openfreemap.org/planet):
+    //   /planet/{z}/{x}/{y}.pbf              -> 200, content-length 0, x-ofm-debug: empty tile wildcard
+    //   /planet/20260927_080001_pt/4/8/5.pbf -> 200, 784601 bytes
+    //   /planet/20260927_080001_pt/7/64/43.pbf -> 200, 319005 bytes
+    // The constant that used to live here built the first URL 142 times and cached the emptiness.
+    // The template is therefore read from the source, and prefetching stays off when it cannot be
+    // established: a path nobody announced is a guess, and a guessed path is the bug.
+    let tileUrlTemplate = null;
+
+    // A source either carries its tiles inline or points at a TileJSON that does.
+    async function tilesOfVectorSource(src) {
+      if (Array.isArray(src.tiles) && src.tiles.length) return src.tiles;
+      if (!src.url) return null;
+      const res = await fetch(src.url, { mode: "cors" });
+      if (!res || !res.ok) return null;
+      const tilejson = await res.json();
+      return Array.isArray(tilejson && tilejson.tiles) ? tilejson.tiles : null;
+    }
+
+    // __veBoot hands either the style object or, when the style fetch failed, its URL.
+    async function resolveTileUrlTemplate(style) {
+      try {
+        let resolved = style;
+        if (typeof resolved === "string") {
+          const res = await fetch(resolved, { mode: "cors" });
+          if (!res || !res.ok) return null;
+          resolved = await res.json();
+        }
+        const sources = (resolved && resolved.sources) || {};
+        const keys = Object.keys(sources);
+        for (let i = 0; i < keys.length; i++) {
+          const src = sources[keys[i]];
+          if (!src || src.type !== "vector") continue;
+          const tiles = await tilesOfVectorSource(src);
+          if (tiles && tiles.length && String(tiles[0]).indexOf("{z}") !== -1) {
+            tileUrlTemplate = tiles[0];
+            return tileUrlTemplate;
+          }
+        }
+      } catch (e) {
+        console.warn("[Prefetch] tilejson", e);
+      }
+      return null;
+    }
 
     function tilesForBounds(bounds, z) {
+      if (!tileUrlTemplate) return [];
       const n = Math.pow(2, z);
       const x0 = Math.max(0, long2tile(bounds[0][0], z));
       const x1 = Math.min(n - 1, long2tile(bounds[1][0], z));
@@ -308,7 +359,7 @@ export function buildMapHtmlTemplate(
       for (let x = x0; x <= x1; x++) {
         for (let y = y0; y <= y1; y++) {
           out.push(
-            TILE_URL.replace("{z}", String(z))
+            tileUrlTemplate.replace("{z}", String(z))
               .replace("{x}", String(x))
               .replace("{y}", String(y))
           );
@@ -330,7 +381,12 @@ export function buildMapHtmlTemplate(
               const hit = await cache.match(url);
               if (hit) continue;
               const res = await fetch(url, { mode: "cors" });
-              if (res && res.ok) await cache.put(url, res.clone());
+              if (!res || !res.ok) continue;
+              // A URL that exists but serves nothing (the unversioned wildcard answers 200 with
+              // content-length 0) must not be stored as if it were a tile.
+              const body = await res.clone().arrayBuffer();
+              if (!body || !body.byteLength) continue;
+              await cache.put(url, res);
             } catch (_) {}
           }
         }
@@ -353,6 +409,7 @@ export function buildMapHtmlTemplate(
       });
       return urls;
     }
+    // VE_TILE_PREFETCH_END
 
     async function prefetchTilesAround() {
       const urls = collectTileUrls(WEST_EUROPE_BOUNDS, [4, 5, 6, 7]);
