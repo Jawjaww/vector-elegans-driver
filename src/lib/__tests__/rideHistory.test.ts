@@ -498,6 +498,7 @@ const RIDES_SCREEN_KEYS = [
   "weekRides",
   "weekCash",
   "weekCard",
+  "weekOf",
 ];
 
 describe("the history tab copy, in the three languages", () => {

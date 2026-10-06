@@ -204,7 +204,8 @@
     "weekNet": "Week net",
     "weekRides": "{{count}} rides",
     "weekCash": "Cash",
-    "weekCard": "Card"
+    "weekCard": "Card",
+    "weekOf": "Week of {{start}} – {{end}}"
   },
   "profile": {
     "title": "Profile",

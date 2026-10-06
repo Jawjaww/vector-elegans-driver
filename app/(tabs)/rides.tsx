@@ -12,6 +12,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { FeatherGlyph } from "../../src/components/FeatherGlyph";
+import { formatWeekRange } from "../../src/lib/utils/weekLabel";
 import {
   currentWeekEntry,
   toWeekIndex,
@@ -368,52 +369,19 @@ export default function RidesScreen() {
               </View>
             ) : null}
 
-            {weekIndex && weekIndex.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="mb-4"
-                contentContainerStyle={{ gap: 8 }}
-              >
-                {weekIndex.map((week) => {
-                  const active = selectedWeek?.startsOn === week.startsOn;
-                  return (
-                    <Pressable
-                      key={week.startsOn}
-                      onPress={() =>
-                        onFilterChange({
-                          range: localWeekBounds(new Date(`${week.startsOn}T12:00:00`)),
-                          mode: "week",
-                        })
-                      }
-                      accessibilityRole="button"
-                      className="rounded-xl px-3 py-2"
-                      style={{
-                        backgroundColor: active
-                          ? "rgba(52, 211, 153, 0.12)"
-                          : "rgba(255, 255, 255, 0.03)",
-                        borderWidth: 1,
-                        borderColor: active
-                          ? "rgba(52, 211, 153, 0.35)"
-                          : "rgba(255, 255, 255, 0.05)",
-                      }}
-                    >
-                      <Text
-                        className={
-                          active
-                            ? "text-emerald-300 text-xs font-bold"
-                            : "text-slate-300 text-xs font-bold"
-                        }
-                      >
-                        {weekShortLabel(week)}
-                      </Text>
-                      <Text className="text-slate-500 text-[11px] mt-0.5">
-                        €{week.netEarnings.toFixed(2)}
-                      </Text>
-                    </Pressable>
-                  );
+            {/*
+              Une PHRASE, pas des cartes qui glissent. Retour du propriétaire : « c'est de la
+              merde [...] j'aurais préféré qu'il y ait marqué plus clairement semaine du 5 au 11
+              octobre 2026 [...] mettre le mot *semaine* pour tout de suite comprendre ». Les
+              flèches de RideHistoryFilters restent le moyen de changer de semaine : elles sont
+              déjà là, et elles ne coûtent aucune carte imbriquée de plus.
+            */}
+            {selectedWeek ? (
+              <Text className="text-white text-base font-black mb-3">
+                {t("ridesScreen.weekOf", {
+                  ...formatWeekRange(selectedWeek.startsOn, selectedWeek.endsOn, i18n.language),
                 })}
-              </ScrollView>
+              </Text>
             ) : null}
 
             <RideHistoryFilters

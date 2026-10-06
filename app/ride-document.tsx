@@ -112,7 +112,11 @@ export default function RideDocumentScreen() {
   }, [rideId, kind, load, t]);
 
   return (
-    <View className="flex-1 bg-slate-950">
+    // Le fond n'est PAS peint ici. Le layout racine monte AppChromeBackground et laisse le Stack
+    // transparent ; cette vue peignait `bg-slate-950` (#020617, un gris BLEUTE), seul ecran de
+    // l'app a le faire — c'est le « fond bleu bizarre » signale, et c'etait un ecart au design
+    // system, pas un mystere de theme.
+    <View className="flex-1">
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 20 }}>
         <View className="pt-14 pb-6 flex-row items-center">
           <Pressable
