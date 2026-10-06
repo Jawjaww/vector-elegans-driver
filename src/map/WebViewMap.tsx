@@ -253,6 +253,14 @@ function dispatchWebViewMapMessage(
       // `reason` is `resume` when the document re-checked the drift because the app came back to
       // the foreground: the fixes that accumulated while the screen was off may never have been
       // delivered as ticks, so this one bypasses the anti-flap window.
+      // La magnitude part AVANT la decision de recalculer ou non : c'est elle qui dira si le seuil
+      // de 30 m est trop serre (des ecarts qui s'entassent juste au-dessus) ou juste (des ecarts de
+      // 100 m et plus, c'est-a-dire une vraie rue parallele).
+      logOfferStage('nav_off_route', {
+        action: 'drift',
+        meters: Number.isFinite(Number(msg.meters)) ? Math.round(Number(msg.meters)) : null,
+        reason: typeof msg.reason === 'string' ? msg.reason : null,
+      });
       ctx.onOffRoute?.(typeof msg.reason === 'string' ? msg.reason : undefined);
       break;
     case 'rerouteSettled':

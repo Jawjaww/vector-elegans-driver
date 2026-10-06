@@ -191,3 +191,56 @@ describe("reroute wiring", () => {
     );
   });
 });
+
+/**
+ * LA MAGNITUDE DE L'ÉCART DOIT ÊTRE LISIBLE APRÈS COUP.
+ *
+ * Les traces d'un essai réel portaient 7 `nav_off_route` avec `action`, `since_ms` et `generation` —
+ * et **jamais de combien** la voiture était hors de la ligne. Or c'est la seule donnée qui dit si le
+ * seuil de 30 m est trop serré (des écarts qui s'entassent juste au-dessus = du bruit GPS, et
+ * recalculer ne sert à rien) ou juste (100 m et plus = une vraie rue parallèle, et recalculer est
+ * exactement ce qu'il faut). `latchOffRoute(coords, dist, now)` avait la valeur en main et la
+ * jetait.
+ *
+ * Ce test tient l'instrumentation des DEUX bouts : ce que le document envoie, et ce que l'app en
+ * journalise. L'un sans l'autre ne mesure rien.
+ */
+describe("off-route drift is measured, not guessed", () => {
+  const { readFileSync } = require("fs") as {
+    readFileSync: (path: string, encoding: string) => string;
+  };
+  const { join } = require("path") as { join: (...parts: string[]) => string };
+  const read = (relative: string) =>
+    readFileSync(join(process.cwd(), relative), "utf8");
+
+  it("le document envoie la distance mesurée", () => {
+    const template = read(join("src", "map", "mapHtmlTemplate.ts"));
+    const messageAt = template.indexOf('type: "offRoute"');
+    const metersAt = template.indexOf("meters: Math.round(dist)");
+
+    // ON COMPARE DES POSITIONS, on ne decoupe pas de fenetre. Quatre fois aujourd'hui, une fenetre
+    // de N caracteres s'est fait deborder par les commentaires qui expliquent le champ cherche —
+    // et un test qui mesure la fenetre finit par mesurer la fenetre.
+    expect(messageAt).toBeGreaterThan(-1);
+    expect(metersAt).toBeGreaterThan(messageAt);
+  });
+
+  it("l'app journalise cette distance", () => {
+    const map = read(join("src", "map", "WebViewMap.tsx"));
+    const driftAt = map.indexOf("action: 'drift'");
+    const metersAt = map.indexOf("Number(msg.meters)");
+
+    expect(driftAt).toBeGreaterThan(-1);
+    expect(metersAt).toBeGreaterThan(driftAt);
+  });
+
+  it("n'invente pas de distance quand la mesure manque", () => {
+    const map = read(join("src", "map", "WebViewMap.tsx"));
+    const driftAt = map.indexOf("action: 'drift'");
+    const nullAt = map.indexOf(": null", driftAt);
+
+    // Une mesure absente se journalise `null`, jamais 0 : « je n'ai pas la distance » et « la
+    // voiture etait sur la ligne » ne sont pas la meme observation.
+    expect(nullAt).toBeGreaterThan(driftAt);
+  });
+});
