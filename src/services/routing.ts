@@ -188,6 +188,19 @@ export async function fetchRoute(
         points: geometry.coordinates.length,
         meters: Math.round(geometry.distanceMeters),
         steps: geometry.steps.length,
+        // QUELS types de manoeuvre, pas seulement COMBIEN.
+        //
+        // Deux symptomes rapportes au volant — « je passais un rond-point et ca ne l'affichait
+        // pas » et « un grand virage, et je n'etais pas encore arrive » — sont restes INDECIDABLES
+        // apres coup : `steps: 15` ne dit pas si l'itineraire contenait un rond-point, donc on ne
+        // peut pas distinguer « le routeur n'en a pas mis » de « le guidage l'a saute ». La liste
+        // des types tranche cette question a elle seule.
+        //
+        // Compacte et bornee : c'est un diagnostic, pas une archive.
+        maneuvers: geometry.steps
+          .map((step) => String(step?.maneuver?.type || 'turn'))
+          .join(',')
+          .slice(0, 240),
       });
       return geometry;
     } catch (error) {
