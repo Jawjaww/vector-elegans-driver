@@ -477,7 +477,10 @@
       "merge": "S'insérer",
       "fork": "Prendre la bifurcation",
       "straight": "Continuer tout droit",
-      "roundaboutLeave": "Quittez le rond-point"
+      "roundaboutLeave": "Quittez le rond-point",
+      "ramp": "Prenez la bretelle",
+      "endOfRoad": "Tournez au bout de la route",
+      "roundaboutTurn": "Tournez au rond-point"
     },
     "stage": {
       "toPickup": "Rejoindre le point de prise en charge",
