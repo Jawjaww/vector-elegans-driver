@@ -75,63 +75,88 @@ export function buildMapHtmlTemplate(
       display: none !important;
     }
 
-    /* Attribution. A licence term, so it is painted at all times: a thin vertical strip naming
-       the data source, with a 44 px (i) beside it that opens the complete credit — the three
-       providers and their links. Drawn by this document rather than by MapLibre's own control,
-       whose compact button is 24 px and whose credit only opens as a horizontal block; the
-       control is therefore off (see the attributionControl option below), and the full list it used to
-       render from the source TileJSON is spelled out in the panel, links included.
+    /* Attribution. A licence term, so it is *reachable at all times* and *revealed on demand*:
+       one small (i) pill is painted, and the credit it names — the short vertical label and the
+       complete list of providers, links included — appears only once the driver taps it. Drawn by
+       this document rather than by MapLibre's own control, whose compact button is 24 px and whose
+       credit only opens as a horizontal block; the control is therefore off (see the
+       attributionControl option below), and the list it used to render from the source TileJSON is
+       spelled out in the panel, links included.
 
-       Bottom-LEFT on purpose: MapLibre's own logo is hidden there, the recenter control takes
-       the bottom-right, and the sheet covers the strip below HANDLE_ONLY_VISIBLE (14 px), so the
-       widget is lifted 16 px. The lane above the sheet is full width once a trip is driven (the
-       guidance bar), which covers whichever corner it sits in; the corner is chosen for the map
-       at rest, where nothing else claims it. */
+       Bottom-RIGHT, in the strip the recenter control leaves free. That strip is wider than it
+       looks: right-4 is 56 px on native (NativeWind's rem is 14, not 16), the control is 48 px
+       wide and carries an 8 px hitSlop, so nothing within 56 px of the edge can reach it —
+       4 + 44 + 8 = 56. The pill is 44 px of touch target around a 24 px face, and the revealed
+       label is an 18 px column above it: both live inside that strip, so neither ever crosses the
+       control. The sheet covers the strip below HANDLE_ONLY_VISIBLE (14 px), hence the 16 px lift.
+
+       The column is anchored by its right edge, so revealing the label grows it leftward and the
+       pill does not move. */
     #ve-attrib {
       position: absolute;
-      left: 8px;
+      right: 4px;
       bottom: 16px;
       z-index: 5;
       display: flex;
-      flex-direction: row;
+      flex-direction: column;
       align-items: flex-end;
       gap: 6px;
     }
+    /* The touch target, and nothing else: transparent, 44 px, thumb-sized. The face the driver
+       sees is the glyph inside it, 24 px — which is why the pill reads as small without being
+       small to press. */
     #ve-attrib-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       width: 44px;
       height: 44px;
       min-width: 44px;
       min-height: 44px;
       padding: 0;
+      border: 0;
+      background-color: transparent;
+      color: #111827;
+      line-height: 1;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #ve-attrib-glyph {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
       border: 1px solid rgba(17, 24, 39, 0.16);
       border-radius: 50%;
       background-color: rgba(255, 255, 255, 0.86);
       color: #111827;
       font-family: Georgia, 'Times New Roman', serif;
-      font-size: 15px;
+      font-size: 16px;
       font-style: italic;
       font-weight: 700;
-      line-height: 1;
-      -webkit-appearance: none;
-      appearance: none;
     }
+    /* Revealed by the tap, never painted at rest. Very small on purpose: the driver asked for it,
+       so it is read rather than glanced at, and it does not have to hold the map off. */
     #ve-attrib-credit {
       writing-mode: vertical-rl;
-      padding: 7px 4px;
+      padding: 6px 3px;
       border: 1px solid rgba(17, 24, 39, 0.12);
       border-radius: 999px;
       background-color: rgba(255, 255, 255, 0.86);
       color: #111827;
-      font-size: 11px;
+      font-size: 10px;
       line-height: 1;
       letter-spacing: 0.04em;
       white-space: nowrap;
     }
-    /* Collapsed by its hidden attribute alone — the browser's own rule — so no stylesheet here
-       can leave the complete credit permanently invisible. */
+    /* Collapsed by its hidden attribute alone — the browser's own rule — and revealed with it. No
+       display is declared on the two revealed elements, on purpose: a display of any value beats
+       the user agent's [hidden] rule, so it would either paint the credit at rest or keep it
+       painted when closed. The guard in attributionDisclosure.test.ts forbids it. */
     #ve-attrib-full {
       position: absolute;
-      left: 0;
+      right: 0;
       bottom: calc(100% + 6px);
       width: max-content;
       max-width: 64vw;
@@ -202,18 +227,19 @@ export function buildMapHtmlTemplate(
   <div id="map"></div>
   <div id="ve-frost"></div>
   <div id="debug-overlay"></div>
-  <!-- Attribution: always painted (the strip), complete on tap (the panel). Markup, not a string
-       the map script may fail to insert — a credit that only exists once MapLibre booted is a
-       credit that disappears with the map. -->
+  <!-- Attribution: the (i) pill alone is painted; the credit it names is markup in the body too,
+       revealed by the tap. Markup, not a string the map script may fail to insert — a credit that
+       only exists once MapLibre booted is a credit that disappears with the map, and a disclosure
+       script that never ran leaves the (i) reachable and the credit closed, never the reverse. -->
   <div id="ve-attrib">
+    <span id="ve-attrib-credit" lang="en" hidden>© OpenStreetMap</span>
     <button
       id="ve-attrib-toggle"
       type="button"
       aria-expanded="false"
-      aria-controls="ve-attrib-full"
+      aria-controls="ve-attrib-credit ve-attrib-full"
       aria-label="Crédits cartographiques"
-    >i</button>
-    <span id="ve-attrib-credit" lang="en">© OpenStreetMap</span>
+    ><span id="ve-attrib-glyph" aria-hidden="true">i</span></button>
     <div id="ve-attrib-full" hidden>
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>
       <span aria-hidden="true">·</span>
@@ -276,19 +302,27 @@ export function buildMapHtmlTemplate(
 
     // --- Attribution disclosure ---
     // Wired before the map boots, on purpose: the credit is a licence term and has to open even
-    // if MapLibre never loads. The panel moves on its own hidden attribute and nothing else,
-    // so the always-painted credit can never be switched off by a style.
+    // if MapLibre never loads. Both revealed elements move on their own hidden attribute and
+    // nothing else, so neither can be switched off by a style — and the pill is painted either
+    // way, so the disclosure stays reachable even if this block never runs.
+    // VE_ATTRIB_DISCLOSURE_START
     (function () {
       const toggle = document.getElementById('ve-attrib-toggle');
+      const credit = document.getElementById('ve-attrib-credit');
       const panel = document.getElementById('ve-attrib-full');
-      if (!toggle || !panel) return;
+      if (!toggle || !credit || !panel) return;
+      const reveal = function (element, show) {
+        if (show) element.removeAttribute('hidden');
+        else element.setAttribute('hidden', '');
+      };
       toggle.addEventListener('click', function () {
-        const opening = panel.hasAttribute('hidden');
-        if (opening) panel.removeAttribute('hidden');
-        else panel.setAttribute('hidden', '');
+        const opening = credit.hasAttribute('hidden');
+        reveal(credit, opening);
+        reveal(panel, opening);
         toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
       });
     })();
+    // VE_ATTRIB_DISCLOSURE_END
 
     perfMark('init');
 
@@ -319,8 +353,9 @@ export function buildMapHtmlTemplate(
       // crédit horizontal) mais par la pastille (i) du document — voir le bloc CSS #ve-attrib.
       // Le contrôle est désactivé pour ne pas doubler le crédit. Le TileJSON de la source porte
       // « OpenFreeMap | © OpenMapTiles | Data from OpenStreetMap » (mesuré le 2026-10-06 sur
-      // tiles.openfreemap.org/planet) : ce sont ces noms, avec leurs liens, que la pastille
-      // ouvre, et le crédit court reste peint au-dessus de la carte en permanence.
+      // tiles.openfreemap.org/planet) : ce sont ces noms, avec leurs liens, que le tap de la
+      // pastille révèle — avec le libellé vertical court. Rien n'est peint en permanence hors la
+      // pastille elle-même.
       attributionControl: false,
       antialias: false,
       optimizeForTerrain: false,
