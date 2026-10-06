@@ -179,3 +179,38 @@ describe('fetchRoute', () => {
     });
   });
 });
+
+/**
+ * LES MANŒUVRES DOIVENT ÊTRE OBSERVABLES APRÈS COUP.
+ *
+ * Deux symptômes rapportés au volant sont restés **indécidables** faute de cette information :
+ * « je passais un rond-point et ça ne l'affichait pas » et « un grand virage, et je n'étais pas
+ * encore arrivé au virage ». `steps: 15` dit COMBIEN d'étapes, jamais LESQUELLES — donc on ne peut
+ * pas distinguer « le routeur n'a pas mis de rond-point » de « le guidage l'a sauté ».
+ *
+ * Ce test tient l'instrumentation, pas le comportement : il vérifie que le type de chaque manœuvre
+ * part avec le diagnostic. Sans cela, la prochaine analyse sera aussi aveugle que la précédente.
+ */
+describe("route diagnostics carry the maneuvers", () => {
+  const { readFileSync } = require("fs") as {
+    readFileSync: (path: string, encoding: string) => string;
+  };
+  const { join } = require("path") as { join: (...parts: string[]) => string };
+  const source = () =>
+    readFileSync(join(process.cwd(), "src", "services", "routing.ts"), "utf8");
+
+  it("journalise le type de chaque manœuvre, pas seulement leur nombre", () => {
+    const code = source();
+    // On ancre sur le CHAMP, pas sur le post : une fenetre autour du post se fait deborder par les
+    // commentaires qui l'expliquent — c'est ce qui est arrive a ma premiere version.
+    const at = code.indexOf("maneuvers:");
+    expect(at).toBeGreaterThan(-1);
+
+    const field = code.slice(at, at + 400);
+    // Le type vient de la manœuvre elle-même, avec un repli : une étape sans type ne doit pas
+    // produire un trou dans la liste.
+    expect(field).toContain("step?.maneuver?.type || 'turn'");
+    // Et la charge utile est bornée : un diagnostic n'est pas une archive.
+    expect(field).toContain(".slice(0, 240)");
+  });
+});
