@@ -17,15 +17,19 @@ import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
  * shown. The document used to set `attributionControl: false` *and* hide
  * `.maplibregl-ctrl-attrib` in CSS, so nothing was drawn at all.
  *
- * The credit is now drawn by the document itself — a permanent short strip plus a 44 px (i) that
- * opens the complete list with its links — and MapLibre's own control is off so the two cannot
- * double up. This file checks that the credit the licence is about is still *there*; the guard
- * that it can never be made invisible or illegible lives in `attributionDisclosure.test.ts`.
+ * The credit is now drawn by the document itself — a small (i) pill painted at all times, which
+ * reveals the short vertical label and the complete list with its links — and MapLibre's own
+ * control is off so the two cannot double up. This file checks that the credit the licence is
+ * about is still *there*, and still in the markup rather than assembled by the map script; the
+ * guard that the tap opens it, that it stays legible, and that no rule or inline style can make it
+ * invisible lives in `attributionDisclosure.test.ts`.
  *
- * What occupies that corner: the widget is bottom-left, where only MapLibre's own logo sits (it
- * is hidden on purpose), while the recenter control takes the bottom-right. `BottomSheet` rests
- * at `HANDLE_ONLY_VISIBLE` px, which covers the bottom strip of the map on every screen of the
- * home tab. The lift below is asserted against that constant rather than against a copy of it.
+ * What occupies that corner: the widget is bottom-right, in the strip the recenter control leaves
+ * free (`right-4` is 56 px on native, the control is 48 px wide with an 8 px `hitSlop`, so the
+ * outer 56 px are out of its way — that arithmetic is asserted in `attributionDisclosure.test.ts`).
+ * `BottomSheet` rests at `HANDLE_ONLY_VISIBLE` px, which covers the bottom strip of the map on
+ * every screen of the home tab. The lift below is asserted against that constant rather than
+ * against a copy of it.
  */
 const HANDLE_SOURCE = 'src/components/BottomSheet.tsx';
 
@@ -53,8 +57,8 @@ describe('map attribution (licence requirement)', () => {
     expect(/attributionControl:\s*false/.test(html)).toBe(true);
     expect(html.includes('attributionControl: {')).toBe(false);
 
-    // The replacement is markup in the body: the short strip painted at all times, and the pill
-    // that opens the complete list.
+    // The replacement is markup in the body: the pill painted at all times, and the credit it
+    // reveals on the tap.
     expect(html).toContain('id="ve-attrib-credit"');
     expect(html).toContain('id="ve-attrib-toggle"');
     expect(html).toContain('id="ve-attrib-full"');
