@@ -394,7 +394,6 @@
   },
   "bookingOrder": {
     "title": "Orden de servicio",
-    "subtitle": "Justificante de reserva previa",
     "number": "N.º",
     "operatorName": "Razón social",
     "siren": "SIREN",

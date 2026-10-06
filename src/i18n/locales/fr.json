@@ -532,7 +532,6 @@
   },
   "bookingOrder": {
     "title": "Bon de commande",
-    "subtitle": "Justificatif de réservation préalable",
     "number": "N°",
     "operatorName": "Raison sociale",
     "siren": "SIREN",

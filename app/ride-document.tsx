@@ -155,34 +155,34 @@ export default function RideDocumentScreen() {
         ) : bookingOrder || showSpecimen ? (
           <>
             <View
-              className="rounded-2xl p-5"
+              className="rounded-xl px-3.5 py-3"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.03)',
                 borderWidth: 1,
                 borderColor: 'rgba(255, 255, 255, 0.05)',
               }}
             >
-              {order.specimen ? (
-                <View className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 self-start">
-                  <Text className="text-amber-300 text-xs font-black tracking-wider">
-                    {SPECIMEN_MARKER}
-                  </Text>
-                </View>
-              ) : null}
-              <Text className="text-white text-xl font-black tracking-tight">
-                {t('bookingOrder.title')}
-              </Text>
-              <Text className="text-slate-400 text-xs mt-0.5">
-                {t('bookingOrder.subtitle')}
-              </Text>
-              {order.number ? (
-                <Text className="text-slate-500 text-xs mt-1">
-                  {t('bookingOrder.number')} {order.number}
+              {/*
+                Le titre et la marque sur UNE ligne, la marque a droite : deux lignes pour un titre
+                et un badge, c'est de la place perdue sur un document qu'on lit dans une voiture.
+                Et les phrases qui n'apprennent rien sont parties — « justificatif de réservation
+                préalable » (le titre le dit) et l'avertissement du spécimen (la marque suffit).
+              */}
+              <View className="flex-row items-center justify-between">
+                <Text className="text-white text-base font-black tracking-tight">
+                  {t('bookingOrder.title')}
                 </Text>
-              ) : null}
-              {order.specimen ? (
-                <Text className="text-amber-200/80 text-xs mt-2">
-                  {t('rideDocuments.specimenNotice')}
+                {order.specimen ? (
+                  <View className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5">
+                    <Text className="text-amber-300 text-[10px] font-black tracking-wider">
+                      {SPECIMEN_MARKER}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              {order.number ? (
+                <Text className="text-slate-500 text-[11px] mt-0.5">
+                  {t('bookingOrder.number')} {order.number}
                 </Text>
               ) : null}
             </View>
@@ -201,14 +201,14 @@ export default function RideDocumentScreen() {
               return (
                 <View
                   key={section}
-                  className="rounded-2xl p-5 mt-3"
+                  className="rounded-xl px-3.5 py-3 mt-2"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.03)',
                     borderWidth: 1,
                     borderColor: 'rgba(255, 255, 255, 0.05)',
                   }}
                 >
-                  <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">
+                  <Text className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1.5">
                     {t(`bookingOrder.section.${section}`)}
                   </Text>
                   {rows.map((row) => (
@@ -277,10 +277,10 @@ function Row({
   strong,
 }: Readonly<{ label: string; value: string; strong?: boolean; tone?: "warning" }>) {
   return (
-    <View className="flex-row justify-between items-center mb-2">
-      <Text className="text-slate-400 text-xs">{label}</Text>
+    <View className="flex-row justify-between items-center mb-1">
+      <Text className="text-slate-400 text-[11px]">{label}</Text>
       <Text
-        className={strong ? 'text-white font-black text-base' : 'text-slate-200 text-sm'}
+        className={strong ? 'text-white font-black text-sm' : 'text-slate-200 text-[12px]'}
         numberOfLines={1}
       >
         {value}

@@ -494,7 +494,6 @@
   },
   "bookingOrder": {
     "title": "Booking order",
-    "subtitle": "Proof of prior booking",
     "number": "No.",
     "operatorName": "Company name",
     "siren": "SIREN",

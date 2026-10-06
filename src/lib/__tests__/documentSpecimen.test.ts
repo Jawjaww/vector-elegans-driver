@@ -90,3 +90,48 @@ describe("query budget of the money screens", () => {
     expect(screen).not.toContain("platform_legal_identity");
   });
 });
+
+/**
+ * L'EN-TÊTE TIENT SUR UNE LIGNE, ET LES PHRASES INUTILES SONT PARTIES.
+ *
+ * Retour du propriétaire : « la première carte est mal faite, mets spécimen à droite et bon de
+ * commande sur la même ligne pour gagner de l'espace. Enlève les phrases superflues comme
+ * *Justificatif de réservation préalable*. Ou alors ce qu'il y a en jaune en dessous […]
+ * Dégage-moi ça, on s'en fout. Ainsi on gagnera de l'espace. »
+ *
+ * Deux lignes pour un titre et un badge, et deux phrases qui n'apprennent rien, sur un document
+ * qu'on lit dans une voiture : la place se paie. Ce test tient les deux.
+ */
+describe("the booking order header", () => {
+  // Aucun type Node dans ce projet, et ces requires sont locaux a ce describe — le motif du
+  // fichier, qui les declare la ou ils servent.
+  const { readFileSync } = require("fs") as {
+    readFileSync: (path: string, encoding: string) => string;
+  };
+  const { join } = require("path") as { join: (...parts: string[]) => string };
+  const screen = () =>
+    readFileSync(join(process.cwd(), "app", "ride-document.tsx"), "utf8");
+
+  it("met le titre et la marque sur une seule ligne, la marque à droite", () => {
+    const source = screen();
+    const titleAt = source.indexOf("bookingOrder.title");
+    // On exprime la RELATION, pas une fenêtre de caracteres : une fenetre se fait deborder par un
+    // commentaire — c'est ce qui est arrive a ma premiere version, qui cherchait la ligne dans les
+    // 420 caracteres precedant le titre.
+    const rowAt = source.lastIndexOf("justify-between", titleAt);
+    const markerAt = source.indexOf("SPECIMEN_MARKER", titleAt);
+
+    // Le titre est dans une ligne qui repartit ses enfants…
+    expect(rowAt).toBeGreaterThan(-1);
+    expect(titleAt - rowAt).toBeLessThan(700);
+    // …et la marque vient APRES le titre, donc a sa droite.
+    expect(markerAt).toBeGreaterThan(titleAt);
+    expect(markerAt - titleAt).toBeLessThan(700);
+  });
+
+  it("n'affiche plus les phrases qui n'apprennent rien", () => {
+    // Non-vacuité : ces deux chaînes étaient présentes avant ce lot.
+    expect(screen()).not.toContain("bookingOrder.subtitle");
+    expect(screen()).not.toContain("specimenNotice");
+  });
+});
