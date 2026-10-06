@@ -69,16 +69,83 @@ export function buildMapHtmlTemplate(
 
     /* Hide noisy OpenMapTiles / OSM chrome under address overlays — the logo only. The data
        credit is NOT chrome: OpenStreetMap's ODbL requires it and OpenFreeMap's terms repeat it,
-       so the AttributionControl below draws it. */
+       so the widget below paints it. */
     .maplibregl-ctrl-logo,
     .maplibregl-ctrl-bottom-left {
       display: none !important;
     }
 
-    /* BottomSheet rests at HANDLE_ONLY_VISIBLE (14 px) and covers the bottom strip of the map.
-       The credit is lifted clear of it — 16 px here, plus the 10 px the control already carries. */
-    .maplibregl-ctrl-bottom-right {
+    /* Attribution. A licence term, so it is painted at all times: a thin vertical strip naming
+       the data source, with a 44 px (i) beside it that opens the complete credit — the three
+       providers and their links. Drawn by this document rather than by MapLibre's own control,
+       whose compact button is 24 px and whose credit only opens as a horizontal block; the
+       control is therefore off (see the attributionControl option below), and the full list it used to
+       render from the source TileJSON is spelled out in the panel, links included.
+
+       Bottom-LEFT on purpose: MapLibre's own logo is hidden there, the recenter control takes
+       the bottom-right, and the sheet covers the strip below HANDLE_ONLY_VISIBLE (14 px), so the
+       widget is lifted 16 px. The lane above the sheet is full width once a trip is driven (the
+       guidance bar), which covers whichever corner it sits in; the corner is chosen for the map
+       at rest, where nothing else claims it. */
+    #ve-attrib {
+      position: absolute;
+      left: 8px;
       bottom: 16px;
+      z-index: 5;
+      display: flex;
+      flex-direction: row;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    #ve-attrib-toggle {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      border: 1px solid rgba(17, 24, 39, 0.16);
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.86);
+      color: #111827;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 15px;
+      font-style: italic;
+      font-weight: 700;
+      line-height: 1;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #ve-attrib-credit {
+      writing-mode: vertical-rl;
+      padding: 7px 4px;
+      border: 1px solid rgba(17, 24, 39, 0.12);
+      border-radius: 999px;
+      background-color: rgba(255, 255, 255, 0.86);
+      color: #111827;
+      font-size: 11px;
+      line-height: 1;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    /* Collapsed by its hidden attribute alone — the browser's own rule — so no stylesheet here
+       can leave the complete credit permanently invisible. */
+    #ve-attrib-full {
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 6px);
+      width: max-content;
+      max-width: 64vw;
+      padding: 8px 10px;
+      border: 1px solid rgba(17, 24, 39, 0.14);
+      border-radius: 10px;
+      background-color: #ffffff;
+      color: #111827;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    #ve-attrib-full a {
+      color: #111827;
+      text-decoration: underline;
     }
 
     body { 
@@ -135,6 +202,28 @@ export function buildMapHtmlTemplate(
   <div id="map"></div>
   <div id="ve-frost"></div>
   <div id="debug-overlay"></div>
+  <!-- Attribution: always painted (the strip), complete on tap (the panel). Markup, not a string
+       the map script may fail to insert — a credit that only exists once MapLibre booted is a
+       credit that disappears with the map. -->
+  <div id="ve-attrib">
+    <button
+      id="ve-attrib-toggle"
+      type="button"
+      aria-expanded="false"
+      aria-controls="ve-attrib-full"
+      aria-label="Crédits cartographiques"
+    >i</button>
+    <span id="ve-attrib-credit" lang="en">© OpenStreetMap</span>
+    <div id="ve-attrib-full" hidden>
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre</a>
+    </div>
+  </div>
   <script>
     // --- Performance tracing (debug mode) ---
     const DEBUG = ${debugMode};
@@ -185,6 +274,22 @@ export function buildMapHtmlTemplate(
       console.log = function () { origLog.apply(null, arguments); forward("log", Array.from(arguments)); };
     })();
 
+    // --- Attribution disclosure ---
+    // Wired before the map boots, on purpose: the credit is a licence term and has to open even
+    // if MapLibre never loads. The panel moves on its own hidden attribute and nothing else,
+    // so the always-painted credit can never be switched off by a style.
+    (function () {
+      const toggle = document.getElementById('ve-attrib-toggle');
+      const panel = document.getElementById('ve-attrib-full');
+      if (!toggle || !panel) return;
+      toggle.addEventListener('click', function () {
+        const opening = panel.hasAttribute('hidden');
+        if (opening) panel.removeAttribute('hidden');
+        else panel.setAttribute('hidden', '');
+        toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      });
+    })();
+
     perfMark('init');
 
     const INITIAL_CENTER = [${initialLocation.lng}, ${initialLocation.lat}];
@@ -210,16 +315,13 @@ export function buildMapHtmlTemplate(
       minZoom: 3,
       maxZoom: 18,
       renderWorldCopies: false,
-      // Conformité : le TileJSON de la source porte le crédit OpenFreeMap / OpenMapTiles /
-      // OpenStreetMap, et MapLibre ne l'affiche que si le contrôle existe. Un objet d'options
-      // REMPLACE les défauts du contrôle au lieu de les compléter, d'où le crédit MapLibre
-      // réécrit ici. Compact : le crédit est affiché puis repliable en pastille au tap, ce qui
-      // est aussi le comportement de MapLibre sur tout écran de moins de 640 px.
-      attributionControl: {
-        compact: true,
-        customAttribution:
-          '<a href="https://maplibre.org/" target="_blank">MapLibre</a>',
-      },
+      // Conformité : le crédit n'est plus rendu par le contrôle de MapLibre (pastille de 24 px,
+      // crédit horizontal) mais par la pastille (i) du document — voir le bloc CSS #ve-attrib.
+      // Le contrôle est désactivé pour ne pas doubler le crédit. Le TileJSON de la source porte
+      // « OpenFreeMap | © OpenMapTiles | Data from OpenStreetMap » (mesuré le 2026-10-06 sur
+      // tiles.openfreemap.org/planet) : ce sont ces noms, avec leurs liens, que la pastille
+      // ouvre, et le crédit court reste peint au-dessus de la carte en permanence.
+      attributionControl: false,
       antialias: false,
       optimizeForTerrain: false,
     });
