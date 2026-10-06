@@ -67,12 +67,18 @@ export function buildMapHtmlTemplate(
     }
     #map canvas { background-color: ${BASEMAP_CANVAS}; }
 
-    /* Hide noisy OpenMapTiles / OSM chrome under address overlays */
-    .maplibregl-ctrl-attrib,
+    /* Hide noisy OpenMapTiles / OSM chrome under address overlays — the logo only. The data
+       credit is NOT chrome: OpenStreetMap's ODbL requires it and OpenFreeMap's terms repeat it,
+       so the AttributionControl below draws it. */
     .maplibregl-ctrl-logo,
-    .maplibregl-ctrl-bottom-right,
     .maplibregl-ctrl-bottom-left {
       display: none !important;
+    }
+
+    /* BottomSheet rests at HANDLE_ONLY_VISIBLE (14 px) and covers the bottom strip of the map.
+       The credit is lifted clear of it — 16 px here, plus the 10 px the control already carries. */
+    .maplibregl-ctrl-bottom-right {
+      bottom: 16px;
     }
 
     body { 
@@ -201,7 +207,16 @@ export function buildMapHtmlTemplate(
       minZoom: 3,
       maxZoom: 18,
       renderWorldCopies: false,
-      attributionControl: false,
+      // Conformité : le TileJSON de la source porte le crédit OpenFreeMap / OpenMapTiles /
+      // OpenStreetMap, et MapLibre ne l'affiche que si le contrôle existe. Un objet d'options
+      // REMPLACE les défauts du contrôle au lieu de les compléter, d'où le crédit MapLibre
+      // réécrit ici. Compact : le crédit est affiché puis repliable en pastille au tap, ce qui
+      // est aussi le comportement de MapLibre sur tout écran de moins de 640 px.
+      attributionControl: {
+        compact: true,
+        customAttribution:
+          '<a href="https://maplibre.org/" target="_blank">MapLibre</a>',
+      },
       antialias: false,
       optimizeForTerrain: false,
     });
