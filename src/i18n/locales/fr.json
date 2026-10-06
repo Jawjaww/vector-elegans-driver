@@ -476,7 +476,8 @@
       "right": "Tourner à droite",
       "merge": "S'insérer",
       "fork": "Prendre la bifurcation",
-      "straight": "Continuer tout droit"
+      "straight": "Continuer tout droit",
+      "roundaboutLeave": "Quittez le rond-point"
     },
     "stage": {
       "toPickup": "Rejoindre le point de prise en charge",

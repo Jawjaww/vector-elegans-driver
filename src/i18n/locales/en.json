@@ -438,7 +438,8 @@
       "right": "Turn right",
       "merge": "Merge",
       "fork": "Take the fork",
-      "straight": "Continue straight"
+      "straight": "Continue straight",
+      "roundaboutLeave": "Leave the roundabout"
     },
     "stage": {
       "toPickup": "Head to the pickup point",

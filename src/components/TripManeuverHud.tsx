@@ -51,7 +51,9 @@ type TripManeuverHudProps = Readonly<{
 
 function isRoundabout(type: string | undefined): boolean {
   const t = (type || '').toLowerCase();
-  return t === 'roundabout' || t === 'rotary';
+  // `exit roundabout` est le type que porte la manoeuvre SUR l'anneau : c'est encore un rond-point,
+  // et sans lui le HUD dessinait une fleche tout droit pendant la traversee.
+  return t === 'roundabout' || t === 'rotary' || t === 'exit roundabout' || t === 'exit rotary';
 }
 
 /**
