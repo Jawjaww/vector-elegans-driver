@@ -16,6 +16,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { APP_CHROME } from '../lib/theme';
 import { AppChromeBackground } from './AppChromeBackground';
 import { setBottomSheetTabBarPanGesture } from './bottomSheetGestureBridge';
+import { SHEET_PEEK_VISIBLE_H } from '../lib/utils/overlayLane';
 import {
   shouldResettleSheet,
   type SheetBodyLevel,
@@ -33,7 +34,7 @@ const SHEET_TOP_RADIUS = 8;
 const HANDLE_H = 22;
 
 /** Collapsed strip: rounded lip + handle pill only (px visible above scene bottom). */
-const HANDLE_ONLY_VISIBLE = 14;
+const HANDLE_ONLY_VISIBLE = SHEET_PEEK_VISIBLE_H;
 
 /** Invisible upward-drag band at scene bottom (above tab bar). */
 export const SCENE_BOTTOM_DRAG_ZONE = 36;
