@@ -881,6 +881,7 @@ export type Database = {
           address_line1: string | null
           address_line2: string | null
           city: string | null
+          evtc_number: string | null
           id: boolean
           legal_name: string | null
           postal_code: string | null
@@ -892,6 +893,7 @@ export type Database = {
           address_line1?: string | null
           address_line2?: string | null
           city?: string | null
+          evtc_number?: string | null
           id?: boolean
           legal_name?: string | null
           postal_code?: string | null
@@ -903,6 +905,7 @@ export type Database = {
           address_line1?: string | null
           address_line2?: string | null
           city?: string | null
+          evtc_number?: string | null
           id?: boolean
           legal_name?: string | null
           postal_code?: string | null
@@ -2496,6 +2499,7 @@ export type Database = {
           vehicle_type: Database["public"]["Enums"]["vehicle_type_enum"]
         }[]
       }
+      get_ride_booking_order: { Args: { p_ride_id: string }; Returns: Json }
       get_safe_email: { Args: never; Returns: string }
       get_user_profile: { Args: { user_id: string }; Returns: Json }
       get_user_role: { Args: never; Returns: string }
