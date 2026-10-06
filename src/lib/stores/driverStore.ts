@@ -55,8 +55,6 @@ export interface Ride {
 }
 
 export interface DriverStats {
-  todayEarnings: number;
-  todayRides: number;
   onlineTimeMinutes: number;
   rating: number;
 }
@@ -520,8 +518,6 @@ export const useDriverStore = create<DriverState>()(
           };
         }),
       stats: {
-        todayEarnings: 0,
-        todayRides: 0,
         onlineTimeMinutes: 0,
         rating: 0,
       },
@@ -529,19 +525,16 @@ export const useDriverStore = create<DriverState>()(
         set((state) => ({
           stats: { ...state.stats, ...newStats },
         })),
-      completeRide: (ride) =>
-        set((state) => {
-          const earnings = ride.final_price || ride.estimated_price || 0;
-          return {
-            activeRide: null,
-            stats: {
-              ...state.stats,
-              todayEarnings: state.stats.todayEarnings + earnings,
-              todayRides: state.stats.todayRides + 1,
-            },
-            // isOnline unchanged — offline-after-trip stays offline.
-          };
-        }),
+      // La fin d'une course ne touche PLUS aux statistiques. Elle incrementait un compteur de
+      // journee range dans AsyncStorage, sans rien qui le remette a zero a minuit : le chiffre
+      // restait « vrai » tant que le telephone n'etait pas laisse passer une nuit, et la carte
+      // Journee annoncait un cumul de plusieurs mois. Les journees se lisent desormais dans les
+      // lignes du serveur (`summarizeHistoryToday`), seul compteur qui se remet a zero tout seul.
+      completeRide: () =>
+        set(() => ({
+          activeRide: null,
+          // isOnline unchanged — offline-after-trip stays offline.
+        })),
       currentLocation: null,
       setCurrentLocation: (location) =>
         set((state) => {

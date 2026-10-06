@@ -83,3 +83,60 @@ describe("the driver's day card", () => {
     expect(block).not.toContain("JOURNÉE");
   });
 });
+
+/**
+ * LE COMPTEUR « JOURNÉE » PERSISTÉ NE DOIT PAS REVENIR.
+ *
+ * Il a produit le défaut deux fois : une fois dans l'onglet Gains (`todayEarnings × 3.5` — des
+ * montants inventés) et une fois dans la carte Journée du bottom sheet, qui a affiché un cumul de
+ * plusieurs mois sous ce mot. La cause est toujours la même : un compteur incrémenté à la fin d'une
+ * course et rangé dans AsyncStorage, sans rien qui le remette à zéro à minuit.
+ *
+ * Le retirer ne suffit pas — il faut rendre son retour visible. Les journées se lisent désormais
+ * dans les lignes du serveur, seul compteur qui se remet à zéro tout seul.
+ */
+describe("the store keeps no persisted day counter", () => {
+  const STORE = () =>
+    stripComments(
+      readFileSync(
+        join(process.cwd(), "src", "lib", "stores", "driverStore.ts"),
+        "utf8",
+      ),
+    );
+
+  it("ne déclare plus de total de journée dans stats", () => {
+    const store = STORE();
+
+    expect(store).not.toContain("todayEarnings");
+    expect(store).not.toContain("todayRides");
+  });
+
+  it("ne les incrémente plus à la fin d'une course", () => {
+    const store = STORE();
+    const completeRide = store.slice(store.indexOf("completeRide:"));
+
+    // La fin de course ne touche plus aux statistiques : elle libère la course active, c'est tout.
+    expect(completeRide.slice(0, 400)).not.toContain("stats:");
+  });
+});
+
+/**
+ * MINUIT NE SE VOIT PAS.
+ *
+ * Un chauffeur en ligne à 23h59 garderait le total de la veille jusqu'au prochain rechargement, et
+ * la carte mentirait sur le mot « depuis minuit ». La correction ne doit pas coûter une requête par
+ * minute pour autant : on recalcule le jour courant, et on ne va chercher le serveur que s'il a
+ * changé — au plus une requête par jour.
+ */
+describe("the day boundary", () => {
+  it("recharge quand le jour change, et seulement alors", () => {
+    const block = dayStatsBlock();
+
+    expect(block).toContain("setInterval");
+    expect(block).toContain("localDayBounds(new Date()).start.toISOString()");
+    // La comparaison qui évite la requête inutile : le rechargement est conditionné au changement.
+    expect(block).toMatch(/dayKey !== current\) void load\(\)/);
+    // Et le jour affiché est mémorisé, sinon il n'y a rien à comparer.
+    expect(block).toContain("setDayKey(");
+  });
+});
