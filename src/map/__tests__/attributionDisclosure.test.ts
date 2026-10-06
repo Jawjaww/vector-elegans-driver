@@ -21,32 +21,48 @@ import { MAP_CONTROL_SIZE } from '../../lib/utils/overlayLane';
  * permanent, the (i) is the one, it is far too big, and the right corner is where it belongs with
  * the vertical label appearing *on the tap*, very small.
  *
- * That is a styling request and it lands on a licence term: the basemap is OpenFreeMap /
- * OpenMapTiles over OpenStreetMap data, the ODbL behind the OSM data requires the credit to be
- * shown, and OpenFreeMap's terms repeat it (the TileJSON this document loads carries, measured
- * 2026-10-06 on `tiles.openfreemap.org/planet`:
- * `OpenFreeMap | (c) OpenMapTiles | Data from OpenStreetMap`, each with its own link). So the
- * credit may be *discreet*, it may be *revealed*, it may never be *disappearable*.
+ * That correction left a second defect behind, and it is the one this file now guards: the tap
+ * opened *two* credit elements at once — the vertical label **and** a large panel listing every
+ * provider. The owner named it in as many words: « quand on appuie sur le i, tu affiches deux
+ * labels différents, l'un vertical et l'autre beaucoup plus gros ». The big one is gone; the
+ * vertical one is all the tap reveals.
  *
- * The rule therefore changed nature rather than going away, and this file asserts the four things
+ * That is a styling request and it lands on a licence term: the basemap is OpenFreeMap /
+ * OpenMapTiles over OpenStreetMap data, and the ODbL behind the OSM data requires the credit to be
+ * shown. So the credit may be *discreet*, it may be *revealed*, it may never be *disappearable* —
+ * and, since the panel that carried the link is gone, the revealed label is itself the anchor to
+ * the copyright page: a credit that is a link satisfies the term without adding a second element.
+ *
+ * The rule therefore changed nature rather than going away, and this file asserts the five things
  * that make it a rule:
  *
- * 1. at rest, only the (i) is painted — the credit and the complete list sit in the markup behind
- *    the browser's own `[hidden]` rule, so nothing paints them by accident;
- * 2. the tap reveals them and the next tap hides them again — exercised in a real DOM
+ * 1. at rest, only the (i) is painted — the credit sits in the markup behind the browser's own
+ *    `[hidden]` rule, so nothing paints it by accident, and no second credit exists to reveal;
+ * 2. **the tap reveals exactly ONE credit element** — asserted as a count over the live DOM, not
+ *    as the presence of the one expected id, so a panel of providers cannot come back beside it;
+ * 3. the tap reveals the credit and the next tap hides it again — exercised in a real DOM
  *    (`@jest-environment jsdom`), not read out of the string;
- * 3. no rule and no inline style can hide the credit while it is open, nor leave it painted once
- *    it is closed: `display` is banned outright on the two revealed elements, because a `display`
+ * 4. no rule and no inline style can hide the credit while it is open, nor leave it painted once
+ *    it is closed: `display` is banned outright on the revealed element, because a `display`
  *    declaration beats the UA's `[hidden] { display: none }` in both directions;
- * 4. the pill's *visible* size is small and its *touch* size is not — two numbers, asserted as
+ * 5. the pill's *visible* size is small and its *touch* size is not — two numbers, asserted as
  *    two numbers, and both measured against the recenter control that owns the same corner.
+ *
+ * The count in (2) is itself proved non-vacuous: a second revealed credit is planted in the DOM
+ * and the same probe has to report two. A guard that could only ever see one element would pass on
+ * the exact state the owner reported.
  */
 
 const WIDGET = '#ve-attrib';
 const TOGGLE = '#ve-attrib-toggle';
 const GLYPH = '#ve-attrib-glyph';
 const CREDIT = '#ve-attrib-credit';
-const PANEL = '#ve-attrib-full';
+
+/** The page the revealed label points at, and the counterpart of the ODbL credit it carries. */
+const CREDIT_URL = 'https://www.openstreetmap.org/copyright';
+
+/** The id of the panel that used to open beside the label, and must not come back. */
+const REMOVED_PANEL = 've-attrib-full';
 
 const DISCLOSURE_START = '// VE_ATTRIB_DISCLOSURE_START';
 const DISCLOSURE_END = '// VE_ATTRIB_DISCLOSURE_END';
@@ -229,6 +245,29 @@ function displayOf(id: string): string {
   return window.getComputedStyle(element).display;
 }
 
+/**
+ * The credits the tap actually reveals, as ids — a **count**, because the defect was a count.
+ *
+ * It walks the widget's own children, keeps the ones that paint (`display` is what jsdom resolves
+ * from the `hidden` attribute) and that carry the credit, and returns their ids. Asking whether
+ * the expected label is present would have stayed green throughout the bug: the label was there,
+ * a second element was there with it.
+ */
+function revealedCreditIds(): string[] {
+  const widget = document.getElementById('ve-attrib');
+  if (widget === null) throw new Error('the attribution widget is missing from the document');
+  return Array.from(widget.children)
+    .filter((child) => window.getComputedStyle(child).display !== 'none')
+    .filter((child) => /openstreetmap/i.test(child.textContent ?? ''))
+    .map((child) => child.id || child.tagName.toLowerCase());
+}
+
+function widget(): HTMLElement {
+  const element = document.getElementById('ve-attrib');
+  if (element === null) throw new Error('the attribution widget is missing from the document');
+  return element;
+}
+
 function toggle(): HTMLButtonElement {
   const button = document.getElementById('ve-attrib-toggle');
   if (button === null) throw new Error('the (i) pill is missing from the document');
@@ -253,23 +292,24 @@ describe('map attribution disclosure', () => {
     // Something painted at all times has to name the data source.
     expect(html).toContain('OpenStreetMap');
 
-    // Correction 1: one permanent element. The two revealed ones carry `hidden` in the markup, so
-    // a document whose script never runs at all shows the (i) and no credit — never both.
-    expect(/<span id="ve-attrib-credit"[^>]*\shidden/.test(html)).toBe(true);
-    expect(/<div id="ve-attrib-full"[^>]*\shidden/.test(html)).toBe(true);
+    // Correction 1: one permanent element. The one revealed element carries `hidden` in the
+    // markup, so a document whose script never runs at all shows the (i) and no credit.
+    expect(/<a[^>]*id="ve-attrib-credit"[^>]*\shidden/.test(html)).toBe(true);
     expect(/<button[^>]*id="ve-attrib-toggle"[^>]*\shidden/.test(html)).toBe(false);
 
-    // And nothing in the stylesheet may paint them anyway: a `display` declaration of *any* value
-    // on a `[hidden]` element beats the browser's own rule, which is how a "revealed" credit
+    // Correction 2: the panel is not hidden behind the label, it is *gone*. `hidden` would leave
+    // the duplicate one attribute away from coming back, which is the state being corrected.
+    expect(html).not.toContain(REMOVED_PANEL);
+
+    // And nothing in the stylesheet may paint the label anyway: a `display` declaration of *any*
+    // value on a `[hidden]` element beats the browser's own rule, which is how a "revealed" credit
     // becomes a permanently painted one.
-    for (const selector of [CREDIT, PANEL]) {
-      const rules = declarations(html, selector);
-      expect({ selector, rules: rules.length > 0 }).toEqual({ selector, rules: true });
-      expect({
-        selector,
-        display: rules.filter((declaration) => declaration.startsWith('display:')),
-      }).toEqual({ selector, display: [] });
-    }
+    const rules = declarations(html, CREDIT);
+    expect({ selector: CREDIT, rules: rules.length > 0 }).toEqual({ selector: CREDIT, rules: true });
+    expect({
+      selector: CREDIT,
+      display: rules.filter((declaration) => declaration.startsWith('display:')),
+    }).toEqual({ selector: CREDIT, display: [] });
   });
 
   it('reveals the credit on the tap, and hides it again on the next one', () => {
@@ -277,18 +317,42 @@ describe('map attribution disclosure', () => {
 
     // Closed at rest, and measurably so — not merely "carries an attribute".
     expect(displayOf('ve-attrib-credit')).toBe('none');
-    expect(displayOf('ve-attrib-full')).toBe('none');
     expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    // Nothing to read twice: at rest the widget reveals no credit at all.
+    expect(revealedCreditIds()).toEqual([]);
 
     toggle().click();
     expect(displayOf('ve-attrib-credit')).not.toBe('none');
-    expect(displayOf('ve-attrib-full')).not.toBe('none');
     expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(revealedCreditIds()).toEqual(['ve-attrib-credit']);
 
     toggle().click();
     expect(displayOf('ve-attrib-credit')).toBe('none');
-    expect(displayOf('ve-attrib-full')).toBe('none');
     expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(revealedCreditIds()).toEqual([]);
+  });
+
+  it('opens exactly one credit element on the tap, so the two-label defect cannot return', () => {
+    mountDocument(html);
+    toggle().click();
+
+    // The defect in one line. The document this replaces answered it with
+    // ['ve-attrib-credit', 've-attrib-full'] — two labels, the vertical one and the big one.
+    expect(revealedCreditIds()).toEqual(['ve-attrib-credit']);
+
+    // Non-vacuity, on the defect's own markup: the old panel is planted back in the DOM and the
+    // count has to reach two. Without this, a probe that could never see more than one element
+    // would pass on the exact screen the owner reported.
+    const oldPanel = document.createElement('div');
+    oldPanel.id = REMOVED_PANEL;
+    oldPanel.innerHTML = `<a href="${CREDIT_URL}">© OpenStreetMap contributors</a>`;
+    widget().appendChild(oldPanel);
+    expect(revealedCreditIds()).toEqual(['ve-attrib-credit', REMOVED_PANEL]);
+
+    // And the tap that closes it closes the one element there is.
+    oldPanel.remove();
+    toggle().click();
+    expect(revealedCreditIds()).toEqual([]);
   });
 
   it('separates the pill\u2019s visible size from its touch zone', () => {
@@ -312,43 +376,33 @@ describe('map attribution disclosure', () => {
     expect({ glyph, small: glyph >= 15 && glyph <= 18 }).toEqual({ glyph, small: true });
   });
 
-  it('reaches the complete credit through the (i) pill', () => {
+  it('makes the revealed label itself the link to the copyright page', () => {
     expect(html).toContain('id="ve-attrib-toggle"');
-    expect(html).toContain('aria-controls="ve-attrib-credit ve-attrib-full"');
+    // The pill controls the one element the tap opens.
+    expect(html).toContain('aria-controls="ve-attrib-credit"');
 
-    // The complete credit is in the document, providers and links included.
-    for (const provider of [
-      'OpenStreetMap contributors',
-      'OpenFreeMap',
-      'OpenMapTiles',
-      'MapLibre',
-    ]) {
-      expect(html).toContain(provider);
-    }
-    for (const link of [
-      'https://www.openstreetmap.org/copyright',
-      'https://openfreemap.org',
-      'https://www.openmaptiles.org',
-    ]) {
-      expect({ link, linked: html.includes(`<a href="${link}`) }).toEqual({
-        link,
-        linked: true,
-      });
-    }
+    // The credit is in the document, and it names its source.
+    expect(html).toContain('OpenStreetMap');
+    expect(html).toContain(`href="${CREDIT_URL}"`);
 
-    // And the disclosure is wired: both revealed elements collapse through the `hidden` attribute
-    // and the script toggles exactly that attribute, so no rule can make one permanently
-    // invisible while the other opens.
-    expect(/getElementById\(['"]ve-attrib-full['"]\)/.test(html)).toBe(true);
+    // And it is the credit *itself* that is the anchor — one element doing both jobs. That is the
+    // counterpart of dropping the panel: the licence asks for the credit to be visible and, where
+    // it can be, clickable, and a clickable label satisfies both without a second element.
+    const anchor = /<a\s[^>]*id="ve-attrib-credit"[^>]*>([^<]*)<\/a>/.exec(html);
+    expect(anchor).not.toBeNull();
+    expect(anchor?.[1]).toContain('OpenStreetMap');
+    expect(anchor?.[0]).toContain(`href="${CREDIT_URL}"`);
+    expect(anchor?.[0]).toContain('target="_blank"');
+    expect(anchor?.[0]).toContain('rel="noopener"');
+
+    // And the disclosure is wired: the label collapses through the `hidden` attribute and the
+    // script toggles exactly that attribute, so no rule can make it permanently invisible.
+    // The removed panel is reached by nothing, anywhere in the document.
     expect(/getElementById\(['"]ve-attrib-credit['"]\)/.test(html)).toBe(true);
+    expect(/getElementById\(['"]ve-attrib-full['"]\)/.test(html)).toBe(false);
     expect(/removeAttribute\(['"]hidden['"]\)/.test(html)).toBe(true);
     expect(/setAttribute\(['"]hidden['"]/.test(html)).toBe(true);
-    for (const selector of [CREDIT, PANEL]) {
-      expect({ selector, hiding: declarations(html, selector).filter(hidesOrShrinks) }).toEqual({
-        selector,
-        hiding: [],
-      });
-    }
+    expect(declarations(html, CREDIT).filter(hidesOrShrinks)).toEqual([]);
   });
 
   it('pins a legibility floor for the credit: it is very small, not unreadable', () => {
@@ -361,11 +415,11 @@ describe('map attribution disclosure', () => {
     });
     // Vertical, as the owner asked, and revealed rather than permanent.
     expect(value(html, CREDIT, 'writing-mode')).toBe('vertical-rl');
-    expect(/<span id="ve-attrib-credit"[^>]*\shidden/.test(html)).toBe(true);
+    expect(/<a[^>]*id="ve-attrib-credit"[^>]*\shidden/.test(html)).toBe(true);
 
     // A short label is what keeps the revealed strip a strip: it sits above the pill, inside the
     // narrow column the corner leaves free.
-    const label = /<span id="ve-attrib-credit"[^>]*>([^<]*)<\/span>/.exec(html);
+    const label = /<a[^>]*id="ve-attrib-credit"[^>]*>([^<]*)<\/a>/.exec(html);
     const text = label === null ? '' : label[1].trim();
     expect({ text: text.length > 0, short: text.length <= 20 }).toEqual({
       text: true,
@@ -376,7 +430,7 @@ describe('map attribution disclosure', () => {
     // Contrast is computed, not assumed. The faces are translucent, so each is composited over
     // the basemap canvas and, worst case, over black.
     const backdrops = [parseColor(BASEMAP_CANVAS), parseColor('#000000')];
-    for (const selector of [GLYPH, CREDIT, PANEL]) {
+    for (const selector of [GLYPH, CREDIT]) {
       const ink = parseColor(value(html, selector, 'color') ?? 'transparent');
       const face = parseColor(value(html, selector, 'background-color') ?? 'transparent');
       for (const backdrop of backdrops) {
@@ -391,7 +445,7 @@ describe('map attribution disclosure', () => {
   });
 
   it('never lets the credit be hidden by a rule or by an inline style', () => {
-    for (const selector of [WIDGET, TOGGLE, GLYPH, CREDIT, PANEL]) {
+    for (const selector of [WIDGET, TOGGLE, GLYPH, CREDIT]) {
       const rules = declarations(html, selector);
       // Non-vacuity: a selector with no rule would make the guard below pass on nothing.
       expect({ selector, rules: rules.length > 0 }).toEqual({ selector, rules: true });

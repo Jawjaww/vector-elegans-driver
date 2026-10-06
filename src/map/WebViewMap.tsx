@@ -10,6 +10,7 @@ import {
   StyleSheet,
   View,
   Alert,
+  Linking,
   Platform,
   AppState,
   AppStateStatus,
@@ -1078,6 +1079,18 @@ export function WebViewMap({
           ? { cacheMode: 'LOAD_DEFAULT' as const }
           : {})}
         onMessage={handleMessage}
+        // The document is inline HTML, so it is the only thing this WebView must ever load. The
+        // one exception is the credit's link out to the OSM copyright page: without this, Android
+        // loads it *in place* (setSupportMultipleWindows is false, so target=_blank has no new
+        // window to go to) and the map is replaced by a web page with no way back. It leaves for
+        // the device browser instead, and the map survives.
+        onShouldStartLoadWithRequest={(request) => {
+          if (!/^https?:/i.test(request.url)) return true;
+          Linking.openURL(request.url).catch((error: unknown) => {
+            console.error('[WebView] credit link refused:', error);
+          });
+          return false;
+        }}
         originWhitelist={['*']}
         setSupportMultipleWindows={false}
         automaticallyAdjustContentInsets={false}

@@ -76,12 +76,17 @@ export function buildMapHtmlTemplate(
     }
 
     /* Attribution. A licence term, so it is *reachable at all times* and *revealed on demand*:
-       one small (i) pill is painted, and the credit it names — the short vertical label and the
-       complete list of providers, links included — appears only once the driver taps it. Drawn by
-       this document rather than by MapLibre's own control, whose compact button is 24 px and whose
-       credit only opens as a horizontal block; the control is therefore off (see the
-       attributionControl option below), and the list it used to render from the source TileJSON is
-       spelled out in the panel, links included.
+       one small (i) pill is painted, and the credit it names — a short vertical label — appears
+       only once the driver taps it. Drawn by this document rather than by MapLibre's own control,
+       whose compact button is 24 px and whose credit only opens as a horizontal block; the control
+       is therefore off (see the attributionControl option below).
+
+       One element is revealed, never two: the tap used to open the label *and* a large panel
+       listing every provider, and the owner named that as the defect — « quand on appuie sur le i,
+       tu affiches deux labels différents, l'un vertical et l'autre beaucoup plus gros ». The panel
+       is gone, and the label is itself the anchor to the copyright page, so the credit is visible
+       AND clickable without a second element. attributionDisclosure.test.ts counts what the tap
+       reveals (one), and attributionCompliance.test.ts fails if the panel comes back.
 
        Bottom-RIGHT, in the strip the recenter control leaves free. That strip is wider than it
        looks: right-4 is 56 px on native (NativeWind's rem is 14, not 16), the control is 48 px
@@ -137,7 +142,10 @@ export function buildMapHtmlTemplate(
       font-weight: 700;
     }
     /* Revealed by the tap, never painted at rest. Very small on purpose: the driver asked for it,
-       so it is read rather than glanced at, and it does not have to hold the map off. */
+       so it is read rather than glanced at, and it does not have to hold the map off.
+       It is an anchor: the whole credit is the link, so the licence term is satisfied without a
+       second element beside it. The underline is off because the strip is a 10 px vertical label,
+       and a rule drawn through it would cost more legibility than the affordance is worth. */
     #ve-attrib-credit {
       writing-mode: vertical-rl;
       padding: 6px 3px;
@@ -149,29 +157,12 @@ export function buildMapHtmlTemplate(
       line-height: 1;
       letter-spacing: 0.04em;
       white-space: nowrap;
+      text-decoration: none;
     }
     /* Collapsed by its hidden attribute alone — the browser's own rule — and revealed with it. No
-       display is declared on the two revealed elements, on purpose: a display of any value beats
-       the user agent's [hidden] rule, so it would either paint the credit at rest or keep it
-       painted when closed. The guard in attributionDisclosure.test.ts forbids it. */
-    #ve-attrib-full {
-      position: absolute;
-      right: 0;
-      bottom: calc(100% + 6px);
-      width: max-content;
-      max-width: 64vw;
-      padding: 8px 10px;
-      border: 1px solid rgba(17, 24, 39, 0.14);
-      border-radius: 10px;
-      background-color: #ffffff;
-      color: #111827;
-      font-size: 11px;
-      line-height: 1.5;
-    }
-    #ve-attrib-full a {
-      color: #111827;
-      text-decoration: underline;
-    }
+       display is declared on the revealed element, on purpose: a display of any value beats the
+       user agent's [hidden] rule, so it would either paint the credit at rest or keep it painted
+       when closed. The guard in attributionDisclosure.test.ts forbids it. */
 
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -230,25 +221,26 @@ export function buildMapHtmlTemplate(
   <!-- Attribution: the (i) pill alone is painted; the credit it names is markup in the body too,
        revealed by the tap. Markup, not a string the map script may fail to insert — a credit that
        only exists once MapLibre booted is a credit that disappears with the map, and a disclosure
-       script that never ran leaves the (i) reachable and the credit closed, never the reverse. -->
+       script that never ran leaves the (i) reachable and the credit closed, never the reverse.
+       One revealed element, and it is the credit itself as a link to the copyright page: the
+       provider panel that used to open beside it is deliberately absent. -->
   <div id="ve-attrib">
-    <span id="ve-attrib-credit" lang="en" hidden>© OpenStreetMap</span>
+    <a
+      id="ve-attrib-credit"
+      lang="en"
+      href="https://www.openstreetmap.org/copyright"
+      target="_blank"
+      rel="noopener"
+      aria-label="© OpenStreetMap contributors"
+      hidden
+    >© OpenStreetMap</a>
     <button
       id="ve-attrib-toggle"
       type="button"
       aria-expanded="false"
-      aria-controls="ve-attrib-credit ve-attrib-full"
+      aria-controls="ve-attrib-credit"
       aria-label="Crédits cartographiques"
     ><span id="ve-attrib-glyph" aria-hidden="true">i</span></button>
-    <div id="ve-attrib-full" hidden>
-      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>
-      <span aria-hidden="true">·</span>
-      <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>
-      <span aria-hidden="true">·</span>
-      <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>
-      <span aria-hidden="true">·</span>
-      <a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre</a>
-    </div>
   </div>
   <script>
     // --- Performance tracing (debug mode) ---
@@ -302,23 +294,20 @@ export function buildMapHtmlTemplate(
 
     // --- Attribution disclosure ---
     // Wired before the map boots, on purpose: the credit is a licence term and has to open even
-    // if MapLibre never loads. Both revealed elements move on their own hidden attribute and
-    // nothing else, so neither can be switched off by a style — and the pill is painted either
+    // if MapLibre never loads. The one revealed element moves on its own hidden attribute and
+    // nothing else, so it cannot be switched off by a style — and the pill is painted either
     // way, so the disclosure stays reachable even if this block never runs.
+    // One element, deliberately: the panel that used to open beside the label is gone, and this
+    // script must stay unable to reveal anything else.
     // VE_ATTRIB_DISCLOSURE_START
     (function () {
       const toggle = document.getElementById('ve-attrib-toggle');
       const credit = document.getElementById('ve-attrib-credit');
-      const panel = document.getElementById('ve-attrib-full');
-      if (!toggle || !credit || !panel) return;
-      const reveal = function (element, show) {
-        if (show) element.removeAttribute('hidden');
-        else element.setAttribute('hidden', '');
-      };
+      if (!toggle || !credit) return;
       toggle.addEventListener('click', function () {
         const opening = credit.hasAttribute('hidden');
-        reveal(credit, opening);
-        reveal(panel, opening);
+        if (opening) credit.removeAttribute('hidden');
+        else credit.setAttribute('hidden', '');
         toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
       });
     })();
@@ -351,11 +340,12 @@ export function buildMapHtmlTemplate(
       renderWorldCopies: false,
       // Conformité : le crédit n'est plus rendu par le contrôle de MapLibre (pastille de 24 px,
       // crédit horizontal) mais par la pastille (i) du document — voir le bloc CSS #ve-attrib.
-      // Le contrôle est désactivé pour ne pas doubler le crédit. Le TileJSON de la source porte
-      // « OpenFreeMap | © OpenMapTiles | Data from OpenStreetMap » (mesuré le 2026-10-06 sur
-      // tiles.openfreemap.org/planet) : ce sont ces noms, avec leurs liens, que le tap de la
-      // pastille révèle — avec le libellé vertical court. Rien n'est peint en permanence hors la
-      // pastille elle-même.
+      // Le contrôle est désactivé pour ne pas doubler le crédit. Le tap révèle UN seul élément :
+      // le libellé vertical court, qui est lui-même le lien vers la page de copyright OSM. La
+      // liste des fournisseurs (« OpenFreeMap | © OpenMapTiles | Data from OpenStreetMap »,
+      // mesuré le 2026-10-06 sur tiles.openfreemap.org/planet) a été retirée avec le panneau :
+      // le propriétaire voyait deux crédits au tap et n'en voulait qu'un. Rien n'est peint en
+      // permanence hors la pastille elle-même.
       attributionControl: false,
       antialias: false,
       optimizeForTerrain: false,
