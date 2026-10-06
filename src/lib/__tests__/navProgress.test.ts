@@ -175,3 +175,40 @@ describe('navProgress', () => {
     expect(nextManeuverAlongTrack([], 0)).toBeNull();
   });
 });
+
+/**
+ * « EXIT ROUNDABOUT » EST UN ROND-POINT, PAS UN TOUT DROIT.
+ *
+ * OSRM pose DEUX manœuvres pour un rond-point : `roundabout` à l'entrée (avec le numéro de sortie),
+ * puis `exit roundabout` SUR l'anneau. Ce second type n'avait aucune branche dans
+ * `maneuverActionPhrase`, donc il tombait dans le `return` final — **« continuez tout droit »** —
+ * pendant que le chauffeur tournait sur le rond-point. Et `isRoundabout` avait la même liste, donc
+ * le HUD dessinait une flèche tout droit.
+ *
+ * Rapport du propriétaire : « parfois je passais un rond-point et ça n'affichait pas le rond-point ».
+ * Corrigé, et ce test échoue sur l'état d'avant : la phrase y était celle du tout droit.
+ */
+describe("a roundabout is announced on the ring too", () => {
+  it("nomme le rond-point quand on est dessus, pas le tout droit", () => {
+    const phrase = maneuverActionPhrase('exit roundabout');
+
+    expect(phrase.key).toBe('nav.maneuver.roundaboutLeave');
+    // Non-vacuité : c'est exactement ce que rendait l'ancien code.
+    expect(phrase.key).not.toBe('nav.maneuver.straight');
+  });
+
+  it("reconnaît aussi la variante rotary", () => {
+    expect(maneuverActionPhrase('exit rotary').key).toBe('nav.maneuver.roundaboutLeave');
+  });
+
+  it("garde l'entrée du rond-point, avec son numéro de sortie", () => {
+    // La manœuvre d'entrée porte le numéro : elle ne doit pas avoir été emportée par le correctif.
+    expect(maneuverActionPhrase('roundabout', undefined, 2)).toEqual({
+      key: 'nav.maneuver.roundaboutExit',
+      params: { count: 2, ordinal: true },
+    });
+    expect(maneuverActionPhrase('roundabout', undefined, undefined).key).toBe(
+      'nav.maneuver.roundabout',
+    );
+  });
+});

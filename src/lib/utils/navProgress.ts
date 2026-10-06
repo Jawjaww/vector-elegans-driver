@@ -229,6 +229,15 @@ export function maneuverActionPhrase(
     }
     return { key: 'nav.maneuver.roundabout' };
   }
+  // OSRM pose DEUX manoeuvres pour un rond-point : `roundabout` a l'entree (avec le numero de
+  // sortie), puis `exit roundabout` SUR l'anneau. Ce second type n'avait aucune branche, donc il
+  // tombait dans le `return` final — « continuez tout droit » — pendant que le chauffeur tournait
+  // sur le rond-point. Rapport : « parfois je passais un rond-point et ca n'affichait pas le
+  // rond-point ». Le bon type, et pas un repli, parce qu'un repli qui dit le contraire de ce qu'on
+  // fait ne vaut pas mieux que le silence.
+  if (t === 'exit roundabout' || t === 'exit rotary') {
+    return { key: 'nav.maneuver.roundaboutLeave' };
+  }
   if (mod.includes('uturn') || mod.includes('u-turn')) {
     return { key: 'nav.maneuver.uturn' };
   }

@@ -338,7 +338,8 @@
       "right": "Gire a la derecha",
       "merge": "Incorpórese",
       "fork": "Tome la bifurcación",
-      "straight": "Continúe recto"
+      "straight": "Continúe recto",
+      "roundaboutLeave": "Salga de la rotonda"
     },
     "stage": {
       "toPickup": "Ir al punto de recogida",
