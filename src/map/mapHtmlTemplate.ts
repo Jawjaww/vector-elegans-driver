@@ -1362,6 +1362,11 @@ export function buildMapHtmlTemplate(
               type: "offRoute",
               lng: coords[0],
               lat: coords[1],
+              // LA MAGNITUDE DE L'ECART, mesuree ici et jetee jusqu'a present. Sans elle, le seuil
+              // de declenchement est injugeable : on ne peut pas distinguer une vraie rue parallele
+              // (100 m et plus) d'un bruit GPS qui depasse tout juste les 30 m — et ce sont deux
+              // corrections opposees.
+              meters: Math.round(dist),
             })
           );
         }
