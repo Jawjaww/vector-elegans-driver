@@ -18,11 +18,14 @@ import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
  * `.maplibregl-ctrl-attrib` in CSS, so nothing was drawn at all.
  *
  * The credit is now drawn by the document itself — a small (i) pill painted at all times, which
- * reveals the short vertical label and the complete list with its links — and MapLibre's own
- * control is off so the two cannot double up. This file checks that the credit the licence is
- * about is still *there*, and still in the markup rather than assembled by the map script; the
- * guard that the tap opens it, that it stays legible, and that no rule or inline style can make it
- * invisible lives in `attributionDisclosure.test.ts`.
+ * reveals ONE short vertical label — and MapLibre's own control is off so the two cannot double
+ * up. The label is itself the anchor to the copyright page: the panel that used to carry the link
+ * (and a second, much bigger label) was removed on the owner's instruction, and a clickable credit
+ * is what keeps the ODbL term satisfied without adding a second element. This file checks that the
+ * credit the licence is about is still *there*, still in the markup rather than assembled by the
+ * map script, and still linked; the guard that the tap opens exactly one credit element, that it
+ * stays legible, and that no rule or inline style can make it invisible lives in
+ * `attributionDisclosure.test.ts`.
  *
  * What occupies that corner: the widget is bottom-right, in the strip the recenter control leaves
  * free (`right-4` is 56 px on native, the control is 48 px wide with an 8 px `hitSlop`, so the
@@ -32,6 +35,8 @@ import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
  * against a copy of it.
  */
 const HANDLE_SOURCE = 'src/components/BottomSheet.tsx';
+/** The WebView that feeds this document in, and the one place a link out of it can be caught. */
+const WEBVIEW_SOURCE = 'src/map/WebViewMap.tsx';
 
 function restingHandleHeight(): number {
   const source = readFileSync(HANDLE_SOURCE, 'utf8');
@@ -58,31 +63,41 @@ describe('map attribution (licence requirement)', () => {
     expect(html.includes('attributionControl: {')).toBe(false);
 
     // The replacement is markup in the body: the pill painted at all times, and the credit it
-    // reveals on the tap.
+    // reveals on the tap. One credit — the panel that used to open beside the label is gone, and
+    // this is the line that fails if it is ever brought back.
     expect(html).toContain('id="ve-attrib-credit"');
     expect(html).toContain('id="ve-attrib-toggle"');
-    expect(html).toContain('id="ve-attrib-full"');
+    expect(html).not.toContain('id="ve-attrib-full"');
   });
 
-  it('names every provider the source TileJSON credits, links included', () => {
-    // The list is spelled out because the control that used to render it from the TileJSON is
-    // off. If the provider changes, this is the line that has to follow it.
-    for (const provider of [
-      'OpenStreetMap contributors',
-      'OpenFreeMap',
-      'OpenMapTiles',
-      'MapLibre',
-    ]) {
-      expect(html).toContain(provider);
-    }
-    for (const link of [
-      'https://www.openstreetmap.org/copyright',
-      'https://openfreemap.org',
-      'https://www.openmaptiles.org',
-      'https://maplibre.org/',
-    ]) {
-      expect(html).toContain(link);
-    }
+  it('names the data source the ODbL is about, and links the credit to it', () => {
+    // The provider list (OpenFreeMap, OpenMapTiles, MapLibre) left with the panel: the tap reveals
+    // one label now, not two, and the label is short on purpose. What a licence needs — the OSM
+    // data attribution — is on that label, visible and clickable.
+    expect(html).toContain('OpenStreetMap');
+    expect(html).toContain('href="https://www.openstreetmap.org/copyright"');
+
+    // The exact ODbL wording ("contributors") is carried by the accessible name while the painted
+    // text stays the short label the owner asked for, so the credit is correct for a screen reader
+    // without becoming a second visible element.
+    expect(html).toContain('OpenStreetMap contributors');
+
+    // And the credit *is* the anchor: not a link sitting next to a label, which is what the panel
+    // was. Anchored on the credit's own id, so a link elsewhere cannot satisfy this.
+    expect(/<a\s[^>]*id="ve-attrib-credit"[\s\S]*?href="https:\/\/www\.openstreetmap\.org\/copyright"/.test(html)).toBe(true);
+  });
+
+  it('sends the credit link out to the browser instead of navigating the map away', () => {
+    // A link inside this document is not free. The WebView is fed inline HTML and
+    // `setSupportMultipleWindows` is false, so Android has no new window for a `target="_blank"`
+    // to go to and loads it *in place*: without the interception, tapping the credit replaces the
+    // map with the copyright page, in a WebView with no back affordance. The link has to leave.
+    const source = readFileSync(WEBVIEW_SOURCE, 'utf8');
+    expect(source).toContain('onShouldStartLoadWithRequest');
+    expect(source).toContain('Linking.openURL');
+    // Non-vacuity: intercepting is half of it — the navigation has to be refused, or the page
+    // loads anyway and the browser opens on top of a dead map.
+    expect(source).toContain('return false');
   });
 
   it('leaves the credit above the sheet handle that covers the bottom of the map', () => {
