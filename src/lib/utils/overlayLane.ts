@@ -30,6 +30,17 @@
  */
 export const TRIP_GUIDANCE_BAR_HEIGHT = 76;
 
+/**
+ * What the resting sheet keeps visible of itself above the bottom of the scene.
+ *
+ * Declared here, with the rest of the lane, because a tenant that is not a component needs it:
+ * the map document has to lift the attribution label clear of the instruction band, and that
+ * band stands on this lip. The document is a string built by a pure module, so it cannot read a
+ * constant out of `components/` — the arrow has to point this way, exactly as it does for
+ * `TRIP_GUIDANCE_BAR_HEIGHT`, which is why `BottomSheet` now imports it instead of owning it.
+ */
+export const SHEET_PEEK_VISIBLE_H = 14;
+
 /** Corner radius of a map card. A card, not a capsule: 999 collapsed these into pills. */
 export const OVERLAY_CARD_RADIUS = 20;
 
@@ -65,3 +76,27 @@ export const LIFT_OVER_INSTRUCTION =
   TRIP_GUIDANCE_BAR_HEIGHT +
   OVERLAY_STACK_GAP +
   (LANE_BASE_OFFSET - CONTROL_BASE_OFFSET);
+
+/**
+ * Bottom of the whole instruction band, measured from the bottom of the scene.
+ *
+ * The bar is hung off the top of the sheet (`SHEET_PEEK_VISIBLE_H + LANE_BASE_OFFSET`) and is
+ * `TRIP_GUIDANCE_BAR_HEIGHT` tall, so this is the distance a control has to reach to be *above*
+ * the sentence rather than inside it. It is the same arithmetic `LIFT_OVER_INSTRUCTION` does from
+ * the control's own resting offset, stated from the floor instead — which is what the map document
+ * needs, since it has no resting offset of its own to lift from.
+ */
+export const INSTRUCTION_BAND_TOP =
+  SHEET_PEEK_VISIBLE_H + LANE_BASE_OFFSET + TRIP_GUIDANCE_BAR_HEIGHT;
+
+/**
+ * Bottom of the attribution label, measured from the bottom of the map document.
+ *
+ * The licence credit used to be painted a few pixels above the bottom edge, in the strip the low
+ * overlays occupy, so it was drawn across the instruction being read ("Rendez-vous au point de
+ * prise en charge") and across the location control. It is one gap above the instruction band now:
+ * the band is what the driver reads, and a credit that overlaps it takes a sentence away to show a
+ * courtesy. `OVERLAY_STACK_GAP` is the gap the lane already uses between two stacked overlays,
+ * rather than a number invented here.
+ */
+export const ATTRIBUTION_LABEL_BOTTOM = INSTRUCTION_BAND_TOP + OVERLAY_STACK_GAP;

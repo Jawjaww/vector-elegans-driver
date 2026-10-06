@@ -6,6 +6,11 @@ const { readFileSync } = require('fs') as {
 };
 
 import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
+import {
+  ATTRIBUTION_LABEL_BOTTOM,
+  INSTRUCTION_BAND_TOP,
+  SHEET_PEEK_VISIBLE_H,
+} from '../../lib/utils/overlayLane';
 
 /**
  * The credit is a licence term, not a preference.
@@ -17,32 +22,36 @@ import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
  * shown. The document used to set `attributionControl: false` *and* hide
  * `.maplibregl-ctrl-attrib` in CSS, so nothing was drawn at all.
  *
- * The credit is now drawn by the document itself — a small (i) pill painted at all times, which
- * reveals ONE short vertical label — and MapLibre's own control is off so the two cannot double
- * up. The label is itself the anchor to the copyright page: the panel that used to carry the link
- * (and a second, much bigger label) was removed on the owner's instruction, and a clickable credit
- * is what keeps the ODbL term satisfied without adding a second element. This file checks that the
- * credit the licence is about is still *there*, still in the markup rather than assembled by the
- * map script, and still linked; the guard that the tap opens exactly one credit element, that it
- * stays legible, and that no rule or inline style can make it invisible lives in
- * `attributionDisclosure.test.ts`.
+ * The credit is now drawn by the document itself — a single vertical label, painted at all times
+ * and itself the anchor to the copyright page — and MapLibre's own control is off so the two
+ * cannot double up. The (i) pill that used to reveal it is gone, on the owner's instruction: it
+ * sat across the low overlays (the instruction bar, the location control). This file checks that
+ * the credit the licence is about is still *there*, still in the markup rather than assembled by
+ * the map script, still linked, and no longer in that low band; the guards on the count (one
+ * element), on legibility and on un-hideability live in `attributionDisclosure.test.ts`.
  *
- * What occupies that corner: the widget is bottom-right, in the strip the recenter control leaves
- * free (`right-4` is 56 px on native, the control is 48 px wide with an 8 px `hitSlop`, so the
- * outer 56 px are out of its way — that arithmetic is asserted in `attributionDisclosure.test.ts`).
- * `BottomSheet` rests at `HANDLE_ONLY_VISIBLE` px, which covers the bottom strip of the map on
- * every screen of the home tab. The lift below is asserted against that constant rather than
- * against a copy of it.
+ * What occupies the corner: the credit is bottom-right, in the strip the recenter control leaves
+ * free (`right-4` is 56 px on native, the control is 48 px wide with an 8 px `hitSlop` — that
+ * arithmetic is asserted in `attributionDisclosure.test.ts`), and it is lifted above the whole
+ * instruction band. `BottomSheet` now imports the resting lip it stands on
+ * (`SHEET_PEEK_VISIBLE_H`) from the shared lane module instead of owning a copy, so the two
+ * numbers below are the lane's own.
  */
-const HANDLE_SOURCE = 'src/components/BottomSheet.tsx';
+const BOTTOM_SHEET_SOURCE = 'src/components/BottomSheet.tsx';
 /** The WebView that feeds this document in, and the one place a link out of it can be caught. */
 const WEBVIEW_SOURCE = 'src/map/WebViewMap.tsx';
 
+/**
+ * The resting lip of the sheet, from the shared lane module.
+ *
+ * Non-vacuity, and the point of the move: the figure has one home, and `BottomSheet` has to read
+ * it. A local `14` re-appearing in the sheet would make the credit and the sheet disagree the
+ * next time either moves, which is exactly the drift this checks for.
+ */
 function restingHandleHeight(): number {
-  const source = readFileSync(HANDLE_SOURCE, 'utf8');
-  const match = /HANDLE_ONLY_VISIBLE\s*=\s*(\d+)/.exec(source);
-  if (!match) throw new Error('HANDLE_ONLY_VISIBLE is gone from BottomSheet');
-  return Number(match[1]);
+  const source = readFileSync(BOTTOM_SHEET_SOURCE, 'utf8');
+  expect(source).toContain('const HANDLE_ONLY_VISIBLE = SHEET_PEEK_VISIBLE_H;');
+  return SHEET_PEEK_VISIBLE_H;
 }
 
 /** The `bottom` a rule sets for one selector, or null when no such rule exists. */
@@ -62,18 +71,21 @@ describe('map attribution (licence requirement)', () => {
     expect(/attributionControl:\s*false/.test(html)).toBe(true);
     expect(html.includes('attributionControl: {')).toBe(false);
 
-    // The replacement is markup in the body: the pill painted at all times, and the credit it
-    // reveals on the tap. One credit — the panel that used to open beside the label is gone, and
-    // this is the line that fails if it is ever brought back.
+    // The replacement is markup in the body: one credit, painted. The (i) pill that used to
+    // reveal it and the panel that once opened beside it are both gone, and these are the lines
+    // that fail if either comes back.
     expect(html).toContain('id="ve-attrib-credit"');
-    expect(html).toContain('id="ve-attrib-toggle"');
+    expect(html).not.toContain('id="ve-attrib-toggle"');
     expect(html).not.toContain('id="ve-attrib-full"');
+    // Permanent, not revealed: nothing on the credit is waiting for a tap.
+    expect(/<a[^>]*id="ve-attrib-credit"[^>]*\shidden/.test(html)).toBe(false);
+    expect(html).not.toContain('aria-expanded');
   });
 
   it('names the data source the ODbL is about, and links the credit to it', () => {
-    // The provider list (OpenFreeMap, OpenMapTiles, MapLibre) left with the panel: the tap reveals
-    // one label now, not two, and the label is short on purpose. What a licence needs — the OSM
-    // data attribution — is on that label, visible and clickable.
+    // The provider list (OpenFreeMap, OpenMapTiles, MapLibre) left with the panel: the credit is
+    // one short label now, painted rather than revealed. What a licence needs — the OSM data
+    // attribution — is on that label, visible and clickable.
     expect(html).toContain('OpenStreetMap');
     expect(html).toContain('href="https://www.openstreetmap.org/copyright"');
 
@@ -100,10 +112,17 @@ describe('map attribution (licence requirement)', () => {
     expect(source).toContain('return false');
   });
 
-  it('leaves the credit above the sheet handle that covers the bottom of the map', () => {
+  it('keeps the credit out of the low band the sheet and the instruction bar occupy', () => {
+    // Two claims, one number. The credit stands on the sheet's resting lip (it is never drawn
+    // under the collapsed sheet) *and* one gap above the whole instruction band, so the sentence
+    // the driver is reading is never under the credit. Both are read from the shared lane module,
+    // and the sheet is checked to read the same lip rather than keeping a copy.
     const handle = restingHandleHeight();
-    const lift = cssBottom(html, '#ve-attrib');
+    const lift = cssBottom(html, '#ve-attrib-credit');
     expect(lift).not.toBeNull();
     expect(lift as number).toBeGreaterThanOrEqual(handle);
+    expect(lift as number).toBeGreaterThanOrEqual(INSTRUCTION_BAND_TOP);
+    expect(lift).toBe(ATTRIBUTION_LABEL_BOTTOM);
+    expect(ATTRIBUTION_LABEL_BOTTOM).toBeGreaterThan(INSTRUCTION_BAND_TOP);
   });
 });
