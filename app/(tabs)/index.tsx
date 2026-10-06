@@ -2125,15 +2125,36 @@ function DriverDayStatsRow() {
   const activeRideId = useDriverStore((state) => state.activeRide?.id ?? null);
   const [today, setToday] = useState<{ rides: number; earnings: number } | null>(null);
 
+  // Le jour des valeurs AFFICHEES, pour reconnaitre le passage de minuit sans requete.
+  const [dayKey, setDayKey] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
-      const fetched = await rideService.fetchCompletedRides(localDayBounds(new Date()), 0, 100);
+      const now = new Date();
+      const fetched = await rideService.fetchCompletedRides(localDayBounds(now), 0, 100);
       if (!fetched.ok) return;
-      setToday(summarizeHistoryToday(fetched.rides, new Date()));
+      setToday(summarizeHistoryToday(fetched.rides, now));
+      setDayKey(localDayBounds(now).start.toISOString());
     } catch {
       // Un diagnostic ne doit pas casser l'ecran : on garde ce qui est affiche.
     }
   }, []);
+
+  /**
+   * Minuit ne se voit pas : un chauffeur en ligne a 23h59 garderait le total de la veille jusqu'au
+   * prochain rechargement, et la carte mentirait sur le mot « depuis minuit ».
+   *
+   * On ne recharge donc PAS toutes les minutes — ce serait autant de requetes pour rien. On
+   * recalcule le jour courant, et on ne va chercher le serveur que s'il a CHANGE. Cout reel : au
+   * plus une requete par jour, et seulement si l'application est ouverte au moment du basculement.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = localDayBounds(new Date()).start.toISOString();
+      if (dayKey !== null && dayKey !== current) void load();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [dayKey, load]);
 
   // Au montage, a chaque venue sur l'onglet, et quand une course se termine (l'identifiant de la
   // course active retombe a null) — c'est-a-dire exactement quand le chiffre change.
