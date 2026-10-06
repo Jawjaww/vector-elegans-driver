@@ -8,14 +8,18 @@ import { supabase } from '../src/lib/supabase';
 import {
   documentErrorMessageKey,
   toRideDocument,
-  RIDE_DOCUMENT_LABEL_KEYS,
   type RideDocument,
 } from '../src/lib/utils/rideDocument';
 import {
-  isSpecimen,
   SPECIMEN_DOCUMENT,
   SPECIMEN_MARKER,
 } from '../src/lib/utils/documentSpecimen';
+import {
+  BOOKING_ORDER_SPECIMEN,
+  bookingOrderRows,
+  toBookingOrder,
+  type BookingOrder,
+} from '../src/lib/utils/bookingOrder';
 
 /**
  * La facture ou le reçu d'une course (F-02), ouverte depuis l'historique.
@@ -27,10 +31,13 @@ import {
  */
 export default function RideDocumentScreen() {
   const { rideId } = useLocalSearchParams<{ rideId?: string }>();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
 
   const [document, setDocument] = useState<RideDocument | null>(null);
+  // Le BON DE COMMANDE est le document du chauffeur (D-25) : ce qui se presente au controle
+  // routier, c'est la preuve d'une reservation prealable, pas une facture.
+  const [bookingOrder, setBookingOrder] = useState<BookingOrder | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [issuing, setIssuing] = useState(false);
@@ -48,6 +55,15 @@ export default function RideDocumentScreen() {
       // UNE requête tant qu'il y a quelque chose à montrer. Le mode de paiement ne sert qu'à
       // choisir QUEL document demander : il ne se lit donc que s'il n'y a rien à afficher. Une
       // lecture à deux branches coûtait une requête sur chaque ouverture d'écran pour rien.
+      // Le bon de commande d'abord : c'est le document que le chauffeur doit pouvoir montrer.
+      // S'il existe, il n'y a rien d'autre a lire — une requete, pas trois.
+      const orderResult = await supabase.rpc('get_ride_booking_order', {
+        p_ride_id: rideId,
+      });
+      const order = toBookingOrder(orderResult.data);
+      setBookingOrder(order);
+      if (order) return;
+
       const docResult = await supabase
         .from('ride_documents')
         .select('*')
@@ -80,8 +96,9 @@ export default function RideDocumentScreen() {
   // Le bon document pour le bon encaissement : la plateforme facture ce qu'elle a encaissé, le
   // chauffeur reçoit un reçu pour ce qu'il a encaissé lui-même.
   const kind = paymentMethod === 'card' ? 'invoice' : 'receipt';
-  // Le spécimen n'existe que dans l'affichage : aucune requête, et rien en base.
-  const shown = document ?? SPECIMEN_DOCUMENT;
+  // Le bon de commande du chauffeur, ou son spécimen. La facture reste le document COMPTABLE de la
+  // plateforme (D-25) : elle garde son propre chemin, plus bas.
+  const order = bookingOrder ?? BOOKING_ORDER_SPECIMEN;
 
   const issue = useCallback(async () => {
     if (!rideId) return;
@@ -135,76 +152,77 @@ export default function RideDocumentScreen() {
           <View className="py-10 items-center">
             <ActivityIndicator color="#34d399" />
           </View>
-        ) : document || showSpecimen ? (
-          <View
-            className="rounded-2xl p-5"
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.03)',
-              borderWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.05)',
-            }}
-          >
-            {isSpecimen(shown) ? (
-              <View className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 self-start">
-                <Text className="text-amber-300 text-xs font-black tracking-wider">
-                  {SPECIMEN_MARKER}
+        ) : bookingOrder || showSpecimen ? (
+          <>
+            <View
+              className="rounded-2xl p-5"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.05)',
+              }}
+            >
+              {order.specimen ? (
+                <View className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 self-start">
+                  <Text className="text-amber-300 text-xs font-black tracking-wider">
+                    {SPECIMEN_MARKER}
+                  </Text>
+                </View>
+              ) : null}
+              <Text className="text-white text-xl font-black tracking-tight">
+                {t('bookingOrder.title')}
+              </Text>
+              <Text className="text-slate-400 text-xs mt-0.5">
+                {t('bookingOrder.subtitle')}
+              </Text>
+              {order.number ? (
+                <Text className="text-slate-500 text-xs mt-1">
+                  {t('bookingOrder.number')} {order.number}
                 </Text>
-              </View>
-            ) : null}
-            <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-              {t(RIDE_DOCUMENT_LABEL_KEYS[shown.kind])}
-            </Text>
-            <Text className="text-white text-2xl font-black tracking-tight mt-1">
-              {shown.number}
-            </Text>
-            {isSpecimen(shown) ? (
-              <Text className="text-amber-200/80 text-xs mt-2">
-                {t('rideDocuments.specimenNotice')}
-              </Text>
-            ) : null}
-            {shown.issuedAt ? (
-              <Text className="text-slate-500 text-xs mt-1">
-                {new Date(shown.issuedAt).toLocaleString()}
-              </Text>
-            ) : null}
-
-            <View className="mt-4 pt-4 border-t border-white/10">
-              <Row label={t('rideDocuments.issuer')} value={shown.issuer.name} />
-              {shown.issuer.siret ? (
-                <Row label={t('rideDocuments.siret')} value={shown.issuer.siret} />
               ) : null}
-              {shown.clientName ? (
-                <Row label={t('rideDocuments.client')} value={shown.clientName} />
-              ) : null}
-              {shown.ridePickup ? (
-                <Row label={t('rideDocuments.ride')} value={shown.ridePickup} />
+              {order.specimen ? (
+                <Text className="text-amber-200/80 text-xs mt-2">
+                  {t('rideDocuments.specimenNotice')}
+                </Text>
               ) : null}
             </View>
 
-            <View className="mt-4 pt-4 border-t border-white/10">
-              <Row
-                label={t('rideDocuments.total')}
-                value={`€${shown.totalAmount.toFixed(2)}`}
-                strong
-              />
-              {shown.driverEarning !== null ? (
-                <Row
-                  label={t('rideDocuments.driverEarning')}
-                  value={`€${shown.driverEarning.toFixed(2)}`}
-                />
-              ) : null}
-              {shown.paymentMethod ? (
-                <Row
-                  label={t('rideDocuments.method')}
-                  value={
-                    shown.paymentMethod === 'cash'
-                      ? t('rideDocuments.cash')
-                      : t('rideDocuments.card')
-                  }
-                />
-              ) : null}
-            </View>
-          </View>
+            {/*
+              Les sections suivent l'ordre de la loi : exploitant, chauffeur, client, course. Les
+              lignes viennent du module pur, qui porte les mentions obligatoires — l'ecran ne
+              decide ni de leur contenu ni de leur ordre.
+            */}
+            {(['operator', 'driver', 'client', 'ride'] as const).map((section) => {
+              const rows = bookingOrderRows(order, i18n.language).filter(
+                (row) => row.section === section,
+              );
+              if (rows.length === 0) return null;
+
+              return (
+                <View
+                  key={section}
+                  className="rounded-2xl p-5 mt-3"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.05)',
+                  }}
+                >
+                  <Text className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    {t(`bookingOrder.section.${section}`)}
+                  </Text>
+                  {rows.map((row) => (
+                    <Row
+                      key={row.labelKey}
+                      label={t(row.labelKey)}
+                      value={row.value}
+                      tone={row.tone}
+                    />
+                  ))}
+                </View>
+              );
+            })}
+          </>
         ) : (
           <View
             className="rounded-2xl p-5"
@@ -257,7 +275,7 @@ function Row({
   label,
   value,
   strong,
-}: Readonly<{ label: string; value: string; strong?: boolean }>) {
+}: Readonly<{ label: string; value: string; strong?: boolean; tone?: "warning" }>) {
   return (
     <View className="flex-row justify-between items-center mb-2">
       <Text className="text-slate-400 text-xs">{label}</Text>

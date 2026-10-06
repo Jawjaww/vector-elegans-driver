@@ -79,7 +79,13 @@ describe("query budget of the money screens", () => {
     const screen = read(join("app", "ride-document.tsx"));
 
     expect(screen).toContain("SPECIMEN_MARKER");
-    expect(screen).toContain("isSpecimen(shown)");
+    // L'ecran affiche desormais le BON DE COMMANDE (D-25) : son specimen se reconnait a son
+    // drapeau `order.specimen`. Le specimen de la facture — document COMPTABLE, dont le chemin est
+    // conserve plus bas — reste reconnu par `isSpecimen`, et les deux portent la meme marque.
+    expect(screen).toContain("order.specimen");
+    // `isSpecimen(shown)` a disparu de CET ecran avec l'ancien corps de facture : le bon de
+    // commande est le document du chauffeur, et la facture y garde seulement son chemin de repli.
+    // Garder cette assertion aurait ete garder un mot, pas un comportement.
     // Aucune lecture de `platform_legal_identity` côté client : le spécimen ne coûte rien.
     expect(screen).not.toContain("platform_legal_identity");
   });
