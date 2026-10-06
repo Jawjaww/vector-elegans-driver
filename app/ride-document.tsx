@@ -217,6 +217,7 @@ export default function RideDocumentScreen() {
                       label={t(row.labelKey)}
                       value={row.value}
                       tone={row.tone}
+                      stacked={STACKED_ROW_KEYS.includes(row.labelKey)}
                     />
                   ))}
                 </View>
@@ -271,16 +272,51 @@ export default function RideDocumentScreen() {
   );
 }
 
+/**
+ * Une ligne du document.
+ *
+ * DEUX GABARITS, et le second repond a un defaut que j'avais introduit : en unifiant la densite, je
+ * n'ai pas regarde la LONGUEUR des valeurs. Les deux lignes de trajet sont des adresses, et une
+ * adresse ne tient pas sur une ligne a cote de son libelle — tronquee, elle ne dit plus ou l'on
+ * prend le client, c'est-a-dire exactement la mention que le document existe pour porter. Elles
+ * passent donc par le gabarit EMPILE, qui n'impose aucune limite de lignes.
+ */
+const STACKED_ROW_KEYS = ["bookingOrder.pickupAddress", "bookingOrder.dropoffAddress"];
+
 function Row({
   label,
   value,
   strong,
-}: Readonly<{ label: string; value: string; strong?: boolean; tone?: "warning" }>) {
+  tone,
+  stacked,
+}: Readonly<{
+  label: string;
+  value: string;
+  strong?: boolean;
+  tone?: "warning";
+  stacked?: boolean;
+}>) {
+  if (stacked) {
+    // Aucun numberOfLines ici : une adresse s'ecrit en entier, sur autant de lignes qu'il faut.
+    return (
+      <View className="mb-1.5">
+        <Text className="text-slate-400 text-[11px]">{label}</Text>
+        <Text className="text-slate-200 text-[12px] mt-0.5">{value}</Text>
+      </View>
+    );
+  }
+
   return (
     <View className="flex-row justify-between items-center mb-1">
       <Text className="text-slate-400 text-[11px]">{label}</Text>
       <Text
-        className={strong ? 'text-white font-black text-sm' : 'text-slate-200 text-[12px]'}
+        className={
+          tone === "warning"
+            ? "text-amber-300 font-bold text-[12px]"
+            : strong
+              ? "text-white font-black text-sm"
+              : "text-slate-200 text-[12px]"
+        }
         numberOfLines={1}
       >
         {value}

@@ -135,3 +135,53 @@ describe("the booking order header", () => {
     expect(screen()).not.toContain("specimenNotice");
   });
 });
+
+/**
+ * LES ADRESSES S'ÉCRIVENT EN ENTIER.
+ *
+ * Retour du propriétaire : « je t'ai déjà dit que la carte *course* était beaucoup trop compacte
+ * car il y a un problème d'espace pour la ligne d'adresse de la prise en charge et la destination.
+ * Pour le reste, c'est ok. »
+ *
+ * Le défaut était le mien, et il venait du lot précédent : en unifiant la densité, je n'avais pas
+ * regardé la LONGUEUR des valeurs. Toutes les lignes passaient par un gabarit à `numberOfLines={1}`,
+ * qui tronque — or une adresse tronquée ne dit plus où l'on prend le client, c'est-à-dire
+ * exactement la mention que ce document existe pour porter.
+ */
+describe("the trip rows", () => {
+  const { readFileSync } = require("fs") as {
+    readFileSync: (path: string, encoding: string) => string;
+  };
+  const { join } = require("path") as { join: (...parts: string[]) => string };
+  const screen = () =>
+    readFileSync(join(process.cwd(), "app", "ride-document.tsx"), "utf8");
+
+  it("fait passer les deux adresses par le gabarit empilé", () => {
+    const source = screen();
+
+    // Les deux clés, nommées ensemble : c'est ce qui les distingue des lignes courtes.
+    const keys = source.slice(source.indexOf("const STACKED_ROW_KEYS"));
+    expect(keys.slice(0, 200)).toContain("bookingOrder.pickupAddress");
+    expect(keys.slice(0, 200)).toContain("bookingOrder.dropoffAddress");
+
+    // Et elles sont RÉELLEMENT branchées : sans cet appel, le gabarit existe sans servir.
+    expect(source).toContain("stacked={STACKED_ROW_KEYS.includes(row.labelKey)}");
+  });
+
+  it("n'impose aucune limite de lignes à l'adresse", () => {
+    // La ligne EXACTE du gabarit empile : la valeur sur sa propre ligne, sans numberOfLines.
+    // Une assertion par extraction de bloc s'est revelee fragile — elle partait jusqu'a la fin du
+    // fichier quand le motif cherche n'etait pas trouve, et passait donc pour de mauvaises raisons.
+    expect(screen()).toContain(
+      '<Text className="text-slate-200 text-[12px] mt-0.5">{value}</Text>',
+    );
+  });
+
+  it("garde les lignes courtes sur une seule ligne", () => {
+    // La densité du reste est validée par le propriétaire : elle ne doit pas bouger.
+    const source = screen();
+    const lastRow = source.lastIndexOf("numberOfLines={1}");
+
+    expect(lastRow).toBeGreaterThan(-1);
+  });
+});
