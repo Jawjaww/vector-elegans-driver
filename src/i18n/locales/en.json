@@ -439,7 +439,10 @@
       "merge": "Merge",
       "fork": "Take the fork",
       "straight": "Continue straight",
-      "roundaboutLeave": "Leave the roundabout"
+      "roundaboutLeave": "Leave the roundabout",
+      "ramp": "Take the ramp",
+      "endOfRoad": "Turn at the end of the road",
+      "roundaboutTurn": "Turn at the roundabout"
     },
     "stage": {
       "toPickup": "Head to the pickup point",

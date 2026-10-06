@@ -249,6 +249,14 @@ export function maneuverActionPhrase(
   if (mod.includes('right')) return { key: 'nav.maneuver.right' };
   if (t === 'merge') return { key: 'nav.maneuver.merge' };
   if (t === 'fork') return { key: 'nav.maneuver.fork' };
+  // TROIS TYPES QUI TOMBAIENT DANS « TOUT DROIT », trouves par le test qui enumere les types OSRM
+  // et exige une decision ecrite pour chacun. Sans modificateur, les branches de modificateur ne
+  // les rattrapent pas — et « continuez tout droit » est alors faux dans les trois cas : on ne va
+  // pas tout droit sur une bretelle, la route FINIT au bout de la route, et on tourne par
+  // definition sur un rond-point.
+  if (t === 'ramp') return { key: 'nav.maneuver.ramp' };
+  if (t === 'end of road') return { key: 'nav.maneuver.endOfRoad' };
+  if (t === 'roundabout turn') return { key: 'nav.maneuver.roundaboutTurn' };
   return { key: 'nav.maneuver.straight' };
 }
 

@@ -339,7 +339,10 @@
       "merge": "Incorpórese",
       "fork": "Tome la bifurcación",
       "straight": "Continúe recto",
-      "roundaboutLeave": "Salga de la rotonda"
+      "roundaboutLeave": "Salga de la rotonda",
+      "ramp": "Tome la incorporación",
+      "endOfRoad": "Gire al final de la vía",
+      "roundaboutTurn": "Gire en la rotonda"
     },
     "stage": {
       "toPickup": "Ir al punto de recogida",

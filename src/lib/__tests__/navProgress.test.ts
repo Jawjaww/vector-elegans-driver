@@ -212,3 +212,68 @@ describe("a roundabout is announced on the ring too", () => {
     );
   });
 });
+
+/**
+ * AUCUN TYPE OSRM NE DOIT TOMBER DANS « TOUT DROIT » PAR ACCIDENT.
+ *
+ * Le défaut du rond-point (round 8) n'était pas une erreur de logique : c'était un **silence**.
+ * `maneuverActionPhrase` finit par `return { key: 'nav.maneuver.straight' }`, donc **tout type non
+ * prévu devient « continuez tout droit »** — une phrase qui a l'air d'une réponse et qui envoie au
+ * mauvais endroit. `exit roundabout` a vécu des mois dans ce trou.
+ *
+ * Ce test énumère les types de manœuvre d'OSRM et exige, pour chacun, une décision ÉCRITE : soit une
+ * phrase propre, soit l'aveu explicite que « tout droit » est la bonne réponse. Un type nouveau
+ * échoue ici au lieu de se taire sur le pare-brise.
+ *
+ * Les branches de modificateur rattrapent la plupart des types (`end of road` + « right »,
+ * `ramp` + « slight right ») : c'est pourquoi le rond-point était le SEUL à tomber — il n'a pas de
+ * modificateur.
+ */
+describe("every OSRM maneuver type is a written decision", () => {
+  /**
+   * Les types qui veulent légitimement dire « continuez » : la route change de nom, le routeur
+   * signale une notification, ou il n'y a rien à faire. Cette liste est une DÉCISION, pas un oubli.
+   */
+  // `depart` n'y est PAS : il a sa propre phrase (« Départ »), et c'est mon test qui me l'a
+  // appris — je l'avais range dans les exceptions par etourderie.
+  const MEANS_STRAIGHT = new Set(['continue', 'new name', 'notification', 'turn']);
+
+  /** Les types d'OSRM, avec un modificateur absent — le pire cas, celui du rond-point. */
+  const OSRM_TYPES = [
+    'turn',
+    'new name',
+    'depart',
+    'arrive',
+    'merge',
+    'ramp',
+    'fork',
+    'end of road',
+    'continue',
+    'roundabout',
+    'rotary',
+    'roundabout turn',
+    'notification',
+    'exit roundabout',
+    'exit rotary',
+  ];
+
+  it.each(OSRM_TYPES)("« %s » a une phrase, ou assume le tout droit", (type) => {
+    const phrase = maneuverActionPhrase(type);
+
+    if (MEANS_STRAIGHT.has(type)) {
+      // Une décision écrite : ces types-là DOIVENT dire tout droit.
+      expect(phrase.key).toBe('nav.maneuver.straight');
+      return;
+    }
+
+    // Tous les autres portent une phrase propre. « straight » ici serait le silence d'avant.
+    expect(phrase.key).not.toBe('nav.maneuver.straight');
+  });
+
+  it("n'oublie pas les deux types du rond-point dans les exceptions", () => {
+    // Non-vacuité : si quelqu'un ajoutait `exit roundabout` aux exceptions pour faire passer le
+    // test, il affirmerait que « tout droit » est la bonne réponse SUR un rond-point.
+    expect(MEANS_STRAIGHT.has('exit roundabout')).toBe(false);
+    expect(MEANS_STRAIGHT.has('roundabout')).toBe(false);
+  });
+});
