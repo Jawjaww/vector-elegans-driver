@@ -40,7 +40,7 @@ describe('les options choisies cote client arrivent a l identique', () => {
     // La table du portail (`lib/reservation/optionGlyphs.ts`) transcrite en glyphes
     // MaterialCommunityIcons : Baby, PawPrint, Plane, GlassWater, Wifi, Sparkles.
     const expected: Array<[string, string]> = [
-      ['Siège enfant', 'baby'],
+      ['Siège enfant', 'baby-face-outline'],
       ['Animaux domestiques', 'paw'],
       ['Attente aéroport', 'airplane'],
       ['Boissons premium', 'cup-water'],
@@ -50,6 +50,13 @@ describe('les options choisies cote client arrivent a l identique', () => {
     for (const [name, icon] of expected) {
       expect({ name, icon: optionIcon(name) }).toEqual({ name, icon });
     }
+  });
+
+  it("le siège enfant prend la tête de bébé du portail, pas le bébé qui rampe", () => {
+    // Lucide `Baby` est une tête. MaterialCommunityIcons `baby` est un bébé à quatre pattes :
+    // meme mot, autre dessin — la tete est `baby-face-outline`.
+    expect(optionIcon('Siège enfant')).toBe('baby-face-outline');
+    expect(optionIcon('Siège enfant')).not.toBe('baby');
   });
 
   it("l'option animaux est une patte, jamais un coeur", () => {
