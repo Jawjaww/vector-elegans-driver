@@ -72,11 +72,12 @@ export function vehicleTypeIconName(
  * tomber dans la même famille visuelle des deux côtés. Les glyphes MaterialCommunityIcons sont les
  * équivalents des icônes Lucide du portail :
  *
- *   Baby → `baby` · PawPrint → `paw` · Plane → `airplane` · GlassWater → `cup-water` ·
+ *   Baby → `baby-face-outline` (une tête, comme Lucide ; `baby` est un bébé qui rampe) ·
+ *   PawPrint → `paw` · Plane → `airplane` · GlassWater → `cup-water` ·
  *   Wifi → `wifi` · Sparkles → `star-four-points` (le repli du portail est Sparkles, pas un colis).
  */
 export type OptionIconName =
-  | "baby"
+  | "baby-face-outline"
   | "paw"
   | "airplane"
   | "cup-water"
@@ -90,7 +91,7 @@ export function optionIcon(optionName: string): OptionIconName {
     label.includes("enfant") ||
     label.includes("bébé")
   ) {
-    return "baby";
+    return "baby-face-outline";
   }
   // Le pluriel compte : « animaux » ne contient pas « animal » (il finit en -aux, pas en -al), et
   // tester le singulier seul laissait « Animaux domestiques » sans règle — d'où le cœur générique.

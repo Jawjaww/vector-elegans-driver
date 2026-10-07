@@ -423,7 +423,7 @@ describe('driverStore defer / suppress / promote', () => {
 
 describe('optionIcon', () => {
   it('maps known options to the same glyphs as the Next.js portal', () => {
-    expect(optionIcon('Siège enfant')).toBe('baby');
+    expect(optionIcon('Siège enfant')).toBe('baby-face-outline');
     expect(optionIcon('Animaux domestiques')).toBe('paw');
     expect(optionIcon('WiFi à bord')).toBe('wifi');
     expect(optionIcon('unknown-option')).toBe('star-four-points');
