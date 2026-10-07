@@ -2333,7 +2333,7 @@ export function buildMapHtmlTemplate(
      * ligne est donc caché SOUS elle, et non visible derrière. Plus petit, on recouperait la
      * géométrie à chaque image pour un gain invisible.
      */
-    var ROUTE_TRIM_MIN_METERS = 2;
+    var ROUTE_TRIM_MIN_METERS = 5;
 
     /**
      * The drawn route starts at the driver, not at the router's first vertex.
