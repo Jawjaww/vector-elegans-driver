@@ -15,8 +15,11 @@ import { BASEMAP_CANVAS } from '../basemapTone';
 import { buildMapHtmlTemplate } from '../mapHtmlTemplate';
 import {
   ATTRIBUTION_LABEL_BOTTOM,
+  ATTRIBUTION_LABEL_RIGHT_INSET,
+  ATTRIBUTION_LABEL_STRIP_W,
   INSTRUCTION_BAND_TOP,
-  MAP_CONTROL_SIZE,
+  MAP_CONTROL_RIGHT_INSET,
+  MAP_CONTROL_TOUCH_SLOP,
   OVERLAY_STACK_GAP,
   SHEET_PEEK_VISIBLE_H,
 } from '../../lib/utils/overlayLane';
@@ -44,13 +47,22 @@ import {
  * 3. **its bottom clears the instruction band** — computed from the shared lane figures
  *    (`SHEET_PEEK_VISIBLE_H` + `LANE_BASE_OFFSET` + `TRIP_GUIDANCE_BAR_HEIGHT`), never from a
  *    number copied into this file, which is what makes the guard survive a move of the lane;
- * 4. it stays legible (10 px, vertical) and stays the anchor, so dropping the panel did not drop
+ * 4. **it is out of the recenter control's touch rectangle** — the guard the previous correction
+ *    was missing, and the reason it shipped a defect while its own arithmetic said "34 px clear".
+ *    The control was placed with `right-4`, read as 4 rem = 56 px; a Tailwind spacing step is
+ *    `0.25rem`, and NativeWind's rem is 14 on native, so the class is 14 px and the credit's 18 px
+ *    column (4..22) sat *inside* its touch zone. The claim here is the one that can be proven: the
+ *    two rectangles are disjoint horizontally. The vertical claim cannot be made at all — the
+ *    control's bottom is the settled, uncapped sheet height plus `CONTROL_BASE_OFFSET`, so it
+ *    sweeps the column whatever offset the credit is given (see the second test below, which pins
+ *    that in the dashboard and the sheet's own source);
+ * 5. it stays legible (10 px, vertical) and stays the anchor, so dropping the panel did not drop
  *    the link.
  *
  * Both counts are proved non-vacuous by planting the state they are meant to catch: a second
- * credit element in the DOM (the count has to reach two) and a too-low `bottom` (the placement
- * guard has to fail). A guard that could only ever see one element, or that passed on the old
- * offset, would not be a guard.
+ * credit element in the DOM (the count has to reach two), a too-low `bottom` (the placement guard
+ * has to fail), and the control put back at `right-4` (the corner guard has to fail). A guard that
+ * could only ever see one element, or that passed on the old offsets, would not be a guard.
  */
 
 const CREDIT = '#ve-attrib-credit';
@@ -67,14 +79,26 @@ const REMOVED_PANEL = 've-attrib-full';
 /** Jest runs from the app root (`vector-elegans/`). */
 const REPO_ROOT = process.cwd();
 const RECENTER_BUTTON = 'src/components/MapRecenterButton.tsx';
+/** Where the control's vertical anchor is built, and why it is not a lane figure. */
+const DASHBOARD = 'app/(tabs)/index.tsx';
+const BOTTOM_SHEET_SOURCE = 'src/components/BottomSheet.tsx';
 
 /**
  * NativeWind's rem is **14** on native, not the web's 16 (`react-native-css-interop` sets it:
- * `dist/runtime/native/unit-observables.js`). So `right-4` is 56 px, not 16 — and the recenter
- * control leaves the outer 56 px of the corner free. Getting this wrong is how a placement that
- * reads as "clear of the button" is drawn straight through it.
+ * `dist/runtime/native/unit-observables.js`). Tailwind's spacing scale is in rem, so `right-4` is
+ * **1 rem = 14 px** — not 4 rem. The previous guard multiplied the class digit by the rem
+ * (`4 * 14 = 56`) and concluded the control left the outer 56 px free, which is 42 px more than it
+ * does: the control actually reaches to 14 px from the edge, and the credit's 18 px column (4..22)
+ * is inside its touch zone. The CLI output is the evidence for the class side:
+ * `npx tailwindcss` with `nativewind/preset` emits `right: 1rem`.
  */
 const NATIVE_REM = 14;
+
+/**
+ * `right-4` in px on native: the spacing step `4` is `1rem` in Tailwind's scale (`4 * 0.25rem`),
+ * so it is one rem here, not four. The digit of the class is a *step*, not a count of rems.
+ */
+const RIGHT_4_PX = 1 * NATIVE_REM;
 
 /** Tags whose text is never painted, whatever they contain. */
 const NON_PAINTED_TAGS = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'TITLE', 'META', 'LINK']);
@@ -387,33 +411,73 @@ describe('map attribution credit', () => {
     expect(anchor?.[0]).toContain('aria-label="\u00a9 OpenStreetMap contributors"');
   });
 
-  it('stays in the free strip the location control leaves on the right edge', () => {
-    // The recenter control is the other tenant of this corner; its own numbers are read from its
-    // source so that moving it fails here instead of drawing the credit through it.
+  it('stays out of the recenter control, in the axis that can be proven', () => {
+    // The control is the other tenant of this corner, and it is the reason the credit has to be
+    // placed against more than the instruction band. Its numbers are shared figures now, not a
+    // class: the class was the defect. `right-4` reads as "4 rem = 56 px" and is **1 rem = 14 px**
+    // on native (a spacing step is `0.25rem`), so the touch zone began 6 px from the edge and the
+    // credit's column was inside it. The component has to read the derived inset, and must not go
+    // back to a `right-N` class that could be mis-read again.
     const recenter = readSource(RECENTER_BUTTON);
-    const insetMatch = /className="[^"]*\bright-(\d+)\b/.exec(recenter);
-    const slopMatch = /hitSlop=\{(\d+)\}/.exec(recenter);
-    expect(insetMatch).not.toBeNull();
-    expect(slopMatch).not.toBeNull();
-    const recenterOffset = Number(insetMatch?.[1]) * NATIVE_REM;
-    const recenterHitSlop = Number(slopMatch?.[1]);
-    // Non-vacuity: the two numbers below are the whole clearance, and a mis-read default would
-    // make it look infinite.
-    expect(recenterOffset).toBeGreaterThan(0);
-    expect(recenterHitSlop).toBeGreaterThanOrEqual(0);
-    expect(MAP_CONTROL_SIZE).toBeGreaterThan(0);
+    expect(recenter).toContain('right: MAP_CONTROL_RIGHT_INSET');
+    expect(recenter).toContain('hitSlop={MAP_CONTROL_TOUCH_SLOP}');
+    expect(recenter).not.toMatch(/className="[^"]*\bright-\d/);
 
-    // The credit is right-anchored, and no longer left-anchored.
-    expect(value(html, CREDIT, 'left')).toBeNull();
-    expect(value(html, CREDIT, 'right')).not.toBeNull();
-
-    // The strip fits where the control's touch zone begins, with room to spare rather than a
-    // single free pixel: 4 + 18 + 8 = 30 against 56.
+    // The credit's column as the document actually paints it.
     const right = px(html, CREDIT, 'right');
     const strip = verticalStripWidth(html, CREDIT);
-    expect(strip).toBe(18);
-    expect(right).toBe(4);
-    expect(right + strip + recenterHitSlop).toBeLessThanOrEqual(recenterOffset);
-    expect(recenterOffset - (right + strip)).toBeGreaterThan(MAP_CONTROL_SIZE / 4);
+
+    const clearOfRecenter = (controlRightInset: number): boolean =>
+      controlRightInset - MAP_CONTROL_TOUCH_SLOP - (right + strip) >=
+      OVERLAY_STACK_GAP;
+
+    // Both rectangles as distances from the right edge of the scene: the control's touch zone has
+    // to start where the credit's column ends, with the lane's own gap — and that is the whole
+    // clearance, no pixel of slack invented on top. This is the claim, and it is measured on the
+    // built document, so a credit moved back into the control's column fails it directly.
+    expect(clearOfRecenter(MAP_CONTROL_RIGHT_INSET)).toBe(true);
+    expect(
+      MAP_CONTROL_RIGHT_INSET - MAP_CONTROL_TOUCH_SLOP - (right + strip),
+    ).toBe(OVERLAY_STACK_GAP);
+
+    // The two figures the claim is made of, each pinned to the lane module: the document may not
+    // carry its own right inset, and the shared figure may not be a literal that happens to pass.
+    expect(right).toBe(ATTRIBUTION_LABEL_RIGHT_INSET);
+    expect(strip).toBe(ATTRIBUTION_LABEL_STRIP_W);
+    expect(value(html, CREDIT, 'left')).toBeNull();
+    expect(MAP_CONTROL_RIGHT_INSET).toBe(
+      ATTRIBUTION_LABEL_RIGHT_INSET +
+        ATTRIBUTION_LABEL_STRIP_W +
+        OVERLAY_STACK_GAP +
+        MAP_CONTROL_TOUCH_SLOP,
+    );
+
+    // Non-vacuity, on the state being corrected: with the control back at `right-4` — 1 rem, 14 px
+    // — the same predicate has to fail. It does, by 16 px, which is the overlap the owner saw.
+    expect(clearOfRecenter(RIGHT_4_PX)).toBe(false);
+    expect(RIGHT_4_PX - MAP_CONTROL_TOUCH_SLOP - (right + strip)).toBeLessThan(0);
+  });
+
+  it('cannot clear the control vertically, so the guard is horizontal', () => {
+    // Why the credit was not simply raised until it was above the control, which is what the
+    // report asked for: the control's bottom is not a lane figure. The dashboard anchors it to the
+    // *settled* sheet height (`sheetVisibleHeight` of the palier the driver let the sheet rest on)
+    // plus `CONTROL_BASE_OFFSET`, and `sheetVisibleHeight` answers from measured section bottoms.
+    const dashboard = readSource(DASHBOARD);
+    expect(dashboard).toContain(
+      'return sheetVisibleHeight(sheetLevel, sheetBodies);',
+    );
+    expect(dashboard).toContain(
+      'mapRecenterBottomOffset + CONTROL_BASE_OFFSET',
+    );
+
+    // And that height is deliberately uncapped — the sheet says so where it resolves the palier.
+    // So the control's band top is the measured content of whatever palier settled: no lane
+    // constant bounds it, and a test cannot reproduce the values a device measures. A fixed credit
+    // offset cannot be shown to clear it — raising the credit moves the band in which the two can
+    // meet up with it. Hence two separate claims: the instruction band below (vertical, bounded)
+    // and the control above (horizontal, static).
+    const sheet = readSource(BOTTOM_SHEET_SOURCE);
+    expect(sheet).toContain('Deliberately **not** capped by');
   });
 });

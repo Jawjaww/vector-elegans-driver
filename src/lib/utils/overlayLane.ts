@@ -98,5 +98,47 @@ export const INSTRUCTION_BAND_TOP =
  * the band is what the driver reads, and a credit that overlaps it takes a sentence away to show a
  * courtesy. `OVERLAY_STACK_GAP` is the gap the lane already uses between two stacked overlays,
  * rather than a number invented here.
+ *
+ * This offset clears the instruction band and *cannot* be asked to clear the recenter control: that
+ * control's bottom is the **settled** sheet height plus `CONTROL_BASE_OFFSET`, and a palier's
+ * height is measured content that `sheetVisibleHeight` deliberately does not cap. So the control's
+ * offset is whatever a section measured — no constant here bounds it, and this module cannot
+ * enumerate the paliers. A fixed credit offset therefore cannot be shown to clear it: raising the
+ * credit moves the band in which the two can meet up with it, it does not remove the band. The
+ * separation lives on the axis that does not move, and `MAP_CONTROL_RIGHT_INSET` below holds it.
  */
 export const ATTRIBUTION_LABEL_BOTTOM = INSTRUCTION_BAND_TOP + OVERLAY_STACK_GAP;
+
+/** Right inset of the licence credit's column, from the right edge of the map. */
+export const ATTRIBUTION_LABEL_RIGHT_INSET = 4;
+
+/**
+ * Horizontal footprint of the vertical credit label: one 10 px line at `line-height: 1`, its
+ * padding and its hairline. Mirrors the rules in the map document; the guard measures the document
+ * and fails if the two disagree.
+ */
+export const ATTRIBUTION_LABEL_STRIP_W = 18;
+
+/** How far a round control's touch zone reaches past its own box (`hitSlop` on the recenter one). */
+export const MAP_CONTROL_TOUCH_SLOP = 8;
+
+/**
+ * Right inset the lane's round control needs so its touch zone clears the credit's column.
+ *
+ * The control was placed with `right-4`, read as "4 rem, and NativeWind's rem is 14, so 56 px" —
+ * the digit of a Tailwind spacing *step* multiplied by the rem by hand. A step is `0.25rem`, so
+ * `right-4` is `1rem` = **14 px** on native (tailwindcss with `nativewind/preset` emits
+ * `right: 1rem`; `react-native-css-interop` resolves it at 14 px per rem). The control was 42 px
+ * inside where that figure placed it, and its touch zone began 6 px from the edge — so it covered
+ * the credit's column (4..22) by 16 px instead of leaving it free. That is the defect the previous
+ * figure claimed to have ruled out.
+ *
+ * Derived from the credit's own geometry and the lane's gap rather than written out, so moving the
+ * credit moves the control with it; `attributionDisclosure.test.ts` holds the arithmetic, and the
+ * control and the document both read these figures instead of carrying copies.
+ */
+export const MAP_CONTROL_RIGHT_INSET =
+  ATTRIBUTION_LABEL_RIGHT_INSET +
+  ATTRIBUTION_LABEL_STRIP_W +
+  OVERLAY_STACK_GAP +
+  MAP_CONTROL_TOUCH_SLOP;

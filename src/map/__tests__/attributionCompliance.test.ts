@@ -30,10 +30,12 @@ import {
  * the map script, still linked, and no longer in that low band; the guards on the count (one
  * element), on legibility and on un-hideability live in `attributionDisclosure.test.ts`.
  *
- * What occupies the corner: the credit is bottom-right, in the strip the recenter control leaves
- * free (`right-4` is 56 px on native, the control is 48 px wide with an 8 px `hitSlop` — that
- * arithmetic is asserted in `attributionDisclosure.test.ts`), and it is lifted above the whole
- * instruction band. `BottomSheet` now imports the resting lip it stands on
+ * What occupies the corner: the credit is bottom-right, and the recenter control is placed clear of
+ * its 18 px column by a shared figure in `overlayLane.ts` (`MAP_CONTROL_RIGHT_INSET` — the credit's
+ * right inset, its column, the lane gap and the control's `hitSlop`). It reads that figure instead
+ * of a `right-4` class, which is 1 rem = 14 px on native and put the control's touch zone across
+ * the column; the arithmetic is asserted in `attributionDisclosure.test.ts`. The credit is also
+ * lifted above the whole instruction band. `BottomSheet` imports the resting lip it stands on
  * (`SHEET_PEEK_VISIBLE_H`) from the shared lane module instead of owning a copy, so the two
  * numbers below are the lane's own.
  */
