@@ -156,9 +156,12 @@ export const OFFER_PIPELINE_STAGES = [
    * One guidance camera tick, as the map document decided it.
    *
    * The camera lives in the WebView, so it was the one part of guidance with no observer: a
-   * `course_up: false`, a stuck zoom, or a trace that was never cut could only be seen with a
+   * `course_up: false`, a stuck zoom, or a trace that was never eaten could only be seen with a
    * debugger attached. Detail carries the decision (`course_up`, `bearing`, `zoom`, `puck_y_ratio`,
-   * `on_line`, `trimmed`) and never the driver's coordinates.
+   * `on_line`, `eaten_fraction`) plus the two counters of the paint remedy —
+   * `route_geom_uploads` (geometry commits; one per leg, never one per metre) and
+   * `route_gradient_paints` (the repaints that hide the covered part) — and never the driver's
+   * coordinates. Lire ces deux compteurs ne coûte rien : ce sont deux entiers du document.
    */
   'nav_tick',
   /** A guidance tick that threw, with `error` and `source`. */

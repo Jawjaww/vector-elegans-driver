@@ -59,16 +59,24 @@ describe('guidance map template', () => {
     expect(html).toMatch(/if \(!window\.__veNav\.navigating\) \{/);
   });
 
-  it('cuts the drawn route at the driver', () => {
-    expect(html).toContain('function trimNavLineFrom(coords)');
-    expect(html).toContain('function syncNavRouteStart(coords)');
-    expect(html).toContain(
-      'const trimmed = syncNavRouteStart(onLine ? paintPoint : coords);',
+  it('eats the drawn route at the driver, by paint', () => {
+    // Ce test gardait le rognage geometrique (trimNavLineFrom / syncNavRouteStart) : la ligne
+    // etait recoupee derriere la fleche, mais chaque recoupe refaisait un setData de toute la
+    // geometrie (2,8 fois par seconde a 50 km/h) et la fleche s'y bloquait. Le rognage est parti,
+    // le degrade de peinture le remplace (voir navRouteTrim.test.ts pour le mecanisme) : ce qui
+    // est garde ici, c'est le CABLAGE — les deux chemins de guidage, la boucle d'affichage et le
+    // tick GPS, effacent la portion parcourue.
+    expect(html).toContain('function syncNavEatenRoute(');
+    const display = html.slice(
+      html.indexOf('function navDisplayTick(ts)'),
+      html.indexOf('/* VE_NAV_DISPLAY_END */'),
     );
-    // The full geometry stays the reference for the bearing and the remaining distance.
-    expect(html).toMatch(
-      /nav\.trimAnchor = \{ coords: trimmed\[0\], generation: nav\.generation \};/,
-    );
+    expect(display).toContain('syncNavEatenRoute(');
+    const planned = html.slice(html.indexOf('function guideTickPlanned'));
+    expect(planned).toContain('syncNavEatenRoute(');
+    // La geometrie complete reste la reference pour le cap et la distance restante : elle n'est
+    // simplement plus recoupee.
+    expect(html).not.toContain('nav.trimAnchor');
   });
 
   it('reports a tick that throws instead of letting the camera stand still', () => {
