@@ -7,13 +7,13 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   listOptionsCatalog,
   lookupOptionPrice,
   normalizeSelectedOptions,
   optionChipLabel,
-  optionFeatherIcon,
+  optionIcon,
   vehicleTypeIconName,
   vehicleTypeLabel,
   type CatalogOptionPrice,
@@ -215,8 +215,8 @@ export function RideOfferExtras({
           const isExpanded = interactive && expandedKey === item.name;
           const body = (
             <>
-              <Feather
-                name={optionFeatherIcon(item.name)}
+              <MaterialCommunityIcons
+                name={optionIcon(item.name)}
                 size={iconSize}
                 color={isSelected ? SELECTED_ICON : MUTED_ICON}
               />

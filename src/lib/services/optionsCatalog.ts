@@ -64,34 +64,42 @@ export function vehicleTypeIconName(
   }
 }
 
-/** Feather icon name for a catalog option (read-only UI) */
-export function optionFeatherIcon(
-  optionName: string,
-):
-  | "user"
-  | "heart"
-  | "clock"
-  | "coffee"
+/**
+ * L'icône d'une option, alignée sur celle du portail Next.js (`lib/reservation/optionGlyphs.ts`).
+ *
+ * La règle est **copiée** telle quelle — normalisation puis recherche de sous-chaîne sur le nom en
+ * minuscules — et non transposée en table de noms exacts : un nom de catalogue personnalisé doit
+ * tomber dans la même famille visuelle des deux côtés. Les glyphes MaterialCommunityIcons sont les
+ * équivalents des icônes Lucide du portail :
+ *
+ *   Baby → `baby` · PawPrint → `paw` · Plane → `airplane` · GlassWater → `cup-water` ·
+ *   Wifi → `wifi` · Sparkles → `star-four-points` (le repli du portail est Sparkles, pas un colis).
+ */
+export type OptionIconName =
+  | "baby"
+  | "paw"
+  | "airplane"
+  | "cup-water"
   | "wifi"
-  | "smile"
-  | "package" {
-  const name = normalizeOptionName(optionName);
-  switch (name) {
-    case "Siège enfant":
-      return "user";
-    case "Animaux domestiques":
-      return "heart";
-    case "Attente aéroport":
-      return "clock";
-    case "Boissons premium":
-      return "coffee";
-    case "WiFi à bord":
-      return "wifi";
-    case "Accueil personnalisé":
-      return "smile";
-    default:
-      return "package";
+  | "star-four-points";
+
+export function optionIcon(optionName: string): OptionIconName {
+  const label = normalizeOptionName(optionName).toLowerCase();
+  if (
+    label.includes("siège") ||
+    label.includes("enfant") ||
+    label.includes("bébé")
+  ) {
+    return "baby";
   }
+  // Le pluriel compte : « animaux » ne contient pas « animal » (il finit en -aux, pas en -al), et
+  // tester le singulier seul laissait « Animaux domestiques » sans règle — d'où le cœur générique.
+  if (label.includes("animal") || label.includes("animaux")) return "paw";
+  if (label.includes("aéroport") || label.includes("attente")) return "airplane";
+  if (label.includes("boisson")) return "cup-water";
+  if (label.includes("wifi")) return "wifi";
+  if (label.includes("accueil")) return "star-four-points";
+  return "star-four-points";
 }
 
 export function formatOptionPriceLabel(price: number | undefined): string {
