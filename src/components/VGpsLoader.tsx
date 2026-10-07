@@ -1,19 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
   cancelAnimation,
   runOnJS,
-  useAnimatedProps,
   useAnimatedStyle,
+  useAnimatedProps,
   useSharedValue,
   withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { APP_CHROME } from '../lib/theme';
-import { AppChromeBackground } from './AppChromeBackground';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -39,48 +37,31 @@ const V_EXACT_PATH =
   'C 280 235, 340 180, 420 60';
 
 const PATH_LENGTH = 1150;
+const VIEWBOX_WIDTH = 460;
+const VIEWBOX_HEIGHT = 400;
 
-type VGpsLoaderProps = Readonly<{
-  visible: boolean;
+/** Inline default. The map overlay and the OTA row pass their own height. */
+const DEFAULT_MARK_HEIGHT = 88;
+
+type VRouteMarkProps = Readonly<{
+  /** Rendered height in px. Width follows the 460×400 viewBox. */
+  height?: number;
+  /** Omitted by default so an inline slot does not grow by a caption line. */
   hint?: string;
 }>;
 
 /**
- * The overlay is opaque, so it used to be replaced by the map in a single frame — the one hard
- * cut left in the wake sequence, and it landed exactly when the map's first frames arrive.
- * Fading it out lets the map settle underneath instead of being switched on.
+ * Compact road-shaped V. No fill, no overlay: drop it into any loading slot.
+ * Stroke widths stay in viewBox units, so they scale with `height`.
  */
-const FADE_MS = 220;
-
-export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
+export function VRouteMark({ height = DEFAULT_MARK_HEIGHT, hint }: VRouteMarkProps) {
+  const gradientSuffix = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const glowId = `roadGlow-${gradientSuffix}`;
+  const edgeId = `roadEdge-${gradientSuffix}`;
   const dashOffset = useSharedValue(PATH_LENGTH);
   const laneDash = useSharedValue(0);
-  const fade = useSharedValue(visible ? 1 : 0);
-  // Stays mounted for the length of the fade-out, then unmounts: an invisible overlay would
-  // otherwise keep four SVG paths and an elevation layer alive for the whole trip.
-  const [mounted, setMounted] = useState(visible);
 
   useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      fade.value = withTiming(1, {
-        duration: FADE_MS,
-        easing: Easing.out(Easing.ease),
-      });
-    } else {
-      fade.value = withTiming(
-        0,
-        { duration: FADE_MS, easing: Easing.out(Easing.ease) },
-        (finished) => {
-          if (finished) runOnJS(setMounted)(false);
-        },
-      );
-      // An invisible repeat still runs on the UI thread; stop it with the overlay.
-      cancelAnimation(dashOffset);
-      cancelAnimation(laneDash);
-      return;
-    }
-
     dashOffset.value = PATH_LENGTH;
     dashOffset.value = withRepeat(
       withSequence(
@@ -100,9 +81,12 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
       -1,
       false,
     );
-  }, [visible, dashOffset, laneDash, fade]);
 
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+    return () => {
+      cancelAnimation(dashOffset);
+      cancelAnimation(laneDash);
+    };
+  }, [dashOffset, laneDash]);
 
   const drawProps = useAnimatedProps(() => ({
     strokeDashoffset: dashOffset.value,
@@ -112,6 +96,116 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
     strokeDashoffset: laneDash.value,
   }));
 
+  const width = height * (VIEWBOX_WIDTH / VIEWBOX_HEIGHT);
+
+  return (
+    <View style={styles.mark} accessibilityLabel="Chargement">
+      <Svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <Defs>
+          <LinearGradient id={glowId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#38bdf8" stopOpacity="1" />
+            <Stop offset="50%" stopColor="#2563eb" stopOpacity="1" />
+            <Stop offset="100%" stopColor="#1d4ed8" stopOpacity="1" />
+          </LinearGradient>
+          <LinearGradient id={edgeId} x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#0f172a" stopOpacity="1" />
+            <Stop offset="100%" stopColor="#1e293b" stopOpacity="1" />
+          </LinearGradient>
+        </Defs>
+
+        <Path
+          d={V_EXACT_PATH}
+          stroke="#1e3a8a"
+          strokeWidth={24}
+          strokeOpacity={0.5}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        <Path
+          d={V_EXACT_PATH}
+          stroke={`url(#${edgeId})`}
+          strokeWidth={16}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        <AnimatedPath
+          d={V_EXACT_PATH}
+          stroke={`url(#${glowId})`}
+          strokeWidth={11}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={[PATH_LENGTH, PATH_LENGTH]}
+          animatedProps={drawProps}
+        />
+
+        <AnimatedPath
+          d={V_EXACT_PATH}
+          stroke="#ffffff"
+          strokeWidth={2}
+          strokeOpacity={0.9}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={[10, 14]}
+          animatedProps={laneProps}
+        />
+      </Svg>
+      {hint ? <Text style={styles.caption}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+type VGpsLoaderProps = Readonly<{
+  visible: boolean;
+  hint?: string;
+}>;
+
+/**
+ * The overlay used to be opaque, so it was replaced by the map in a single frame — the one hard
+ * cut left in the wake sequence, and it landed exactly when the map's first frames arrive.
+ * Fading it out lets the map settle underneath instead of being switched on. The fill is gone:
+ * only the compact mark sits on top of the canvas.
+ */
+const FADE_MS = 220;
+const MAP_MARK_HEIGHT = 120;
+
+export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
+  const fade = useSharedValue(visible ? 1 : 0);
+  // Stays mounted for the length of the fade-out, then unmounts: an invisible overlay would
+  // otherwise keep the SVG paths and an elevation layer alive for the whole trip.
+  const [mounted, setMounted] = useState(visible);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      fade.value = withTiming(1, {
+        duration: FADE_MS,
+        easing: Easing.out(Easing.ease),
+      });
+      return;
+    }
+
+    fade.value = withTiming(
+      0,
+      { duration: FADE_MS, easing: Easing.out(Easing.ease) },
+      (finished) => {
+        if (finished) runOnJS(setMounted)(false);
+      },
+    );
+  }, [visible, fade]);
+
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+
   if (!mounted) return null;
 
   return (
@@ -120,74 +214,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
       pointerEvents={visible ? 'auto' : 'none'}
       accessibilityLabel="Chargement"
     >
-      <AppChromeBackground />
-      <View style={styles.mark}>
-        <Svg
-          width="100%"
-          height={260}
-          viewBox="0 0 460 400"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <Defs>
-            <LinearGradient id="roadGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#38bdf8" stopOpacity="1" />
-              <Stop offset="50%" stopColor="#2563eb" stopOpacity="1" />
-              <Stop offset="100%" stopColor="#1d4ed8" stopOpacity="1" />
-            </LinearGradient>
-            <LinearGradient id="roadEdge" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#0f172a" stopOpacity="1" />
-              <Stop offset="100%" stopColor="#1e293b" stopOpacity="1" />
-            </LinearGradient>
-          </Defs>
-
-          {/* Contour / Bordure de route sombre */}
-          <Path
-            d={V_EXACT_PATH}
-            stroke="#1e3a8a"
-            strokeWidth={24}
-            strokeOpacity={0.5}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Asphalte de la route */}
-          <Path
-            d={V_EXACT_PATH}
-            stroke="url(#roadEdge)"
-            strokeWidth={16}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Animation du tracé GPS néon */}
-          <AnimatedPath
-            d={V_EXACT_PATH}
-            stroke="url(#roadGlow)"
-            strokeWidth={11}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={[PATH_LENGTH, PATH_LENGTH]}
-            animatedProps={drawProps}
-          />
-
-          {/* Marquage central en pointillés */}
-          <AnimatedPath
-            d={V_EXACT_PATH}
-            stroke="#ffffff"
-            strokeWidth={2}
-            strokeOpacity={0.9}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={[10, 14]}
-            animatedProps={laneProps}
-          />
-        </Svg>
-        <Text style={styles.caption}>{hint ?? 'Chargement en cours…'}</Text>
-      </View>
+      <VRouteMark height={MAP_MARK_HEIGHT} hint={hint} />
     </Animated.View>
   );
 }
@@ -197,16 +224,14 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
     elevation: 30,
-    backgroundColor: APP_CHROME.surface,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
   mark: {
     alignItems: 'center',
-    gap: 20,
-    width: '100%',
-    maxWidth: 340,
+    gap: 12,
   },
   caption: {
     color: 'rgba(255,255,255,0.45)',

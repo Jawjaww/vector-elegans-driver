@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { VRouteMark } from '../../src/components/VGpsLoader';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 
@@ -97,7 +98,7 @@ export default function EarningsScreen() {
 
         {loading ? (
           <View className="py-10 items-center">
-            <ActivityIndicator color="#34d399" />
+            <VRouteMark />
             <Text className="text-slate-400 mt-3 text-sm">{t('earningsScreen.loading')}</Text>
           </View>
         ) : problem || !summary ? (

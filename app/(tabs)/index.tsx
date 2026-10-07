@@ -5,7 +5,6 @@ import {
   Text,
   Pressable,
   ScrollView,
-  ActivityIndicator,
   Alert,
   AppState,
   Dimensions,
@@ -122,7 +121,7 @@ import {
   type TripStage,
 } from "../../src/lib/utils/tripGuidance";
 import { haversineMeters } from "../../src/lib/utils/gpsThrottle";
-import { VGpsLoader } from "../../src/components/VGpsLoader";
+import { VGpsLoader, VRouteMark } from "../../src/components/VGpsLoader";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
   type NavProgress,
@@ -1864,7 +1863,7 @@ export default function DashboardScreen() {
           className="flex-1 justify-center items-center"
           style={{ backgroundColor: "transparent" }}
         >
-          <ActivityIndicator size="large" color="#10b981" />
+          <VRouteMark height={120} />
         </View>
       ) : (
         <AnimatedPage instant={notificationArrival}>

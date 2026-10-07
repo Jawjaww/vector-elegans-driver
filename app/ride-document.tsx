@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { VRouteMark } from '../src/components/VGpsLoader';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -150,7 +151,7 @@ export default function RideDocumentScreen() {
 
         {loading ? (
           <View className="py-10 items-center">
-            <ActivityIndicator color="#34d399" />
+            <VRouteMark />
           </View>
         ) : bookingOrder || showSpecimen ? (
           <>
