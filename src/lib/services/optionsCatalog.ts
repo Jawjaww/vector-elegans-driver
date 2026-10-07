@@ -100,6 +100,17 @@ export function formatOptionPriceLabel(price: number | undefined): string {
   return `+${price.toFixed(0)} €`;
 }
 
+/**
+ * Le libelle d'une pastille d'option sur la carte de course : le nom et, quand le catalogue le
+ * connait, son prix — le meme format que la carte chauffeur Next.js (`RideOfferExtras` :
+ * `` `${name} · ${price}` ``). Le nom seul n'est pas un echec : le catalogue cloud porte encore
+ * des cles historiques, et un nom qui ne s'y resout pas ne doit pas se voir inventer un « +0 € ».
+ */
+export function optionChipLabel(name: string, price: number | undefined): string {
+  const priceLabel = formatOptionPriceLabel(price);
+  return priceLabel ? `${name} · ${priceLabel}` : name;
+}
+
 export async function listOptionsCatalog(
   forceRefresh = false,
 ): Promise<CatalogOptionPrice[]> {

@@ -230,12 +230,17 @@ function OfferCardTripDetails({
       entering={instantEntry ? undefined : FadeInDown.duration(220).delay(140)}
       style={styles.details}
     >
+      {/*
+        Les pastilles sont cliquables : un tap révèle le libellé (nom · prix), comme les pastilles
+        de la carte chauffeur Next.js le montrent en permanence. L'ancien `interactive={false}` les
+        rendait décoratives — le chauffeur voyait qu'une option existait sans jamais pouvoir lire
+        laquelle.
+      */}
       <RideOfferExtras
         options={ride.options}
         vehicleType={ride.vehicle_type}
         compact
         selectedOnly
-        interactive={false}
       />
       {pickupWhen ? (
         <View style={styles.metaRow}>

@@ -9,10 +9,10 @@ import {
 } from "react-native";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
-  formatOptionPriceLabel,
   listOptionsCatalog,
   lookupOptionPrice,
   normalizeSelectedOptions,
+  optionChipLabel,
   optionFeatherIcon,
   vehicleTypeIconName,
   vehicleTypeLabel,
@@ -60,6 +60,12 @@ const OUTLINED_BORDER = "transparent";
 /** `borderRadius` of the box styles below, which is also the outline's corner radius. */
 const CHIP_RADIUS = 7;
 const CHIP_RADIUS_COMPACT = 5;
+/**
+ * Le libellé révélé se referme seul, comme le badge de paiement de la carte d'offre
+ * (`OfferPaymentBadge`) et l'overlay d'options de la confirmation Next.js : la carte vit 20 s, un
+ * libellé ouvert ne doit pas rester devant le prix pendant que le chauffeur conduit.
+ */
+const AUTO_HIDE_MS = 5000;
 
 export function RideOfferExtras({
   options,
@@ -87,6 +93,16 @@ export function RideOfferExtras({
       mounted = false;
     };
   }, []);
+
+  /**
+   * Le libellé s'efface tout seul. Le tap ouvre, le temps de lire, et rien ne reste à l'écran :
+   * la même vie que le libellé de paiement, sur la même carte.
+   */
+  useEffect(() => {
+    if (!interactive || expandedKey === null) return undefined;
+    const timer = setTimeout(() => setExpandedKey(null), AUTO_HIDE_MS);
+    return () => clearTimeout(timer);
+  }, [expandedKey, interactive]);
 
   const catalogItems = (() => {
     if (selectedOnly) {
@@ -127,9 +143,7 @@ export function RideOfferExtras({
 
   const labelForKey = (key: string): string => {
     if (key === "vehicle") return vehicle;
-    const price = lookupOptionPrice(catalog, key);
-    const priceLabel = formatOptionPriceLabel(price);
-    const base = priceLabel ? `${key} · ${priceLabel}` : key;
+    const base = optionChipLabel(key, lookupOptionPrice(catalog, key));
     if (!selected.has(key)) return `${base} · non demandé`;
     return base;
   };
