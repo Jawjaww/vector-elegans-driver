@@ -1000,6 +1000,33 @@ export function buildMapHtmlTemplate(
        * between two nav_tick rows, it says whether the fix moved the rate.
        */
       trimCuts: 0,
+      /**
+       * Re-cuts that re-uploaded the geometry. Zero while the gradient eats the line, which is the
+       * point: the diagnostic has to show the economy, not assert it.
+       */
+      routeSetData: 0,
+      /**
+       * The layers the eaten boundary is painted on, with their colour, and the last position it
+       * was painted at. Null when the line on screen is not a guidance road line.
+       */
+      eatenLayers: null,
+      eatenAtM: null,
+      eatenFraction: null,
+      /** gradient | trim, so a device row says which mechanism actually ran. */
+      eatenMode: "none",
+      /** Set when the map refused the gradient: the geometric trim takes over. */
+      eatenFallback: false,
+      /**
+       * Cumulative lengths of nav.line in MapLibre's own metric, paired with the haversine one.
+       *
+       * line-progress is computed in TILE units, i.e. on the Web Mercator plane, not on the
+       * ground: a boundary derived from haversine kilometres drifts by the variation of cos(lat)
+       * along the route — negligible across a city, tens of metres across a long leg, which is
+       * visible as a fragment left behind the arrow.
+       */
+      eatenLine: null,
+      eatenCumH: null,
+      eatenCumM: null,
     };
     window.__veLastGpsCoords = null;
     window.__veLastRawGpsCoords = null;
@@ -1880,7 +1907,10 @@ export function buildMapHtmlTemplate(
         navDisplayPaint(center, bearing, courseUp, nav.followCamera !== false);
       }
       if (hasTrack) {
-        syncNavRouteStart(center);
+        // Same choice as the fix path: the gradient eats the line for the price of a paint
+        // update, and the geometric trim only runs where the map refused it.
+        if (nav.eatenLayers && !nav.eatenFallback) syncRouteEaten(center);
+        else syncNavRouteStart(center);
       }
     }
     /* VE_NAV_DISPLAY_END */
@@ -2011,7 +2041,13 @@ export function buildMapHtmlTemplate(
         nav.followCamera
       );
       // The drawn line starts under the arrow: on an active trip the puck is the departure.
-      const trimmed = syncNavRouteStart(onLine ? paintPoint : coords);
+      // The gradient is the normal path (a paint update); the geometric trim only runs where the
+      // gradient is unavailable, so the two never fight over the same line.
+      const eatenPoint = onLine ? paintPoint : coords;
+      const trimmed =
+        nav.eatenLayers && !nav.eatenFallback
+          ? syncRouteEaten(eatenPoint)
+          : syncNavRouteStart(eatenPoint);
       postRouteProgress(
         paintPoint,
         onLine && typeof nav.progressM === "number"
@@ -2054,8 +2090,14 @@ export function buildMapHtmlTemplate(
         frames: nav.displayFrames || 0,
         stalled: !!nav.lastTickStalled,
         trimmed: trimmed,
-        // Delta between two ticks = re-cuts per second: the other half of "the loop stalled".
+        // Delta between two ticks = eaten-boundary updates per second, and which mechanism ran.
         trim_cuts: nav.trimCuts || 0,
+        route_setdata: nav.routeSetData || 0,
+        eaten_mode: nav.eatenMode || "none",
+        eaten_f:
+          typeof nav.eatenFraction === "number"
+            ? Math.round(nav.eatenFraction * 1000) / 1000
+            : null,
       });
     }
 
@@ -2286,6 +2328,15 @@ export function buildMapHtmlTemplate(
       nav.lastGpsAtMs = null;
       nav.cum = null;
       nav.cumLine = null;
+      // The gradient lives on layers that are about to be removed: keep nothing that would name
+      // them after they are gone.
+      nav.eatenLayers = null;
+      nav.eatenLine = null;
+      nav.eatenCumH = null;
+      nav.eatenCumM = null;
+      nav.eatenAtM = null;
+      nav.eatenFraction = null;
+      nav.eatenMode = "none";
       nav.snapOk = false;
       nav.lastPaintAt = 0;
       window.__veApproachLine = null;
@@ -2329,7 +2380,133 @@ export function buildMapHtmlTemplate(
     }
 
     /**
+     * EAT THE LINE BEHIND THE ARROW WITH A PAINT PROPERTY, NOT A GEOMETRY RE-UPLOAD.
+     *
+     * Re-cutting the GeoJSON re-transfers the whole route to the map and rebuilds its tiles; on the
+     * display loop that is what froze the arrow and made fragments blink behind it. MapLibre can do
+     * the same thing for free: a line-gradient step on line-progress, which hides everything the
+     * arrow has already covered. A setPaintProperty is a paint update; the geometry stays put.
+     *
+     * Verified against the maplibre-gl 4.7.1 bundle this document loads: line-gradient requires a
+     * GeoJSON source with lineMetrics and no line-dasharray, and a STEP expression is recognised as
+     * a step interpolant, so the ramp is built at a resolution derived from the line's pixel length
+     * (clamped to at least 256, at most the GPU texture limit) and sampled with NEAREST — a crisp
+     * cut, not a 1/256-of-the-route fade.
+     */
+    const EATEN_TRANSPARENT = "rgba(0, 0, 0, 0)";
+    /** One paint update per metre travelled: the arrow covers ~7 m, so nothing can show. */
+    const ROUTE_EATEN_MIN_METERS = 1;
+
+    /** Web Mercator y of a latitude, in radians of the unit sphere: MapLibre's own axis. */
+    function mercatorY(lat) {
+      return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    }
+
+    /** Cumulative haversine and Mercator lengths of the drawn line, rebuilt when the line changes. */
+    function routeEatenTable(line) {
+      const nav = window.__veNav;
+      if (nav.eatenLine === line && nav.eatenCumH && nav.eatenCumM) return nav;
+      const cumH = [0];
+      const cumM = [0];
+      for (let i = 0; i < line.length - 1; i++) {
+        cumH.push(cumH[i] + haversineMeters(line[i], line[i + 1]));
+        const dx = (line[i + 1][0] - line[i][0]) * (Math.PI / 180);
+        const dy = mercatorY(line[i + 1][1]) - mercatorY(line[i][1]);
+        cumM.push(cumM[i] + Math.sqrt(dx * dx + dy * dy));
+      }
+      nav.eatenLine = line;
+      nav.eatenCumH = cumH;
+      nav.eatenCumM = cumM;
+      return nav;
+    }
+
+    /**
+     * Where the arrow sits along the drawn line, as the fraction line-progress uses.
+     *
+     * The along-track distance itself is haversine (the motion model works in ground metres), but
+     * it is converted into MapLibre's Mercator cumulative distance before becoming a fraction —
+     * that is the metric the shader compares against.
+     */
+    function routeEatenAt(coords) {
+      const nav = window.__veNav;
+      const line = nav.line;
+      if (!line || line.length < 2 || !coords) return null;
+      const snap = snapToNavLine(coords, line, 0);
+      if (!snap) return null;
+      const table = routeEatenTable(line);
+      const cumH = table.eatenCumH;
+      const cumM = table.eatenCumM;
+      const totalM = cumM[cumM.length - 1];
+      if (!(totalM > 0)) return null;
+      const travelled = Math.min(
+        Math.max(snap.traveledMeters, 0),
+        cumH[cumH.length - 1]
+      );
+      let i = 0;
+      while (i < cumH.length - 2 && cumH[i + 1] < travelled) i++;
+      const span = cumH[i + 1] - cumH[i];
+      let t = span > 0 ? (travelled - cumH[i]) / span : 0;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      let f = (cumM[i] + t * (cumM[i + 1] - cumM[i])) / totalM;
+      if (f < 0) f = 0;
+      else if (f > 1) f = 1;
+      return { fraction: f, travelledMeters: travelled };
+    }
+
+    /**
+     * Paint the eaten boundary where the arrow is. Returns true when a paint update happened.
+     *
+     * Nothing is repainted before the arrow has covered ROUTE_EATEN_MIN_METERS: the boundary hides
+     * under a 7 m arrow, so a finer step would only rebuild the GPU ramp for nothing.
+     */
+    function syncRouteEaten(coords) {
+      const nav = window.__veNav;
+      if (!nav.navigating || !nav.hasRoad || nav.eatenFallback) return false;
+      const layers = nav.eatenLayers;
+      if (!layers || !layers.length) return false;
+      const at = routeEatenAt(coords);
+      if (!at) return false;
+      if (
+        typeof nav.eatenAtM === "number" &&
+        Math.abs(at.travelledMeters - nav.eatenAtM) < ROUTE_EATEN_MIN_METERS
+      ) {
+        return false;
+      }
+      try {
+        for (let i = 0; i < layers.length; i++) {
+          map.setPaintProperty(layers[i].id, "line-gradient", [
+            "step",
+            ["line-progress"],
+            EATEN_TRANSPARENT,
+            at.fraction,
+            layers[i].color,
+          ]);
+        }
+      } catch (e) {
+        // A map that refuses the gradient must not leave the line un-eaten: the geometric trim
+        // below is the fallback, and the reason is reported rather than swallowed.
+        nav.eatenFallback = true;
+        postNavDiag({
+          error: navErrorMessage(e),
+          source: "syncRouteEaten",
+        });
+        return false;
+      }
+      nav.eatenAtM = at.travelledMeters;
+      nav.eatenFraction = at.fraction;
+      nav.eatenMode = "gradient";
+      nav.trimCuts = (nav.trimCuts || 0) + 1;
+      return true;
+    }
+
+    /**
      * A re-cut is worth one setData; GPS jitter of a few metres is not.
+     *
+     * FALLBACK ONLY. The travelled part of a guidance line is normally eaten by the line-gradient
+     * above, which never re-uploads the geometry. This geometric path — which rebuilds the whole
+     * LineString and hands it back to the source — is kept for the case where the map refuses the
+     * gradient, and its threshold is what bounds the cost there.
      *
      * Le tracé est rogné derrière la flèche (voir trimNavLineFrom) : la ligne dessinée repart de la
      * position affichée. Sans étranglement, syncNavRouteStart ré-uploaderait toute la géométrie de
@@ -2404,6 +2581,10 @@ export function buildMapHtmlTemplate(
         if (source) {
           source.setData(lineFeature(trimmed));
           nav.trimCuts = (nav.trimCuts || 0) + 1;
+          // The number the economy criterion is read from: it must stay flat while the gradient
+          // eats the line, and only move if this fallback is what is actually running.
+          nav.routeSetData = (nav.routeSetData || 0) + 1;
+          nav.eatenMode = "trim";
         }
       } catch (e) {}
       return true;
@@ -2579,7 +2760,14 @@ export function buildMapHtmlTemplate(
       removeLayerSafe(lineId);
       removeLayerSafe(casingId);
       removeSourceSafe(sourceId);
-      map.addSource(sourceId, { type: "geojson", data: feature });
+      // The route source carries line metrics: the travelled part of a guidance line is eaten by
+      // a line-gradient step on line-progress, and MapLibre only accepts that property when the
+      // GeoJSON source declares lineMetrics. Kept here, next to the source it constrains, so the
+      // two cannot drift apart — a gradient on a source without metrics is a map error, and a
+      // dashed line (the pending and failed chords) must never receive one.
+      const sourceSpec = { type: "geojson", data: feature };
+      if (sourceId === "route") sourceSpec.lineMetrics = true;
+      map.addSource(sourceId, sourceSpec);
       // Neon rim first so it renders under the casing and the line.
       if (style.glow) {
         map.addLayer({
@@ -2735,6 +2923,10 @@ export function buildMapHtmlTemplate(
       nav.navigating = !isOffer && isNavigating === true;
       window.__veOfferFraming = isOffer;
       nav.trimAnchor = null;
+      // A new line starts un-eaten: the throttle below compares along-track metres, and a leftover
+      // value from the previous route would let the first frames draw the old boundary.
+      nav.eatenAtM = null;
+      nav.eatenFraction = null;
       nav.failed = false;
       nav.pending = true;
 
@@ -2986,17 +3178,35 @@ export function buildMapHtmlTemplate(
         nav.hasRoad = tripCoords.length > 2;
         nav.pending = false;
         nav.failed = false;
+        const routeStyle = routeLineStyle();
         setOrAddLine(
           "route",
           "route-casing",
           "route-line",
           lineFeature(tripCoords),
-          routeLineStyle(),
+          routeStyle,
         );
-        // A new road line: cut it at the driver before the first frame, rather than leaving the
-        // full geometry on screen until the next tick decides to re-point it.
+        // The three layers that draw the road line, with the colours the gradient must carry: the
+        // gradient REPLACES line-color while it is set, so each layer keeps its own hue.
+        nav.eatenLayers = isOffer
+          ? null
+          : [
+              { id: "route-line-glow", color: routeStyle.glow["line-color"] },
+              { id: "route-casing", color: routeStyle.casing["line-color"] },
+              { id: "route-line", color: routeStyle.line["line-color"] },
+            ];
+        nav.eatenFallback = false;
+        nav.eatenAtM = null;
+        nav.eatenFraction = null;
+        nav.eatenMode = "none";
+        // A new road line: eat it at the driver before the first frame, rather than leaving the
+        // whole geometry on screen until the next tick decides to re-point it.
         nav.trimAnchor = null;
-        syncNavRouteStart(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start);
+        if (nav.eatenLayers) {
+          syncRouteEaten(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start);
+        } else {
+          syncNavRouteStart(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start);
+        }
         try {
           postRouteProgress(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start, 0);
         } catch (e) {}
