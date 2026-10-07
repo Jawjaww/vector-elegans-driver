@@ -8,7 +8,7 @@ import {
   formatOptionPriceLabel,
   normalizeSelectedOptions,
   optionChipLabel,
-  optionFeatherIcon,
+  optionIcon,
 } from '../services/optionsCatalog';
 
 /**
@@ -36,12 +36,32 @@ describe('les options choisies cote client arrivent a l identique', () => {
     ]);
   });
 
-  it('chaque option mesuree a sa propre icone, jamais le repli generique', () => {
-    for (const name of REAL_RIDE_OPTIONS) {
-      expect(optionFeatherIcon(name)).not.toBe('package');
+  it("chaque option a l'icone du portail Next.js", () => {
+    // La table du portail (`lib/reservation/optionGlyphs.ts`) transcrite en glyphes
+    // MaterialCommunityIcons : Baby, PawPrint, Plane, GlassWater, Wifi, Sparkles.
+    const expected: Array<[string, string]> = [
+      ['Siège enfant', 'baby'],
+      ['Animaux domestiques', 'paw'],
+      ['Attente aéroport', 'airplane'],
+      ['Boissons premium', 'cup-water'],
+      ['WiFi à bord', 'wifi'],
+      ['Accueil personnalisé', 'star-four-points'],
+    ];
+    for (const [name, icon] of expected) {
+      expect({ name, icon: optionIcon(name) }).toEqual({ name, icon });
     }
-    // Non-vacuite : le repli existe, et un nom hors catalogue le prendrait.
-    expect(optionFeatherIcon('option-inconnue')).toBe('package');
+  });
+
+  it("l'option animaux est une patte, jamais un coeur", () => {
+    // Le defaut signale : un coeur a la place d'une patte (chat/chien). Le portail dessine un
+    // PawPrint ; un coeur dit « favori », pas « animal ».
+    expect(optionIcon('Animaux domestiques')).toBe('paw');
+    expect(optionIcon('Animaux domestiques')).not.toBe('heart');
+  });
+
+  it('un nom inconnu tombe sur le repli du portail, pas sur un colis generique', () => {
+    // Next.js `optionIcon` finit sur Sparkles, jamais sur une icone de colis.
+    expect(optionIcon('option-inconnue')).toBe('star-four-points');
   });
 });
 

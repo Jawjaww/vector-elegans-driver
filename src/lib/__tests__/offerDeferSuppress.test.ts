@@ -14,7 +14,7 @@ import {
   useDriverStore,
   type Ride,
 } from '../stores/driverStore';
-import { optionFeatherIcon, vehicleTypeIconName } from '../services/optionsCatalog';
+import { optionIcon, vehicleTypeIconName } from '../services/optionsCatalog';
 
 const baseRide = (id: string, extra: Partial<Ride> = {}): Ride => ({
   id,
@@ -421,11 +421,12 @@ describe('driverStore defer / suppress / promote', () => {
   });
 });
 
-describe('optionFeatherIcon', () => {
-  it('maps known options and falls back to package', () => {
-    expect(optionFeatherIcon('Siège enfant')).toBe('user');
-    expect(optionFeatherIcon('WiFi à bord')).toBe('wifi');
-    expect(optionFeatherIcon('unknown-option')).toBe('package');
+describe('optionIcon', () => {
+  it('maps known options to the same glyphs as the Next.js portal', () => {
+    expect(optionIcon('Siège enfant')).toBe('baby');
+    expect(optionIcon('Animaux domestiques')).toBe('paw');
+    expect(optionIcon('WiFi à bord')).toBe('wifi');
+    expect(optionIcon('unknown-option')).toBe('star-four-points');
   });
 });
 
