@@ -956,10 +956,15 @@ export function buildMapHtmlTemplate(
       /** Last position the puck was drawn at. */
       coords: null,
       /**
-       * Where the drawn line was last cut, and for which request. Re-cutting on every tick would
-       * rebuild the route source several times a second for a few metres of progress.
+       * Fraction de la ligne cachee derriere la fleche, telle que la peinture l'a recue.
+       *
+       * Remplace l'ancre de rognage : la geometrie n'est plus touchee, c'est cette valeur qui dit
+       * ou tombe la coupure — et c'est elle qui evite de repeindre pour un deplacement invisible.
        */
-      trimAnchor: null,
+      eatenFraction: null,
+      /** Repeints du degrade, et commits de geometrie de la route : les deux mesures du remede. */
+      eatenPaints: 0,
+      routeGeomUploads: 0,
       zoom: 19,
       pitch: 50,
       speed: null,
@@ -1633,6 +1638,9 @@ export function buildMapHtmlTemplate(
 
     function resetNavMotion() {
       const nav = window.__veNav;
+      // The cut belongs to the line that was drawn: a new route starts from a fraction that says
+      // nothing about the new geometry, so it must not throttle the first repaint.
+      nav.eatenFraction = null;
       nav.progressM = null;
       nav.gpsProgressM = null;
       nav.vEst = 0;
@@ -1872,10 +1880,106 @@ export function buildMapHtmlTemplate(
         navDisplayPaint(center, bearing, courseUp, nav.followCamera !== false);
       }
       if (hasTrack) {
-        syncNavRouteStart(center);
+        // Le trace est efface derriere la fleche par la peinture : rien de geometrique ici, donc
+        // rien a reconstruire a chaque metre parcouru.
+        syncNavEatenRoute(map, nav, cum, false);
       }
     }
     /* VE_NAV_DISPLAY_END */
+
+    /* VE_NAV_EATEN_START */
+    /**
+     * LE REMEDE AU ROGNAGE : le degrade de peinture, jamais la geometrie.
+     *
+     * La ligne dessinee etait recoupee derriere la fleche (trimNavLineFrom + syncNavRouteStart) et
+     * chaque recoupe refaisait un setData de la geometrie entiere. Mesure a 50 km/h : 150
+     * re-upload par minute, un tous les 5,5 m. Le worker reconstruisait l'index geojson-vt,
+     * invalidait les tuiles, refaisait les buckets et re-uplodait les buffers de sommets pour
+     * quelques metres de progres — c'est ce travail qui figeait la fleche et faisait clignoter des
+     * bouts de route.
+     *
+     * Ici la geometrie ne bouge plus du tout. La source de route porte lineMetrics (exige par
+     * line-progress) et chaque couche de route est peinte par une rampe transparente avant la
+     * fraction parcourue, couleur de route apres. La mise a jour est un setPaintProperty : ni la
+     * source, ni les tuiles, ni les buffers ne sont touches, et rien ne repasse par le worker.
+     *
+     * La fraction vient de progressM, la position AFFICHEE de la fleche (jamais le dernier point
+     * GPS) : la coupure tombe donc exactement sous elle. La ligne visible COMMENCE a la fleche —
+     * ce que le rognage assurait aussi, et qui n'a plus besoin de toucher a la geometrie.
+     */
+    /** Sous ce deplacement, la coupure n'a pas bouge a l'ecran : on ne repeint pas pour rien. */
+    var NAV_EATEN_MIN_METERS = 1;
+
+    /**
+     * Les couches visibles derriere la fleche, chacune avec sa propre couleur : line-gradient
+     * remplace line-color, c'est la rampe qui peint. Le casing et le glow partagent la source du
+     * trait — sans rampe ils resteraient visibles derriere lui et ruineraient l'effet.
+     */
+    var NAV_EATEN_LAYERS = [
+      ["route-line-glow", "${MAP_PALETTE.routeGlow}"],
+      ["route-casing", "${MAP_PALETTE.routeEdge}"],
+      ["route-line", "${MAP_PALETTE.route}"],
+    ];
+
+    /** La fraction de la ligne deja parcourue, ou null quand il n'y a rien a effacer. */
+    function navEatenFraction(nav, cum) {
+      if (!nav || !nav.navigating || !nav.hasRoad) return null;
+      if (typeof nav.progressM !== "number" || !Number.isFinite(nav.progressM)) {
+        return null;
+      }
+      var total = cum && cum.length ? cum[cum.length - 1] : 0;
+      if (!(total > 0)) return null;
+      var fraction = nav.progressM / total;
+      if (!(fraction > 0)) return 0;
+      return fraction > 1 ? 1 : fraction;
+    }
+
+    /**
+     * Transparent avant la fleche, la couleur de la couche apres — une marche, jamais un fondu.
+     *
+     * step et non interpolate : avec une interpolation MapLibre garde une rampe de 256 px etiree
+     * sur toute la ligne et l'echantillonne lineairement, donc la coupure s'etale sur 1/256 de la
+     * longueur — une trentaine de metres sur une ligne de 8 km, c'est-a-dire un moignon visible
+     * derriere la fleche. Une expression step fait choisir a MapLibre une rampe a la resolution du
+     * trait (jusqu'a la taille de texture du GPU), echantillonnee au plus proche : la coupure
+     * tombe sur le pixel de la fleche.
+     */
+    function navEatenGradient(fraction, color) {
+      return ["step", ["line-progress"], "rgba(0,0,0,0)", fraction, color];
+    }
+
+    /**
+     * Repointe la peinture de la route sur la position de la fleche. Vrai quand on a repeint.
+     *
+     * mapRef et cum sont passes plutot que lus dans la portee : le bloc reste evaluable seul, avec
+     * une carte reduite a trois couches (voir navRouteTrim.test.ts).
+     */
+    function syncNavEatenRoute(mapRef, nav, cum, force) {
+      var fraction = navEatenFraction(nav, cum);
+      if (fraction === null) return false;
+      var total = cum[cum.length - 1];
+      var previous = typeof nav.eatenFraction === "number" ? nav.eatenFraction : null;
+      // Un recul n'est pas une micro-avancee : un resync (reroute, teleportation GPS) doit remettre
+      // la coupure en place tout de suite, sinon la ligne reste effacee devant la fleche.
+      if (!force && previous !== null && fraction >= previous) {
+        if ((fraction - previous) * total < NAV_EATEN_MIN_METERS) return false;
+      }
+      nav.eatenFraction = fraction;
+      nav.eatenPaints = (nav.eatenPaints || 0) + 1;
+      for (var i = 0; i < NAV_EATEN_LAYERS.length; i++) {
+        try {
+          if (mapRef.getLayer(NAV_EATEN_LAYERS[i][0])) {
+            mapRef.setPaintProperty(
+              NAV_EATEN_LAYERS[i][0],
+              "line-gradient",
+              navEatenGradient(fraction, NAV_EATEN_LAYERS[i][1])
+            );
+          }
+        } catch (e) {}
+      }
+      return true;
+    }
+    /* VE_NAV_EATEN_END */
 
     /**
      * The single guidance entry point: one GPS fix in, one camera and puck decision out.
@@ -2002,8 +2106,10 @@ export function buildMapHtmlTemplate(
         paintCourseUp,
         nav.followCamera
       );
-      // The drawn line starts under the arrow: on an active trip the puck is the departure.
-      const trimmed = syncNavRouteStart(onLine ? paintPoint : coords);
+      // The drawn line starts under the arrow: on an active trip the puck is the departure. Ce
+      // n'est plus une recoupe de geometrie — le degrade cache tout ce qui precede la fleche, et
+      // la ligne visible commence donc a elle, quel que soit le premier sommet du routeur.
+      syncNavEatenRoute(map, nav, cum, false);
       postRouteProgress(
         paintPoint,
         onLine && typeof nav.progressM === "number"
@@ -2045,7 +2151,15 @@ export function buildMapHtmlTemplate(
         fps: nav.displayFps || 0,
         frames: nav.displayFrames || 0,
         stalled: !!nav.lastTickStalled,
-        trimmed: trimmed,
+        // Le remede, mesure la ou il vit. Deux compteurs de session, gratuits a lire : les commits
+        // de geometrie de la route (un par trace, plus un par reroute — et surtout pas un par
+        // metre) et les repeints du degrade qui efface la portion parcourue.
+        route_geom_uploads: nav.routeGeomUploads || 0,
+        route_gradient_paints: nav.eatenPaints || 0,
+        eaten_fraction:
+          typeof nav.eatenFraction === "number"
+            ? Math.round(nav.eatenFraction * 1000) / 1000
+            : null,
       });
     }
 
@@ -2267,7 +2381,7 @@ export function buildMapHtmlTemplate(
       nav.courseUp = false;
       nav.bearing = null;
       nav.coords = null;
-      nav.trimAnchor = null;
+      nav.eatenFraction = null;
       nav.progressM = null;
       nav.gpsProgressM = null;
       nav.vEst = 0;
@@ -2318,68 +2432,14 @@ export function buildMapHtmlTemplate(
       };
     }
 
-    /** A re-cut is worth one setData; GPS jitter of a few metres is not. */
-    /**
-     * Le tracé est rogné derrière la flèche : « la flèche doit donner l'impression de bouffer le
-     * tracé comme Pac-Man, on ne doit même pas voir de tracé bleu derrière ».
-     *
-     * syncNavRouteStart recoit deja le point AFFICHE (la position interpolee de la fleche) et
-     * tourne a la frequence d'affichage — la geometrie etait donc juste. Le defaut etait cet
-     * etranglement : a 25 m, la ligne n'etait recoupee qu'une fois la fleche ayant roule 25 m
-     * au-delà de son départ, et elle restait dessinée sous elle tout ce temps. D'où ces bouts de
-     * bleu qui ne s'effaçaient qu'avec 25 m de retard.
-     *
-     * 2 m : à l'échelle du guidage, la flèche couvre une dizaine de mètres à l'écran — le reste de
-     * ligne est donc caché SOUS elle, et non visible derrière. Plus petit, on recouperait la
-     * géométrie à chaque image pour un gain invisible.
-     */
-    var ROUTE_TRIM_MIN_METERS = 5;
-
-    /**
-     * The drawn route starts at the driver, not at the router's first vertex.
-     *
-     * On an active trip the puck *is* the departure — the pin used to be drawn under the arrow,
-     * at the driver's own position — so a polyline anchored on the route's own start leaves a
-     * stub behind the vehicle. Cutting geometrically avoids asking the router for a shortened
-     * line at every turn, and nav.line stays whole: the bearing, the remaining distance and the
-     * rendezvous all read the full geometry.
-     */
-    function trimNavLineFrom(coords) {
-      const line = window.__veNav.line;
-      if (!line || line.length < 2 || !coords) return null;
-      const snap = snapToNavLine(coords, line, 0);
-      if (!snap) return null;
-      const rest = [snap.point];
-      let walked = 0;
-      for (let i = 0; i < line.length - 1; i++) {
-        walked += haversineMeters(line[i], line[i + 1]);
-        if (walked > snap.traveledMeters + 1) rest.push(line[i + 1]);
-      }
-      return rest.length > 1 ? rest : null;
-    }
-
-    /** Re-point the drawn route at the driver. Returns true when the data was replaced. */
-    function syncNavRouteStart(coords) {
-      const nav = window.__veNav;
-      if (!nav.navigating || !nav.hasRoad) return false;
-      const anchor = nav.trimAnchor;
-      if (
-        anchor &&
-        anchor.generation === nav.generation &&
-        haversineMeters(anchor.coords, coords) < ROUTE_TRIM_MIN_METERS
-      ) {
-        return false;
-      }
-      const trimmed = trimNavLineFrom(coords);
-      if (!trimmed) return false;
-      nav.trimAnchor = { coords: trimmed[0], generation: nav.generation };
-      try {
-        const source = map.getSource("route");
-        // The casing and the glow share this source, so one setData moves all three layers.
-        if (source) source.setData(lineFeature(trimmed));
-      } catch (e) {}
-      return true;
-    }
+    // Le rognage geometrique qui vivait ici (ROUTE_TRIM_MIN_METERS + trimNavLineFrom +
+    // syncNavRouteStart) est parti avec le defaut qu'il mitigait : recouper la ligne derriere la
+    // fleche coutait un setData de la geometrie entiere tous les 5 m — mesure a 50 km/h, 150
+    // re-upload par minute, un tous les 5,5 m. Le degrade de peinture (VE_NAV_EATEN_START) fait le
+    // meme effacement sans jamais toucher a la geometrie. Le rognage n'a pas ete garde a basse
+    // frequence : il n'assurait rien que le degrade n'assure pas, pas meme le depart de la ligne —
+    // la rampe cache tout ce qui precede la fleche, donc la ligne visible commence a elle, quel
+    // que soit le premier sommet rendu par le routeur.
 
     function svgDataUri(svg) {
       return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
@@ -2551,7 +2611,15 @@ export function buildMapHtmlTemplate(
       removeLayerSafe(lineId);
       removeLayerSafe(casingId);
       removeSourceSafe(sourceId);
-      map.addSource(sourceId, { type: "geojson", data: feature });
+      // lineMetrics se pose a la CREATION de la source, jamais apres : c'est la condition exigee
+      // par line-progress, donc par le degrade qui efface la portion parcourue. La source de route
+      // est recreee a chaque commit de geometrie — la propriete doit donc etre ici, et non sur un
+      // seul des appels.
+      map.addSource(sourceId, {
+        type: "geojson",
+        data: feature,
+        lineMetrics: sourceId === "route",
+      });
       // Neon rim first so it renders under the casing and the line.
       if (style.glow) {
         map.addLayer({
@@ -2578,6 +2646,13 @@ export function buildMapHtmlTemplate(
         layout: { "line-cap": "round", "line-join": "round" },
         paint: style.line,
       });
+      if (sourceId === "route") {
+        // Un commit de geometrie recree la source ET les couches : leur peinture est perdue avec
+        // elles. On repose donc le degrade ici, pour qu'aucun chemin ne puisse laisser la portion
+        // parcourue redevenir visible.
+        window.__veNav.routeGeomUploads = (window.__veNav.routeGeomUploads || 0) + 1;
+        syncNavEatenRoute(map, window.__veNav, navGeometry(), true);
+      }
     }
 
     function upsertEndpoints(start, end, approachFrom, driverMarker) {
@@ -2706,7 +2781,6 @@ export function buildMapHtmlTemplate(
       // The app names the route's purpose; the camera no longer infers it from fitBounds.
       nav.navigating = !isOffer && isNavigating === true;
       window.__veOfferFraming = isOffer;
-      nav.trimAnchor = null;
       nav.failed = false;
       nav.pending = true;
 
@@ -2965,10 +3039,9 @@ export function buildMapHtmlTemplate(
           lineFeature(tripCoords),
           routeLineStyle(),
         );
-        // A new road line: cut it at the driver before the first frame, rather than leaving the
-        // full geometry on screen until the next tick decides to re-point it.
-        nav.trimAnchor = null;
-        syncNavRouteStart(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start);
+        // A new road line: the eaten part is painted before the first frame — setOrAddLine
+        // re-applies the gradient on the layers it just recreated — rather than leaving the full
+        // geometry on screen until the next tick decides to repaint it.
         try {
           postRouteProgress(window.__veLastRawGpsCoords || window.__veLastGpsCoords || start, 0);
         } catch (e) {}
