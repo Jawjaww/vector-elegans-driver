@@ -9,7 +9,10 @@ import {
   OFFER_PICKUP_DECLUTTER_MIN_SPAN_KM,
   OFFER_PICKUP_HIDE_MAX_METERS,
 } from "../lib/utils/markerDeclutter";
-import { ATTRIBUTION_LABEL_BOTTOM } from "../lib/utils/overlayLane";
+import {
+  ATTRIBUTION_LABEL_BOTTOM,
+  ATTRIBUTION_LABEL_RIGHT_INSET,
+} from "../lib/utils/overlayLane";
 
 /** Neon rim shared by every outline, ready to interpolate into CSS/SVG. */
 const NEON_BLUR = `${MAP_PALETTE.neonBlur}px`;
@@ -87,20 +90,27 @@ export function buildMapHtmlTemplate(
        across the control that shows where the driver currently is. One element is left, it is
        permanent, and it is lifted clear of that band — see the bottom offset.
 
-       Bottom-RIGHT, in the strip the location control leaves free. That strip is wider than it
-       looks: right-4 is 56 px on native (NativeWind's rem is 14, not 16), the control is 48 px
-       wide and carries an 8 px hitSlop, so it owns everything from 48 px in — while the label is
-       an 18 px column 4 px from the edge, 34 px short of that touch zone. Right-anchored, so it
-       grows leftward and never crosses the control. The sheet covers the strip below its resting
-       lip.
+       Bottom-RIGHT, in the strip the lane's round control leaves free. That strip is narrower
+       than an earlier figure claimed: right-4 is 1 rem, and NativeWind's rem is 14 on native (not
+       16), so the class is 14 px — not 4 rem. The control is 48 px wide and carries an 8 px
+       hitSlop, so at right-4 its touch zone began 6 px from the edge and covered this column. It
+       now reads MAP_CONTROL_RIGHT_INSET from overlayLane.ts: this label's right inset plus its
+       18 px column plus the lane gap plus that hitSlop, so the touch zone starts where the column
+       ends. Right-anchored, so it grows leftward and never crosses the control. The sheet covers
+       the strip below its resting lip.
 
-       The bottom offset is the whole instruction band, one stack gap clear of it, computed by
+       The vertical offset below clears the instruction band and is deliberately NOT asked to
+       clear the control: the control's bottom is the settled sheet height — uncapped and measured,
+       so it is not a figure this document, or any lane constant, can place the credit above. The
+       separation is horizontal. See MAP_CONTROL_RIGHT_INSET in overlayLane.ts for the arithmetic.
+
+       That bottom offset is the whole instruction band, one stack gap clear of it, computed by
        overlayLane.ts: the sheet's resting lip, the lane's base offset and the guidance bar's
        height. The figure is imported rather than written here, so moving any of the three moves
-       the credit with them. */
+       the credit with them, and the right inset comes from the same module for the same reason. */
     #ve-attrib-credit {
       position: absolute;
-      right: 4px;
+      right: ${ATTRIBUTION_LABEL_RIGHT_INSET}px;
       bottom: ${ATTRIBUTION_LABEL_BOTTOM}px;
       z-index: 5;
       writing-mode: vertical-rl;

@@ -5,7 +5,9 @@ import { GLASS_PANEL_BEVEL_INSET, GlassPanel } from './GlassPanel';
 import { GLASS_MATERIAL } from '../lib/theme';
 import {
   LIFT_OVER_INSTRUCTION,
+  MAP_CONTROL_RIGHT_INSET,
   MAP_CONTROL_SIZE,
+  MAP_CONTROL_TOUCH_SLOP,
 } from '../lib/utils/overlayLane';
 import {
   GUIDANCE_EMERGE_MS,
@@ -68,8 +70,13 @@ export function MapRecenterButton({
     <Animated.View
       // The anchor spans the lane; only the control itself is touchable.
       pointerEvents="box-none"
-      className="absolute right-4"
+      className="absolute"
       style={{
+        // The inset and the touch slop are the lane's own figures, not a class: `right-4` reads as
+        // "4 rem" and is 14 px on native (a spacing step is 0.25 rem), which left the control's
+        // touch zone across the credit's column. `MAP_CONTROL_RIGHT_INSET` is derived from the
+        // credit's geometry so the two cannot overlap again — see `overlayLane.ts`.
+        right: MAP_CONTROL_RIGHT_INSET,
         bottom: bottomAnimated,
         // Layer scale on the home scene (see BottomSheet.styles.sceneFill):
         // map 0 → trip HUDs 15 → offer stack 30 → this control 35 → sheet 40/41.
@@ -82,7 +89,7 @@ export function MapRecenterButton({
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel="Recentrer sur ma position"
-        hitSlop={8}
+        hitSlop={MAP_CONTROL_TOUCH_SLOP}
       >
         <GlassPanel radius={MAP_CONTROL_SIZE / 2}>
           <View
