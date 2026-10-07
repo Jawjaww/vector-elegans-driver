@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useReducer, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useReducer, useRef, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   View,
@@ -17,7 +17,7 @@ import * as Location from "expo-location";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "../../src/lib/supabase";
-import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState, type ProvisionalOffer } from "../../src/lib/stores/driverStore";
+import { useDriverStore, Ride, canPresentRideOffer, type DriverStats, type OfferGateState, type OfferArrivalSource, type ProvisionalOffer } from "../../src/lib/stores/driverStore";
 import {
   navPolicyFromSnapshot,
   navPolicyPayload,
@@ -121,7 +121,7 @@ import {
   type TripStage,
 } from "../../src/lib/utils/tripGuidance";
 import { haversineMeters } from "../../src/lib/utils/gpsThrottle";
-import { VGpsLoader, VRouteMark } from "../../src/components/VGpsLoader";
+import { MapWake } from "../../src/components/MapWake";
 import { MapRecenterButton } from "../../src/components/MapRecenterButton";
 import {
   type NavProgress,
@@ -844,7 +844,7 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
   }, []);
 
   const applyDriverStatus = useCallback(
-    async (
+    (
       nextStatus: string,
       id: string,
       options?: { silent?: boolean },
@@ -883,6 +883,7 @@ function useDriverDashboardBoot(router: ReturnType<typeof useRouter>) {
           });
         }
       })();
+      return Promise.resolve();
     },
     [refreshDossierMeta],
   );
@@ -1092,6 +1093,268 @@ function DashboardOfferOverlay({
   );
 }
 
+function applyRouteReadyToNav(
+  mapInOfferMode: boolean,
+  pushNavProgress: (patch: NavProgress) => void,
+  distanceMeters: number,
+  durationSeconds: number,
+  nextManeuver?: NavManeuverInfo | null,
+  alongTrackMeters?: number | null,
+) {
+  if (mapInOfferMode) return;
+  pushNavProgress({
+    distanceMeters,
+    durationSeconds,
+    alongTrackMeters: alongTrackMeters ?? null,
+    nextManeuver: nextManeuver
+      ? {
+          type: nextManeuver.type,
+          modifier: nextManeuver.modifier ?? undefined,
+          distanceMeters: nextManeuver.distanceMeters,
+          name: nextManeuver.name,
+          exit:
+            typeof nextManeuver.exit === "number"
+              ? nextManeuver.exit
+              : undefined,
+        }
+      : null,
+  });
+}
+
+function presentRealtimeOffer(
+  ride: Ride,
+  canReceive: boolean,
+  gate: OfferGateState,
+  patchTrackedRide: (ride: Ride) => void,
+  addAvailableRide: (ride: Ride) => void,
+) {
+  if (!canReceive) return;
+  if (!isRideStillOfferable(ride)) return;
+  const alreadyStacked = gate.availableRides.some((row) => row.id === ride.id);
+  if (alreadyStacked) {
+    patchTrackedRide(ride);
+    logOfferStage("promoted", { source: "realtime" }, ride.id);
+    return;
+  }
+  if (!canPresentRideOffer(ride.id, gate)) return;
+  addAvailableRide(ride);
+  logOfferStage("promoted", { source: "realtime" }, ride.id);
+}
+
+function useOfferArrivalRing(args: {
+  offerArrivalAt: number | null;
+  offerArrivalSource: OfferArrivalSource | null;
+  offerLiveness: ReturnType<typeof resolveOfferLiveness>;
+  isOnline: boolean;
+  pendingRideId: string | null;
+  provisionalRideId: string | null;
+  activeRideId: string | undefined;
+  acceptingRideIdsRef: { current: Set<string> };
+}) {
+  const ringHandledArrivalAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    const arrivalAt = args.offerArrivalAt;
+    if (arrivalAt === null) return;
+    const arrivalRideId = args.pendingRideId ?? args.provisionalRideId;
+    const action = resolveOfferRingAction({
+      arrivalSource: args.offerArrivalSource,
+      isOnline: args.isOnline,
+      liveness: args.offerLiveness,
+      handledArrival: ringHandledArrivalAt.current === arrivalAt,
+      answered:
+        arrivalRideId !== null &&
+        (args.acceptingRideIdsRef.current.has(arrivalRideId) ||
+          args.activeRideId === arrivalRideId),
+    });
+    if (!isTerminalRingAction(action)) return;
+
+    ringHandledArrivalAt.current = arrivalAt;
+    if (action.kind === "ring") {
+      ringOffer();
+      logOfferStage("ring_armed", {}, arrivalRideId);
+      return;
+    }
+    if (action.kind === "stop") {
+      stopOfferRing(action.reason);
+    }
+    logOfferStage("ring_skipped", { reason: action.reason }, arrivalRideId);
+  }, [
+    args.offerArrivalAt,
+    args.offerArrivalSource,
+    args.offerLiveness,
+    args.isOnline,
+    args.pendingRideId,
+    args.provisionalRideId,
+    args.activeRideId,
+    args.acceptingRideIdsRef,
+  ]);
+}
+
+function useAssignedRideChannel(
+  rideId: string | undefined,
+  setActiveRide: (ride: Ride | null) => void,
+) {
+  useEffect(() => {
+    if (!rideId) return;
+    const channel = supabase
+      .channel(`driver-active-ride:${rideId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rides",
+          filter: `id=eq.${rideId}`,
+        },
+        (payload) => {
+          const row = payload.new as RideRow;
+          if (!row?.id) return;
+          if (isActiveRideStatus(row.status)) {
+            setActiveRide(toAppRide(row));
+            return;
+          }
+          logOfferStage(
+            "nav_assigned_ride_released",
+            { ride_id: row.id, reason: `status:${row.status}` },
+            row.id,
+          );
+          setActiveRide(null);
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [rideId, setActiveRide]);
+}
+
+
+function DashboardMapCanvas({
+  mapHostViewRef,
+  mapBoot,
+  tripMapPoints,
+  mapShowRoute,
+  mapInOfferMode,
+  currentLocation,
+  activeRide,
+  mapRouteRide,
+  offerFitPadding,
+  onLocationUpdate,
+  onRouteReady,
+  onMapReady,
+  onFollowPausedChange,
+  onReroutingChange,
+  resumeMapFollowRef,
+  mapControllerRef,
+  mapFollowPaused,
+  mapRecenterBottomOffset,
+  guidanceVisible,
+  tripStage,
+  overlaySheetVisibleH,
+  routeRecalculating,
+  maneuverProgress,
+  navProgress,
+}: Readonly<{
+  mapHostViewRef: RefObject<View | null>;
+  mapBoot: { center: { lat: number; lng: number }; zoom: number };
+  tripMapPoints: { start?: { lat: number; lng: number }; end?: { lat: number; lng: number }; approachFrom?: { lat: number; lng: number } };
+  mapShowRoute: boolean;
+  mapInOfferMode: boolean;
+  currentLocation: { lat: number; lng: number } | null;
+  activeRide: Ride | null;
+  mapRouteRide: Ride | null;
+  offerFitPadding: { top: number; right: number; bottom: number; left: number } | undefined;
+  onLocationUpdate: (coords: { lat: number; lng: number }) => void;
+  onRouteReady: (
+    distanceMeters: number,
+    durationSeconds: number,
+    nextManeuver?: NavManeuverInfo | null,
+    alongTrackMeters?: number | null,
+  ) => void;
+  onMapReady: () => void;
+  onFollowPausedChange: (paused: boolean) => void;
+  onReroutingChange: (recalculating: boolean) => void;
+  resumeMapFollowRef: { current: (() => void) | null };
+  mapControllerRef: RefObject<MapControllerRef | null>;
+  mapFollowPaused: boolean;
+  mapRecenterBottomOffset: number;
+  guidanceVisible: boolean;
+  tripStage: TripStage | null;
+  overlaySheetVisibleH: number;
+  routeRecalculating: boolean;
+  maneuverProgress: NavProgress | null;
+  navProgress: NavProgress | null;
+}>) {
+  return (
+    <View
+      ref={mapHostViewRef}
+      onLayout={() => setFrostScene(mapHostViewRef.current)}
+      style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
+    >
+      <VTCMap
+        style={{ zIndex: 0 }}
+        initialCenter={mapBoot.center}
+        initialZoom={mapBoot.zoom}
+        start={tripMapPoints.start}
+        end={tripMapPoints.end}
+        approachFrom={tripMapPoints.approachFrom}
+        drivers={[]}
+        showRoute={mapShowRoute}
+        presentation={mapInOfferMode ? "offer" : "default"}
+        driverMarker={
+          mapInOfferMode && currentLocation
+            ? { lat: currentLocation.lat, lng: currentLocation.lng }
+            : undefined
+        }
+        followUser={!activeRide && !mapRouteRide}
+        navigationFollow={!!activeRide}
+        activeRideId={activeRide?.id}
+        navPolicy={navPolicyPayload(
+          navPolicyFromSnapshot(activeRide?.fee_policy_snapshot),
+        )}
+        idleRecenterMs={8000}
+        onFollowPausedChange={onFollowPausedChange}
+        resumeFollowRef={resumeMapFollowRef}
+        mapControllerRef={mapControllerRef}
+        routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
+        routeFitPadding={mapInOfferMode ? offerFitPadding : undefined}
+        onLocationUpdate={onLocationUpdate}
+        onRouteReady={onRouteReady}
+        onMapReady={onMapReady}
+        onReroutingChange={onReroutingChange}
+      />
+
+      <MapRecenterButton
+        visible={mapFollowPaused && !mapInOfferMode}
+        bottom={Math.max(24, mapRecenterBottomOffset + CONTROL_BASE_OFFSET)}
+        navigationMode={!!activeRide}
+        aboveGuidanceBar={guidanceVisible}
+        onPress={() => resumeMapFollowRef.current?.()}
+      />
+
+      {tripStage && !mapInOfferMode ? (
+        <TripGuidanceBar
+          stage={tripStage}
+          sheetVisibleH={overlaySheetVisibleH}
+          visible={guidanceVisible}
+        />
+      ) : null}
+
+      {routeRecalculating ? <TripRerouteNotice /> : null}
+      {!routeRecalculating && maneuverProgress ? (
+        <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
+      ) : null}
+      {shouldShowTripNavigationHud(tripStage, navProgress) && navProgress ? (
+        <TripArrivalHud
+          progress={navProgress}
+          aboveGuidanceBar={guidanceVisible}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export default function DashboardScreen() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -1172,39 +1435,7 @@ export default function DashboardScreen() {
    * device — has to arrive here. A terminal status releases the trip; anything else is a
    * refresh, including `driver_arrived_at`, which moves a `scheduled` ride without ending it.
    */
-  useEffect(() => {
-    const rideId = activeRide?.id;
-    if (!rideId) return;
-    const channel = supabase
-      .channel(`driver-active-ride:${rideId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "rides",
-          filter: `id=eq.${rideId}`,
-        },
-        (payload) => {
-          const row = payload.new as RideRow;
-          if (!row?.id) return;
-          if (isActiveRideStatus(row.status)) {
-            setActiveRide(toAppRide(row));
-            return;
-          }
-          logOfferStage(
-            "nav_assigned_ride_released",
-            { ride_id: row.id, reason: `status:${row.status}` },
-            row.id,
-          );
-          setActiveRide(null);
-        },
-      )
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [activeRide?.id, setActiveRide]);
+  useAssignedRideChannel(activeRide?.id, setActiveRide);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapLoaderTimedOut, setMapLoaderTimedOut] = useState(false);
@@ -1295,24 +1526,14 @@ export default function DashboardScreen() {
       nextManeuver?: NavManeuverInfo | null,
       alongTrackMeters?: number | null,
     ) => {
-      if (mapInOfferMode) return;
-      pushNavProgress({
+      applyRouteReadyToNav(
+        mapInOfferMode,
+        pushNavProgress,
         distanceMeters,
         durationSeconds,
-        alongTrackMeters: alongTrackMeters ?? null,
-        nextManeuver: nextManeuver
-          ? {
-              type: nextManeuver.type,
-              modifier: nextManeuver.modifier ?? undefined,
-              distanceMeters: nextManeuver.distanceMeters,
-              name: nextManeuver.name,
-              exit:
-                typeof nextManeuver.exit === 'number'
-                  ? nextManeuver.exit
-                  : undefined,
-            }
-          : null,
-      });
+        nextManeuver,
+        alongTrackMeters,
+      );
     },
     [mapInOfferMode, pushNavProgress],
   );
@@ -1339,19 +1560,15 @@ export default function DashboardScreen() {
   }, []);
 
   const presentOffer = useCallback(
-    async (ride: Ride) => {
-      if (!canReceive) return;
-      if (!isRideStillOfferable(ride)) return;
-      const gate = getOfferGateState();
-      const alreadyStacked = gate.availableRides.some((row) => row.id === ride.id);
-      if (alreadyStacked) {
-        patchTrackedRide(ride);
-        logOfferStage("promoted", { source: "realtime" }, ride.id);
-        return;
-      }
-      if (!canPresentRideOffer(ride.id, gate)) return;
-      addAvailableRide(ride);
-      logOfferStage("promoted", { source: "realtime" }, ride.id);
+    (ride: Ride) => {
+      presentRealtimeOffer(
+        ride,
+        canReceive,
+        getOfferGateState(),
+        patchTrackedRide,
+        addAvailableRide,
+      );
+      return Promise.resolve();
     },
     [addAvailableRide, canReceive, getOfferGateState, patchTrackedRide],
   );
@@ -1425,15 +1642,6 @@ export default function DashboardScreen() {
   );
 
   /**
-   * The arrival the ring has already acted on.
-   *
-   * Latched per arrival rather than per render: the decision is re-evaluated as the offer moves
-   * from `pending` to `live`, and without a latch the ring would be re-armed on every pass.
-   * Transient refusals are deliberately not latched — see `isTerminalRingAction`.
-   */
-  const ringHandledArrivalAt = useRef<number | null>(null);
-
-  /**
    * Ring, and only here.
    *
    * The sound used to start from the native `confirmLaunch()`, which proves a wake landed and
@@ -1444,49 +1652,16 @@ export default function DashboardScreen() {
    * The cost is the delay between the resume and the confirmation of the offer (~0.3–1 s on a
    * cold start). Paid on purpose: a sound that can be wrong is worse than a sound that is late.
    */
-  useEffect(() => {
-    if (offerArrivalAt === null) return;
-    const arrivalRideId =
-      pendingOfferOpen?.rideId ?? provisionalOffer?.rideId ?? null;
-    const action = resolveOfferRingAction({
-      arrivalSource: offerArrivalSource,
-      isOnline,
-      liveness: offerLiveness,
-      handledArrival: ringHandledArrivalAt.current === offerArrivalAt,
-      // Read here rather than watched: the accept adds the id to this set *before* its round-trip
-      // and only removes the ride from the deck when the server answers, so during that window
-      // the ride is still `live` and still looks ringable. The set is the only signal that says
-      // the driver has already answered. `activeRide` covers the moment the answer lands, and
-      // covers an accept taken from the notification shade, which never goes through the card.
-      answered:
-        arrivalRideId !== null &&
-        (acceptingRideIdsRef.current.has(arrivalRideId) ||
-          activeRide?.id === arrivalRideId),
-    });
-    // "Not yet" is not "never": the deck may still be loading or the server may not have
-    // answered, and latching those would leave the offer on screen in silence.
-    if (!isTerminalRingAction(action)) return;
-
-    ringHandledArrivalAt.current = offerArrivalAt;
-    const rideId = arrivalRideId;
-    if (action.kind === 'ring') {
-      ringOffer();
-      logOfferStage('ring_armed', {}, rideId);
-      return;
-    }
-    if (action.kind === 'stop') {
-      stopOfferRing(action.reason);
-    }
-    logOfferStage('ring_skipped', { reason: action.reason }, rideId);
-  }, [
+  useOfferArrivalRing({
     offerArrivalAt,
     offerArrivalSource,
     offerLiveness,
     isOnline,
-    pendingOfferOpen?.rideId,
-    provisionalOffer?.rideId,
-    activeRide?.id,
-  ]);
+    pendingRideId: pendingOfferOpen?.rideId ?? null,
+    provisionalRideId: provisionalOffer?.rideId ?? null,
+    activeRideId: activeRide?.id,
+    acceptingRideIdsRef,
+  });
 
   // Safety net for the provisional card: the normal path replaces it within one round-trip,
   // but a read that never lands must not leave a live Accept button on screen forever.
@@ -1854,102 +2029,45 @@ export default function DashboardScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* The boot surface is deliberately *outside* the entry fade: it holds the card a
-          notification built and nothing else, and the driver is watching it because they tapped.
-          Under AnimatedPage it started transparent, and the wake showed a black screen whenever
-          the arrival landed before the fade had run its 300 ms. */}
-      {loading ? (
-        <View
-          className="flex-1 justify-center items-center"
-          style={{ backgroundColor: "transparent" }}
-        >
-          <VRouteMark height={120} />
-        </View>
-      ) : (
-        <AnimatedPage instant={notificationArrival}>
-          <View
-            ref={mapHostViewRef}
-            onLayout={() => setFrostScene(mapHostViewRef.current)}
-            style={{ flex: 1, backgroundColor: BASEMAP_CANVAS, zIndex: -1 }}
-          >
-            {/* Single warm VTCMap — also used for offer overview + route */}
-            <VTCMap
-              style={{ zIndex: 0 }}
-              initialCenter={mapBoot.center}
-              initialZoom={mapBoot.zoom}
-              start={tripMapPoints.start}
-              end={tripMapPoints.end}
-              approachFrom={tripMapPoints.approachFrom}
-              drivers={[]}
-              showRoute={mapShowRoute}
-              presentation={mapInOfferMode ? "offer" : "default"}
-              driverMarker={
-                mapInOfferMode && currentLocation
-                  ? { lat: currentLocation.lat, lng: currentLocation.lng }
-                  : undefined
-              }
-              followUser={!activeRide && !mapRouteRide}
-              navigationFollow={!!activeRide}
-              activeRideId={activeRide?.id}
-              // D-23 : les reglages de rattrapage viennent du snapshot de la course, donc d'un
-              // reglage en base — ajustable sans redeployer l'application.
-              navPolicy={navPolicyPayload(
-                navPolicyFromSnapshot(activeRide?.fee_policy_snapshot),
-              )}
-              idleRecenterMs={8000}
-              onFollowPausedChange={setMapFollowPaused}
-              resumeFollowRef={resumeMapFollowRef}
-              mapControllerRef={mapControllerRef}
-              routeFitPaddingBottom={mapRouteFitPaddingBottom(activeRide)}
-              routeFitPadding={mapInOfferMode ? offerFitPadding : undefined}
-              onLocationUpdate={onLocationUpdate}
-              onRouteReady={handleRouteReady}
-              onMapReady={handleMapReady}
-              onReroutingChange={setRouteRecalculating}
-            />
-
-            <MapRecenterButton
-              visible={mapFollowPaused && !mapInOfferMode}
-              bottom={Math.max(
-                24,
-                mapRecenterBottomOffset + CONTROL_BASE_OFFSET,
-              )}
-              navigationMode={!!activeRide}
-              aboveGuidanceBar={guidanceVisible}
-              onPress={() => resumeMapFollowRef.current?.()}
-            />
-
-            <VGpsLoader
-              visible={showMapLoader && !mapInOfferMode}
-              hint={mapLoaderHint(mapReady, hasGpsFix)}
-            />
-
-            {/* The instruction for this stage of the trip, told as an announcement. Deliberately
-                outside the sheet: the sheet rests at `nav` while a ride is driven, which is 14 px
-                of body, and the sentence the driver needs was living in there. It stays mounted
-                for the whole stage so it can retract into the sheet instead of blinking out —
-                `visible` is what moves. */}
-            {tripStage && !mapInOfferMode ? (
-              <TripGuidanceBar
-                stage={tripStage}
-                sheetVisibleH={overlaySheetVisibleH}
-                visible={guidanceVisible}
-              />
-            ) : null}
-
-            {routeRecalculating ? <TripRerouteNotice /> : null}
-            {!routeRecalculating && maneuverProgress ? (
-              <TripManeuverHud progress={maneuverProgress} stage={tripStage} />
-            ) : null}
-            {shouldShowTripNavigationHud(tripStage, navProgress) && navProgress ? (
-              <TripArrivalHud
-                progress={navProgress}
-                aboveGuidanceBar={guidanceVisible}
-              />
-            ) : null}
-          </View>
+      {/* The map stays mounted. A dark veil fades off it: a WebView ignores its parent's
+          opacity on Android, so fading the map itself pops from chrome to beige. The mark
+          and its caption live in MapWake, above that veil and outside AnimatedPage — the
+          entry fade used to start them transparent and freeze a notification wake on black. */}
+      <MapWake
+        booting={loading}
+        instant={notificationArrival}
+        showLoader={showMapLoader && !mapInOfferMode}
+        hint={mapLoaderHint(mapReady, hasGpsFix)}
+      >
+        <AnimatedPage instant>
+          <DashboardMapCanvas
+            mapHostViewRef={mapHostViewRef}
+            mapBoot={mapBoot}
+            tripMapPoints={tripMapPoints}
+            mapShowRoute={mapShowRoute}
+            mapInOfferMode={mapInOfferMode}
+            currentLocation={currentLocation}
+            activeRide={activeRide}
+            mapRouteRide={mapRouteRide}
+            offerFitPadding={offerFitPadding}
+            onLocationUpdate={onLocationUpdate}
+            onRouteReady={handleRouteReady}
+            onMapReady={handleMapReady}
+            onFollowPausedChange={setMapFollowPaused}
+            onReroutingChange={setRouteRecalculating}
+            resumeMapFollowRef={resumeMapFollowRef}
+            mapControllerRef={mapControllerRef}
+            mapFollowPaused={mapFollowPaused}
+            mapRecenterBottomOffset={mapRecenterBottomOffset}
+            guidanceVisible={guidanceVisible}
+            tripStage={tripStage}
+            overlaySheetVisibleH={overlaySheetVisibleH}
+            routeRecalculating={routeRecalculating}
+            maneuverProgress={maneuverProgress}
+            navProgress={navProgress}
+          />
         </AnimatedPage>
-      )}
+      </MapWake>
 
       {/* The offer stack, then the notice, then the sheet: the one thing a raised sheet must
           always cover is a card, and the driver pulled it up on purpose. All three sit outside

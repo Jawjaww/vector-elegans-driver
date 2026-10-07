@@ -275,8 +275,8 @@ describe('the ring gate decides, and Kotlin only plays', () => {
 
   describe('the ring is logged, so a silence can be told from a fault', () => {
     it('records both outcomes with their reason', () => {
-      expect(dashboard).toContain("logOfferStage('ring_armed'");
-      expect(dashboard).toContain("logOfferStage('ring_skipped'");
+      expect(dashboard).toContain('logOfferStage("ring_armed"');
+      expect(dashboard).toContain('logOfferStage("ring_skipped"');
     });
 
     it('keeps the stages in the pipeline vocabulary', () => {
@@ -526,7 +526,7 @@ describe('the driver can stop it', () => {
     expect(dashboard).toContain('acceptingRideIdsRef.current.has(arrivalRideId)');
     // And the landed answer, which is also the only signal for an accept taken from the shade —
     // that path never goes through the card, so nothing else would stop the ring.
-    expect(dashboard).toContain('activeRide?.id === arrivalRideId');
+    expect(dashboard).toContain('args.activeRideId === arrivalRideId');
     // Asked inside the gate call rather than acted on beside it: the rule is the gate's, and a
     // fix living next to it is one the next reader of the rule will not find.
     const call = dashboard.slice(dashboard.indexOf('resolveOfferRingAction({'));

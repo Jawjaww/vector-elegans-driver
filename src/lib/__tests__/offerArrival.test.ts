@@ -445,7 +445,7 @@ describe('the boot no longer stands between the tap and the ride', () => {
     // React reconciles by position, so that unmounted and remounted the card: painted over a bare
     // spinner, then destroyed and painted again over the map. One occurrence, below the gate.
     expect(dashboard.match(/\{offerCarouselElement\}/g) ?? []).toHaveLength(1);
-    const bootGate = dashboard.indexOf('{loading ? (');
+    const bootGate = dashboard.indexOf('<MapWake');
     const overlayAt = dashboard.indexOf('{offerCarouselElement}');
     expect(bootGate).toBeGreaterThan(-1);
     expect(overlayAt).toBeGreaterThan(bootGate);
@@ -528,20 +528,24 @@ describe('the boot no longer stands between the tap and the ride', () => {
   });
 
   it('presents the arrival without entry motion', () => {
-    expect(dashboard).toContain('<AnimatedPage instant={notificationArrival}>');
+    // The map page itself never fades in: a WebView punches through that fade. MapWake's veil
+    // is the transition, and a notification arrival only shortens it.
+    expect(dashboard).toContain('instant={notificationArrival}');
+    expect(dashboard).toContain('<AnimatedPage instant>');
   });
 
   it('keeps the boot surface out of the entry fade', () => {
-    // The boot placeholder and the card a notification built are the two things the driver must
-    // see first. Inside AnimatedPage they started transparent, and the arrival that flips
-    // `instant` mid-fade froze the page at opacity 0: the wake ended on a black screen, spinner,
-    // card and map alike. The fade wraps the dashboard alone; the boot branch precedes it.
-    const bootGate = dashboard.indexOf('{loading ? (');
-    const entryFade = dashboard.indexOf(
-      '<AnimatedPage instant={notificationArrival}>',
-    );
-    expect(bootGate).toBeGreaterThan(-1);
-    expect(entryFade).toBeGreaterThan(bootGate);
+    // The boot mark and the card a notification built are the two things the driver must see
+    // first. Inside AnimatedPage they started transparent, and the arrival that flips `instant`
+    // mid-fade froze the page at opacity 0. The fade wraps the map alone; MapWake paints the
+    // veil and the mark as siblings around it, so neither starts invisible.
+    const wake = dashboard.indexOf('<MapWake');
+    const entryFade = dashboard.indexOf('<AnimatedPage instant>');
+    const fadeEnd = dashboard.indexOf('</AnimatedPage>');
+    expect(wake).toBeGreaterThan(-1);
+    expect(entryFade).toBeGreaterThan(wake);
+    expect(fadeEnd).toBeGreaterThan(entryFade);
+    expect(dashboard.indexOf('</MapWake>')).toBeGreaterThan(fadeEnd);
   });
 });
 

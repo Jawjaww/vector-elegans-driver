@@ -1,17 +1,18 @@
 import { useEffect, useId, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
   cancelAnimation,
-  runOnJS,
   useAnimatedStyle,
   useAnimatedProps,
   useSharedValue,
   withRepeat,
   withSequence,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -43,18 +44,34 @@ const VIEWBOX_HEIGHT = 400;
 /** Inline default. The map overlay and the OTA row pass their own height. */
 const DEFAULT_MARK_HEIGHT = 88;
 
+/**
+ * Ink for a caption sitting on the liberty basemap (`BASEMAP_CANVAS`, a warm off-white).
+ * White at 45% on that ground measured as invisible; this is the dark end of the chrome.
+ */
+const MAP_HINT_INK = '#1c1917';
+
 type VRouteMarkProps = Readonly<{
   /** Rendered height in px. Width follows the 460×400 viewBox. */
   height?: number;
   /** Omitted by default so an inline slot does not grow by a caption line. */
   hint?: string;
+  /**
+   * 0 while a dark veil still covers the basemap, 1 once that ground is what the caption
+   * sits on. The ink stays dark either way — fading the caption in is what keeps it off
+   * the veil, where dark type would disappear.
+   */
+  captionReveal?: SharedValue<number>;
 }>;
 
 /**
  * Compact road-shaped V. No fill, no overlay: drop it into any loading slot.
  * Stroke widths stay in viewBox units, so they scale with `height`.
  */
-export function VRouteMark({ height = DEFAULT_MARK_HEIGHT, hint }: VRouteMarkProps) {
+export function VRouteMark({
+  height = DEFAULT_MARK_HEIGHT,
+  hint,
+  captionReveal,
+}: VRouteMarkProps) {
   const gradientSuffix = useId().replace(/[^a-zA-Z0-9]/g, '');
   const glowId = `roadGlow-${gradientSuffix}`;
   const edgeId = `roadEdge-${gradientSuffix}`;
@@ -97,6 +114,12 @@ export function VRouteMark({ height = DEFAULT_MARK_HEIGHT, hint }: VRouteMarkPro
   }));
 
   const width = height * (VIEWBOX_WIDTH / VIEWBOX_HEIGHT);
+  const revealFallback = useSharedValue(1);
+  const reveal = captionReveal ?? revealFallback;
+  const captionStyle = useAnimatedStyle(() => ({
+    opacity: reveal.value,
+    color: MAP_HINT_INK,
+  }));
 
   return (
     <View style={styles.mark} accessibilityLabel="Chargement">
@@ -160,7 +183,9 @@ export function VRouteMark({ height = DEFAULT_MARK_HEIGHT, hint }: VRouteMarkPro
           animatedProps={laneProps}
         />
       </Svg>
-      {hint ? <Text style={styles.caption}>{hint}</Text> : null}
+      {hint ? (
+        <Animated.Text style={[styles.caption, captionStyle]}>{hint}</Animated.Text>
+      ) : null}
     </View>
   );
 }
@@ -168,6 +193,7 @@ export function VRouteMark({ height = DEFAULT_MARK_HEIGHT, hint }: VRouteMarkPro
 type VGpsLoaderProps = Readonly<{
   visible: boolean;
   hint?: string;
+  captionReveal?: SharedValue<number>;
 }>;
 
 /**
@@ -179,7 +205,7 @@ type VGpsLoaderProps = Readonly<{
 const FADE_MS = 220;
 const MAP_MARK_HEIGHT = 120;
 
-export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
+export function VGpsLoader({ visible, hint, captionReveal }: VGpsLoaderProps) {
   const fade = useSharedValue(visible ? 1 : 0);
   // Stays mounted for the length of the fade-out, then unmounts: an invisible overlay would
   // otherwise keep the SVG paths and an elevation layer alive for the whole trip.
@@ -199,7 +225,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
       0,
       { duration: FADE_MS, easing: Easing.out(Easing.ease) },
       (finished) => {
-        if (finished) runOnJS(setMounted)(false);
+        if (finished) scheduleOnRN(setMounted, false);
       },
     );
   }, [visible, fade]);
@@ -214,7 +240,7 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
       pointerEvents={visible ? 'auto' : 'none'}
       accessibilityLabel="Chargement"
     >
-      <VRouteMark height={MAP_MARK_HEIGHT} hint={hint} />
+      <VRouteMark height={MAP_MARK_HEIGHT} hint={hint} captionReveal={captionReveal} />
     </Animated.View>
   );
 }
@@ -222,8 +248,8 @@ export function VGpsLoader({ visible, hint }: VGpsLoaderProps) {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 30,
-    elevation: 30,
+    zIndex: 24,
+    elevation: 24,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
@@ -234,7 +260,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   caption: {
-    color: 'rgba(255,255,255,0.45)',
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 1,
