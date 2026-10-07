@@ -992,6 +992,14 @@ export function buildMapHtmlTemplate(
       lastTickStalled: false,
       lastFrameAt: 0,
       lastPaintAt: 0,
+      /**
+       * Re-cuts of the drawn route since the loop started — one setData each.
+       *
+       * The camera diagnostic already carries fps / stalled, so a block that names its cause needs
+       * the other half: how many times per second the route geometry was replaced. Read as a delta
+       * between two nav_tick rows, it says whether the fix moved the rate.
+       */
+      trimCuts: 0,
     };
     window.__veLastGpsCoords = null;
     window.__veLastRawGpsCoords = null;
@@ -2046,6 +2054,8 @@ export function buildMapHtmlTemplate(
         frames: nav.displayFrames || 0,
         stalled: !!nav.lastTickStalled,
         trimmed: trimmed,
+        // Delta between two ticks = re-cuts per second: the other half of "the loop stalled".
+        trim_cuts: nav.trimCuts || 0,
       });
     }
 
@@ -2318,22 +2328,37 @@ export function buildMapHtmlTemplate(
       };
     }
 
-    /** A re-cut is worth one setData; GPS jitter of a few metres is not. */
     /**
-     * Le tracé est rogné derrière la flèche : « la flèche doit donner l'impression de bouffer le
-     * tracé comme Pac-Man, on ne doit même pas voir de tracé bleu derrière ».
+     * A re-cut is worth one setData; GPS jitter of a few metres is not.
      *
-     * syncNavRouteStart recoit deja le point AFFICHE (la position interpolee de la fleche) et
-     * tourne a la frequence d'affichage — la geometrie etait donc juste. Le defaut etait cet
-     * etranglement : a 25 m, la ligne n'etait recoupee qu'une fois la fleche ayant roule 25 m
-     * au-delà de son départ, et elle restait dessinée sous elle tout ce temps. D'où ces bouts de
-     * bleu qui ne s'effaçaient qu'avec 25 m de retard.
+     * Le tracé est rogné derrière la flèche (voir trimNavLineFrom) : la ligne dessinée repart de la
+     * position affichée. Sans étranglement, syncNavRouteStart ré-uploaderait toute la géométrie de
+     * route à chaque image de la boucle d'affichage.
      *
-     * 2 m : à l'échelle du guidage, la flèche couvre une dizaine de mètres à l'écran — le reste de
-     * ligne est donc caché SOUS elle, et non visible derrière. Plus petit, on recouperait la
-     * géométrie à chaque image pour un gain invisible.
+     * LA VALEUR EST UN COMPROMIS MESURÉ, pas un réglage au feeling. Le vrai code, extrait du
+     * document et piloté à 50 km/h (13,9 m/s), 20 Hz, sur 60 s (navRouteTrim.test.ts) :
+     *
+     *   2 m  -> 400 setData / 60 s (6,7/s), 237 Kio de géométrie ré-uploadés
+     *   5 m  -> 150 (2,5/s),  89 Kio
+     *   6 m  -> 134 (2,2/s),  79 Kio
+     *   10 m ->  80 (1,3/s),  48 Kio
+     *   25 m ->  33 (0,6/s),  20 Kio
+     *
+     * 2 m étouffait la boucle d'affichage : la flèche s'immobilisait en mouvement et se débloquait
+     * au retour d'arrière-plan, et le remplacement permanent de la source faisait clignoter des
+     * fragments de tracé derrière elle. 25 m, c'était l'autre défaut, celui du propriétaire : le
+     * bleu restait visible 25 m derrière la flèche.
+     *
+     * POURQUOI 6 m. La flèche de guidage est le marqueur DOM .gps-nav-puck : son SVG est rendu en
+     * 48 px (CSS), et le chemin de la flèche couvre 54 des 72 unités du viewBox, soit 36 px à
+     * l'écran — la moitié arrière, sous l'ancre centrale du marqueur, fait donc 18 px. Au zoom de
+     * guidage la carte est plafonnée à maxZoom 18 (nav.zoom demande 19 et se fait ramener à 18), et
+     * à la latitude 48,85 le sol fait 156543 fois cos(48,85) divisé par 2 puissance 18, soit
+     * 0,393 m par pixel. Ces 18 px valent donc 7,1 m : en deçà, ce qui reste de ligne est SOUS la
+     * flèche et non derrière elle. 6 m tient dans cette couverture avec une marge, divise par trois
+     * le coût du rognage par rapport à 2 m, et ne laisse jamais voir de bleu derrière la flèche.
      */
-    var ROUTE_TRIM_MIN_METERS = 2;
+    var ROUTE_TRIM_MIN_METERS = 6;
 
     /**
      * The drawn route starts at the driver, not at the router's first vertex.
@@ -2376,7 +2401,10 @@ export function buildMapHtmlTemplate(
       try {
         const source = map.getSource("route");
         // The casing and the glow share this source, so one setData moves all three layers.
-        if (source) source.setData(lineFeature(trimmed));
+        if (source) {
+          source.setData(lineFeature(trimmed));
+          nav.trimCuts = (nav.trimCuts || 0) + 1;
+        }
       } catch (e) {}
       return true;
     }
