@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Text,
   View,
   type ViewStyle,
 } from 'react-native';
+import { VRouteMark } from './VGpsLoader';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { Feather } from '@expo/vector-icons';
@@ -184,7 +184,7 @@ export function OtaUpdatePanel() {
               {t('profile.updates.statusHeading')}
             </Text>
             {busy ? (
-              <ActivityIndicator color="#10b981" size="small" />
+              <VRouteMark height={36} />
             ) : (
               <Feather name={iconName} size={18} color={iconColor} />
             )}
