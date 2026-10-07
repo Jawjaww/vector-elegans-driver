@@ -17,7 +17,6 @@ const { join } = require('path') as { join: (...parts: string[]) => string };
 const REPO_ROOT = process.cwd();
 
 const SPINNER_SURFACES = [
-  'app/(tabs)/index.tsx',
   'app/(tabs)/earnings.tsx',
   'app/ride-document.tsx',
   'src/components/OtaUpdatePanel.tsx',
@@ -37,6 +36,10 @@ describe('the route loader', () => {
       });
       expect(body).toContain('VRouteMark');
     }
+    const home = readSource('app/(tabs)/index.tsx');
+    expect(home.includes('ActivityIndicator')).toBe(false);
+    expect(home).toContain('MapWake');
+    expect(readSource('src/components/MapWake.tsx')).toContain('VGpsLoader');
   });
 
   it('does not put a chrome slab behind the map overlay', () => {
@@ -45,5 +48,32 @@ describe('the route loader', () => {
     expect(loader).not.toContain('APP_CHROME');
     expect(loader).toContain("backgroundColor: 'transparent'");
     expect(loader).toContain('export function VRouteMark');
+  });
+
+  it('keeps the preparing caption in dark ink and fades the chrome off the basemap', () => {
+    const loader = readSource('src/components/VGpsLoader.tsx');
+    const wake = readSource('src/components/MapWake.tsx');
+    const dashboard = readSource('app/(tabs)/index.tsx');
+
+    // White at low opacity was the caption on the beige canvas. Dark ink, revealed
+    // only as the veil leaves, is what stays readable on that ground.
+    expect(loader).toContain("const MAP_HINT_INK = '#1c1917'");
+    expect(loader).not.toContain('rgba(255,255,255,0.45)');
+    expect(loader).toContain('captionReveal');
+
+    expect(wake).toContain('APP_CHROME.surface');
+    expect(wake).toContain('withTiming');
+    expect(wake).toContain('1 - cover.value');
+
+    // The map is mounted under the veil, not swapped in when boot ends.
+    expect(dashboard).toContain('<MapWake');
+    expect(dashboard).toContain('<AnimatedPage instant>');
+    const wakeAt = dashboard.indexOf('<MapWake');
+    const fadeAt = dashboard.indexOf('<AnimatedPage instant>');
+    const fadeEnd = dashboard.indexOf('</AnimatedPage>');
+    expect(wakeAt).toBeGreaterThan(-1);
+    expect(fadeAt).toBeGreaterThan(wakeAt);
+    expect(fadeEnd).toBeGreaterThan(fadeAt);
+    expect(fadeEnd).toBeLessThan(dashboard.indexOf('</MapWake>'));
   });
 });
